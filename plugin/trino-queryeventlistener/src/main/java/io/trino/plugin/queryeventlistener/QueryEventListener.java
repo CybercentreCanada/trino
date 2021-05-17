@@ -34,7 +34,7 @@ public class QueryEventListener
     @Override
     public void queryCreated(QueryCreatedEvent queryCreatedEvent)
     {
-        logger.info("EventType:'QueryCreate', QueryId:'%s', CreateTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', SQLQuery'%s'",
+        logger.info("EventType:'QueryCreate', QueryId:'%s', CreateTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', SQLQuery:'%s'",
                 queryCreatedEvent.getMetadata().getQueryId(),
                 queryCreatedEvent.getCreateTime().toString(),
                 queryCreatedEvent.getContext().getUser(),
@@ -49,7 +49,7 @@ public class QueryEventListener
     @Override
     public void queryCompleted(QueryCompletedEvent queryCompletedEvent)
     {
-        logger.info("EventType:'QueryComplete', QueryId:'%s', CreateTime:'%s', QueuedTime:'%s', WallTime:'%s', CpuTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', Records:'%s', Completed:'%s', SQLQuery'%s'",
+        logger.info("EventType:'QueryComplete', QueryId:'%s', CreateTime:'%s', QueuedTime:'%s', WallTime:'%s', CpuTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', Records:'%s', Completed:'%s', SQLQuery:'%s'",
                 queryCompletedEvent.getMetadata().getQueryId(),
                 queryCompletedEvent.getCreateTime().toString(),
                 queryCompletedEvent.getStatistics().getQueuedTime(),
