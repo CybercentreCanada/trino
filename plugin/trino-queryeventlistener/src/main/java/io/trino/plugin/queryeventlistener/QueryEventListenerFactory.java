@@ -24,7 +24,7 @@ public class QueryEventListenerFactory
     @Override
     public String getName()
     {
-        return "trino-queryeventlistener";
+        return "query";
     }
 
     @Override

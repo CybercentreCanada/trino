@@ -34,56 +34,35 @@ public class QueryEventListener
     @Override
     public void queryCreated(QueryCreatedEvent queryCreatedEvent)
     {
+        logger.info("EventType:'QueryCreate', QueryId:'%s', CreateTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', SQLQuery'%s'",
+                queryCreatedEvent.getMetadata().getQueryId(),
+                queryCreatedEvent.getCreateTime().toString(),
+                queryCreatedEvent.getContext().getUser(),
+                queryCreatedEvent.getContext().getSchema().orElse(""),
+                queryCreatedEvent.getContext().getCatalog().orElse(""),
+                queryCreatedEvent.getMetadata().getQuery());
         if (Strings.isNullOrEmpty(queryCreatedEvent.getContext().getUser())) {
-            logger.error("EventType:'QueryCreate', QueryId:'%s', CreateTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', SQLQuery'%s'",
-                    queryCreatedEvent.getMetadata().getQueryId(),
-                    queryCreatedEvent.getCreateTime().toString(),
-                    queryCreatedEvent.getContext().getUser(),
-                    queryCreatedEvent.getContext().getSchema().orElse(""),
-                    queryCreatedEvent.getContext().getCatalog().orElse(""),
-                    queryCreatedEvent.getMetadata().getQuery());
-        }
-        else {
-            logger.info("EventType:'QueryCreate', QueryId:'%s', CreateTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', SQLQuery'%s'",
-                    queryCreatedEvent.getMetadata().getQueryId(),
-                    queryCreatedEvent.getCreateTime().toString(),
-                    queryCreatedEvent.getContext().getUser(),
-                    queryCreatedEvent.getContext().getSchema().orElse(""),
-                    queryCreatedEvent.getContext().getCatalog().orElse(""),
-                    queryCreatedEvent.getMetadata().getQuery());
+            logger.error("QueryId:'%s', Error:'Username is NULL'", queryCreatedEvent.getMetadata().getQueryId());
         }
     }
 
     @Override
     public void queryCompleted(QueryCompletedEvent queryCompletedEvent)
     {
+        logger.info("EventType:'QueryComplete', QueryId:'%s', CreateTime:'%s', QueuedTime:'%s', WallTime:'%s', CpuTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', Records:'%s', Completed:'%s', SQLQuery'%s'",
+                queryCompletedEvent.getMetadata().getQueryId(),
+                queryCompletedEvent.getCreateTime().toString(),
+                queryCompletedEvent.getStatistics().getQueuedTime(),
+                queryCompletedEvent.getStatistics().getWallTime(),
+                queryCompletedEvent.getStatistics().getCpuTime(),
+                queryCompletedEvent.getContext().getUser(),
+                queryCompletedEvent.getContext().getSchema().orElse(""),
+                queryCompletedEvent.getContext().getCatalog().orElse(""),
+                queryCompletedEvent.getStatistics().getTotalRows(),
+                queryCompletedEvent.getStatistics().isComplete(),
+                queryCompletedEvent.getMetadata().getQuery());
         if (Strings.isNullOrEmpty(queryCompletedEvent.getContext().getUser())) {
-            logger.error("EventType:'QueryComplete', QueryId:'%s', CreateTime:'%s', QueuedTime:'%s', WallTime:'%s', CpuTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', Records:'%s', Completed:'%s', SQLQuery'%s'",
-                    queryCompletedEvent.getMetadata().getQueryId(),
-                    queryCompletedEvent.getCreateTime().toString(),
-                    queryCompletedEvent.getStatistics().getQueuedTime(),
-                    queryCompletedEvent.getStatistics().getWallTime(),
-                    queryCompletedEvent.getStatistics().getCpuTime(),
-                    queryCompletedEvent.getContext().getUser(),
-                    queryCompletedEvent.getContext().getSchema().orElse(""),
-                    queryCompletedEvent.getContext().getCatalog().orElse(""),
-                    queryCompletedEvent.getStatistics().getTotalRows(),
-                    queryCompletedEvent.getStatistics().isComplete(),
-                    queryCompletedEvent.getMetadata().getQuery());
-        }
-        else {
-            logger.info("EventType:'QueryComplete', QueryId:'%s', CreateTime:'%s', QueuedTime:'%s', WallTime:'%s', CpuTime:'%s', User:'%s', Schema:'%s', Catalog:'%s', Records:'%s', Completed:'%s', SQLQuery'%s'",
-                    queryCompletedEvent.getMetadata().getQueryId(),
-                    queryCompletedEvent.getCreateTime().toString(),
-                    queryCompletedEvent.getStatistics().getQueuedTime(),
-                    queryCompletedEvent.getStatistics().getWallTime(),
-                    queryCompletedEvent.getStatistics().getCpuTime(),
-                    queryCompletedEvent.getContext().getUser(),
-                    queryCompletedEvent.getContext().getSchema().orElse(""),
-                    queryCompletedEvent.getContext().getCatalog().orElse(""),
-                    queryCompletedEvent.getStatistics().getTotalRows(),
-                    queryCompletedEvent.getStatistics().isComplete(),
-                    queryCompletedEvent.getMetadata().getQuery());
+            logger.error("QueryId:'%s', Error:'Username is NULL'", queryCompletedEvent.getMetadata().getQueryId());
         }
     }
 
