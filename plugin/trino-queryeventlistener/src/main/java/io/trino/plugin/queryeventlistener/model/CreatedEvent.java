@@ -30,7 +30,6 @@ public class CreatedEvent
     private static final String KEY_CATALOG = "catalog";
     private static final String KEY_SQL = "sql";
     private static final String KEY_SOURCE = "source";
-    private static final String KEY_CLIENT_INFO = "clientInfo";
     private static final String KEY_PRINCIPAL = "principal";
 
     @JsonProperty(KEY_EVENT_TYPE)
@@ -57,9 +56,6 @@ public class CreatedEvent
     @JsonProperty(KEY_SOURCE)
     private final String source;
 
-    @JsonProperty(KEY_CLIENT_INFO)
-    private final String clientInfo;
-
     @JsonProperty(KEY_PRINCIPAL)
     private final String principal;
 
@@ -72,7 +68,6 @@ public class CreatedEvent
         this.catalog = queryCreatedEvent.getContext().getCatalog().orElse(null);
         this.sql = queryCreatedEvent.getMetadata().getQuery();
         this.source = queryCreatedEvent.getContext().getSource().orElse(null);
-        this.clientInfo = queryCreatedEvent.getContext().getClientInfo().orElse(null);
         this.principal = queryCreatedEvent.getContext().getPrincipal().orElse(null);
     }
 
@@ -86,7 +81,6 @@ public class CreatedEvent
             @JsonProperty(KEY_CATALOG) String catalog,
             @JsonProperty(KEY_SQL) String sql,
             @JsonProperty(KEY_SOURCE) String source,
-            @JsonProperty(KEY_CLIENT_INFO) String clientInfo,
             @JsonProperty(KEY_PRINCIPAL) String principal)
     {
         this.queryId = queryId;
@@ -96,7 +90,6 @@ public class CreatedEvent
         this.catalog = catalog;
         this.sql = sql;
         this.source = source;
-        this.clientInfo = clientInfo;
         this.principal = principal;
     }
 
@@ -140,11 +133,6 @@ public class CreatedEvent
         return source;
     }
 
-    public String getClientInfo()
-    {
-        return clientInfo;
-    }
-
     public String getPrincipal()
     {
         return principal;
@@ -162,7 +150,6 @@ public class CreatedEvent
                 ", catalog='" + catalog + '\'' +
                 ", sql='" + sql + '\'' +
                 ", source='" + source + '\'' +
-                ", clientInfo='" + clientInfo + '\'' +
                 ", principal='" + principal + '\'' +
                 '}';
     }

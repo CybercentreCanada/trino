@@ -60,7 +60,6 @@ public class TestQueryEventListener
         assertThat(parsedCreatedEvent.getCatalog()).isEqualTo(createdEvent.getContext().getCatalog().orElse(null));
         assertThat(parsedCreatedEvent.getSql()).isEqualTo(createdEvent.getMetadata().getQuery());
         assertThat(parsedCreatedEvent.getSource()).isEqualTo(createdEvent.getContext().getSource().orElse(null));
-        assertThat(parsedCreatedEvent.getClientInfo()).isEqualTo(createdEvent.getContext().getClientInfo().orElse(null));
         assertThat(parsedCreatedEvent.getPrincipal()).isEqualTo(createdEvent.getContext().getPrincipal().orElse(null));
     }
 
