@@ -29,7 +29,7 @@ public class CreatedEvent
     private static final String KEY_SCHEMA = "schema";
     private static final String KEY_CATALOG = "catalog";
     private static final String KEY_SQL = "sql";
-    private static final String KEY_USER_AGENT = "userAgent";
+    private static final String KEY_SOURCE = "source";
     private static final String KEY_CLIENT_INFO = "clientInfo";
     private static final String KEY_PRINCIPAL = "principal";
 
@@ -54,8 +54,8 @@ public class CreatedEvent
     @JsonProperty(KEY_SQL)
     private final String sql;
 
-    @JsonProperty(KEY_USER_AGENT)
-    private final String userAgent;
+    @JsonProperty(KEY_SOURCE)
+    private final String source;
 
     @JsonProperty(KEY_CLIENT_INFO)
     private final String clientInfo;
@@ -71,7 +71,7 @@ public class CreatedEvent
         this.schema = queryCreatedEvent.getContext().getSchema().orElse(null);
         this.catalog = queryCreatedEvent.getContext().getCatalog().orElse(null);
         this.sql = queryCreatedEvent.getMetadata().getQuery();
-        this.userAgent = queryCreatedEvent.getContext().getUserAgent().orElse(null);
+        this.source = queryCreatedEvent.getContext().getSource().orElse(null);
         this.clientInfo = queryCreatedEvent.getContext().getClientInfo().orElse(null);
         this.principal = queryCreatedEvent.getContext().getPrincipal().orElse(null);
     }
@@ -85,7 +85,7 @@ public class CreatedEvent
             @JsonProperty(KEY_SCHEMA) String schema,
             @JsonProperty(KEY_CATALOG) String catalog,
             @JsonProperty(KEY_SQL) String sql,
-            @JsonProperty(KEY_USER_AGENT) String userAgent,
+            @JsonProperty(KEY_SOURCE) String source,
             @JsonProperty(KEY_CLIENT_INFO) String clientInfo,
             @JsonProperty(KEY_PRINCIPAL) String principal)
     {
@@ -95,7 +95,7 @@ public class CreatedEvent
         this.schema = schema;
         this.catalog = catalog;
         this.sql = sql;
-        this.userAgent = userAgent;
+        this.source = source;
         this.clientInfo = clientInfo;
         this.principal = principal;
     }
@@ -135,9 +135,9 @@ public class CreatedEvent
         return sql;
     }
 
-    public String getUserAgent()
+    public String getSource()
     {
-        return userAgent;
+        return source;
     }
 
     public String getClientInfo()
@@ -161,7 +161,7 @@ public class CreatedEvent
                 ", schema='" + schema + '\'' +
                 ", catalog='" + catalog + '\'' +
                 ", sql='" + sql + '\'' +
-                ", userAgent='" + userAgent + '\'' +
+                ", source='" + source + '\'' +
                 ", clientInfo='" + clientInfo + '\'' +
                 ", principal='" + principal + '\'' +
                 '}';

@@ -35,7 +35,7 @@ public class CompletedEvent
     private static final String KEY_RECORDS = "records";
     private static final String KEY_COMPLETED = "completed";
     private static final String KEY_SQL = "sql";
-    private static final String KEY_USER_AGENT = "userAgent";
+    private static final String KEY_SOURCE = "source";
 
     @JsonProperty(KEY_EVENT_TYPE)
     private final String eventType = "QueryCompleted";
@@ -76,8 +76,8 @@ public class CompletedEvent
     @JsonProperty(KEY_SQL)
     private final String sql;
 
-    @JsonProperty(KEY_USER_AGENT)
-    private final String userAgent;
+    @JsonProperty(KEY_SOURCE)
+    private final String source;
 
     public CompletedEvent(QueryCompletedEvent queryCompletedEvent)
     {
@@ -93,7 +93,7 @@ public class CompletedEvent
         this.records = queryCompletedEvent.getStatistics().getTotalRows();
         this.completed = queryCompletedEvent.getStatistics().isComplete();
         this.sql = queryCompletedEvent.getMetadata().getQuery();
-        this.userAgent = queryCompletedEvent.getContext().getUserAgent().orElse(null);
+        this.source = queryCompletedEvent.getContext().getSource().orElse(null);
     }
 
     @JsonCreator
@@ -111,7 +111,7 @@ public class CompletedEvent
             @JsonProperty(KEY_RECORDS) Long records,
             @JsonProperty(KEY_COMPLETED) Boolean completed,
             @JsonProperty(KEY_SQL) String sql,
-            @JsonProperty(KEY_USER_AGENT) String userAgent)
+            @JsonProperty(KEY_SOURCE) String source)
     {
         this.queryId = queryId;
         this.createTime = createTime;
@@ -125,7 +125,7 @@ public class CompletedEvent
         this.records = (records == null) ? -1L : records;
         this.completed = completed != null && completed;
         this.sql = sql;
-        this.userAgent = userAgent;
+        this.source = source;
     }
 
     public String getEventType()
@@ -193,9 +193,9 @@ public class CompletedEvent
         return sql;
     }
 
-    public String getUserAgent()
+    public String getSource()
     {
-        return userAgent;
+        return source;
     }
 
     @Override
@@ -204,18 +204,18 @@ public class CompletedEvent
         return "CompletedEvent{" +
                 "eventType='" + eventType + '\'' +
                 ", queryId='" + queryId + '\'' +
-                ", createTime='" + createTime + '\'' +
-                ", queuedTime='" + queuedTime + '\'' +
-                ", wallTime='" + wallTime + '\'' +
-                ", cpuTime='" + cpuTime + '\'' +
-                ", endTime='" + endTime + '\'' +
+                ", createTime=" + createTime +
+                ", queuedTime=" + queuedTime +
+                ", wallTime=" + wallTime +
+                ", cpuTime=" + cpuTime +
+                ", endTime=" + endTime +
                 ", user='" + user + '\'' +
                 ", schema='" + schema + '\'' +
                 ", catalog='" + catalog + '\'' +
                 ", records=" + records +
                 ", completed=" + completed +
                 ", sql='" + sql + '\'' +
-                ", userAgent='" + userAgent + '\'' +
+                ", source='" + source + '\'' +
                 '}';
     }
 }

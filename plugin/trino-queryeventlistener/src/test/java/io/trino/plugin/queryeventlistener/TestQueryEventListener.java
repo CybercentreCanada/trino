@@ -59,7 +59,7 @@ public class TestQueryEventListener
         assertThat(parsedCreatedEvent.getSchema()).isEqualTo(createdEvent.getContext().getSchema().orElse(null));
         assertThat(parsedCreatedEvent.getCatalog()).isEqualTo(createdEvent.getContext().getCatalog().orElse(null));
         assertThat(parsedCreatedEvent.getSql()).isEqualTo(createdEvent.getMetadata().getQuery());
-        assertThat(parsedCreatedEvent.getUserAgent()).isEqualTo(createdEvent.getContext().getUserAgent().orElse(null));
+        assertThat(parsedCreatedEvent.getSource()).isEqualTo(createdEvent.getContext().getSource().orElse(null));
         assertThat(parsedCreatedEvent.getClientInfo()).isEqualTo(createdEvent.getContext().getClientInfo().orElse(null));
         assertThat(parsedCreatedEvent.getPrincipal()).isEqualTo(createdEvent.getContext().getPrincipal().orElse(null));
     }
@@ -85,7 +85,7 @@ public class TestQueryEventListener
         assertThat(parsedCompletedEvent.getRecords()).isEqualTo(completedEvent.getStatistics().getTotalRows());
         assertThat(parsedCompletedEvent.isCompleted()).isEqualTo(completedEvent.getStatistics().isComplete());
         assertThat(parsedCompletedEvent.getSql()).isEqualTo(completedEvent.getMetadata().getQuery());
-        assertThat(parsedCompletedEvent.getUserAgent()).isEqualTo(completedEvent.getContext().getUserAgent().orElse(null));
+        assertThat(parsedCompletedEvent.getSource()).isEqualTo(completedEvent.getContext().getSource().orElse(null));
     }
 
     private QueryCreatedEvent getNewQueryCreatedEvent()
