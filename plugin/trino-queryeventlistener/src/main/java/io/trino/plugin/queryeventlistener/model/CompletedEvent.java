@@ -17,6 +17,9 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.trino.spi.eventlistener.QueryCompletedEvent;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+
 public class CompletedEvent
 {
     private static final String KEY_EVENT_TYPE = "eventType";
@@ -25,6 +28,7 @@ public class CompletedEvent
     private static final String KEY_QUEUED_TIME = "queuedTime";
     private static final String KEY_WALL_TIME = "wallTime";
     private static final String KEY_CPU_TIME = "cpuTime";
+    private static final String KEY_END_TIME = "endTime";
     private static final String KEY_USER = "user";
     private static final String KEY_SCHEMA = "schema";
     private static final String KEY_CATALOG = "catalog";
@@ -40,16 +44,19 @@ public class CompletedEvent
     private final String queryId;
 
     @JsonProperty(KEY_CREATE_TIME)
-    private final String createTime;
+    private final LocalDateTime createTime;
 
     @JsonProperty(KEY_QUEUED_TIME)
-    private final String queuedTime;
+    private final long queuedTime;
 
     @JsonProperty(KEY_WALL_TIME)
-    private final String wallTime;
+    private final long wallTime;
 
     @JsonProperty(KEY_CPU_TIME)
-    private final String cpuTime;
+    private final long cpuTime;
+
+    @JsonProperty(KEY_END_TIME)
+    private final LocalDateTime endTime;
 
     @JsonProperty(KEY_USER)
     private final String user;
@@ -75,10 +82,11 @@ public class CompletedEvent
     public CompletedEvent(QueryCompletedEvent queryCompletedEvent)
     {
         this.queryId = queryCompletedEvent.getMetadata().getQueryId();
-        this.createTime = queryCompletedEvent.getCreateTime().toString();
-        this.queuedTime = queryCompletedEvent.getStatistics().getQueuedTime().toString();
-        this.wallTime = queryCompletedEvent.getStatistics().getWallTime().toString();
-        this.cpuTime = queryCompletedEvent.getStatistics().getCpuTime().toString();
+        this.createTime = LocalDateTime.ofInstant(queryCompletedEvent.getCreateTime(), ZoneOffset.systemDefault());
+        this.queuedTime = queryCompletedEvent.getStatistics().getQueuedTime().toMillis();
+        this.wallTime = queryCompletedEvent.getStatistics().getWallTime().toMillis();
+        this.cpuTime = queryCompletedEvent.getStatistics().getCpuTime().toMillis();
+        this.endTime = LocalDateTime.ofInstant(queryCompletedEvent.getEndTime(), ZoneOffset.systemDefault());
         this.user = queryCompletedEvent.getContext().getUser();
         this.schema = queryCompletedEvent.getContext().getSchema().orElse(null);
         this.catalog = queryCompletedEvent.getContext().getCatalog().orElse(null);
@@ -92,10 +100,11 @@ public class CompletedEvent
     private CompletedEvent(
             @JsonProperty(KEY_EVENT_TYPE) String eventType,
             @JsonProperty(KEY_QUERY_ID) String queryId,
-            @JsonProperty(KEY_CREATE_TIME) String createTime,
-            @JsonProperty(KEY_QUEUED_TIME) String queuedTime,
-            @JsonProperty(KEY_WALL_TIME) String wallTime,
-            @JsonProperty(KEY_CPU_TIME) String cpuTime,
+            @JsonProperty(KEY_CREATE_TIME) LocalDateTime createTime,
+            @JsonProperty(KEY_QUEUED_TIME) Long queuedTime,
+            @JsonProperty(KEY_WALL_TIME) Long wallTime,
+            @JsonProperty(KEY_CPU_TIME) Long cpuTime,
+            @JsonProperty(KEY_END_TIME) LocalDateTime endTime,
             @JsonProperty(KEY_USER) String user,
             @JsonProperty(KEY_SCHEMA) String schema,
             @JsonProperty(KEY_CATALOG) String catalog,
@@ -109,6 +118,7 @@ public class CompletedEvent
         this.queuedTime = queuedTime;
         this.wallTime = wallTime;
         this.cpuTime = cpuTime;
+        this.endTime = endTime;
         this.user = user;
         this.schema = schema;
         this.catalog = catalog;
@@ -118,79 +128,71 @@ public class CompletedEvent
         this.userAgent = userAgent;
     }
 
-    @JsonProperty("eventType")
     public String getEventType()
     {
         return eventType;
     }
 
-    @JsonProperty("queryId")
     public String getQueryId()
     {
         return queryId;
     }
 
-    @JsonProperty("createTime")
-    public String getCreateTime()
+    public LocalDateTime getCreateTime()
     {
         return createTime;
     }
 
-    @JsonProperty("queuedTime")
-    public String getQueuedTime()
+    public long getQueuedTime()
     {
         return queuedTime;
     }
 
-    @JsonProperty("wallTime")
-    public String getWallTime()
+    public long getWallTime()
     {
         return wallTime;
     }
 
-    @JsonProperty("cpuTime")
-    public String getCpuTime()
+    public long getCpuTime()
     {
         return cpuTime;
     }
 
-    @JsonProperty("user")
+    public LocalDateTime getEndTime()
+    {
+        return endTime;
+    }
+
     public String getUser()
     {
         return user;
     }
 
-    @JsonProperty("schema")
     public String getSchema()
     {
         return schema;
     }
 
-    @JsonProperty("catalog")
     public String getCatalog()
     {
         return catalog;
     }
 
-    @JsonProperty("records")
     public long getRecords()
     {
         return records;
     }
 
-    @JsonProperty("completed")
     public boolean isCompleted()
     {
         return completed;
     }
 
-    @JsonProperty("sql")
     public String getSql()
     {
         return sql;
     }
 
-    @JsonProperty("userAgent")
     public String getUserAgent()
     {
         return userAgent;
@@ -199,13 +201,14 @@ public class CompletedEvent
     @Override
     public String toString()
     {
-        return "CompletedEventJson{" +
+        return "CompletedEvent{" +
                 "eventType='" + eventType + '\'' +
                 ", queryId='" + queryId + '\'' +
                 ", createTime='" + createTime + '\'' +
                 ", queuedTime='" + queuedTime + '\'' +
                 ", wallTime='" + wallTime + '\'' +
                 ", cpuTime='" + cpuTime + '\'' +
+                ", endTime='" + endTime + '\'' +
                 ", user='" + user + '\'' +
                 ", schema='" + schema + '\'' +
                 ", catalog='" + catalog + '\'' +

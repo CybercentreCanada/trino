@@ -32,6 +32,9 @@ import org.testng.annotations.Test;
 import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static java.time.Duration.ofMillis;
@@ -49,14 +52,16 @@ public class TestQueryEventListener
         String json = listener.handleQueryCreatedEvent(createdEvent);
         CreatedEvent parsedCreatedEvent = QueryEventListener.objectMapper.readValue(json, CreatedEvent.class);
 
-        assertThat(parsedCreatedEvent.getEventType()).isEqualTo("QueryCreate");
+        assertThat(parsedCreatedEvent.getEventType()).isEqualTo("QueryCreated");
         assertThat(parsedCreatedEvent.getQueryId()).isEqualTo(createdEvent.getMetadata().getQueryId());
-        assertThat(parsedCreatedEvent.getCreateTime()).isEqualTo(createdEvent.getCreateTime().toString());
+        assertThat(parsedCreatedEvent.getCreateTime()).isEqualTo(LocalDateTime.ofInstant(createdEvent.getCreateTime(), ZoneId.systemDefault()));
         assertThat(parsedCreatedEvent.getUser()).isEqualTo(createdEvent.getContext().getUser());
         assertThat(parsedCreatedEvent.getSchema()).isEqualTo(createdEvent.getContext().getSchema().orElse(null));
         assertThat(parsedCreatedEvent.getCatalog()).isEqualTo(createdEvent.getContext().getCatalog().orElse(null));
         assertThat(parsedCreatedEvent.getSql()).isEqualTo(createdEvent.getMetadata().getQuery());
         assertThat(parsedCreatedEvent.getUserAgent()).isEqualTo(createdEvent.getContext().getUserAgent().orElse(null));
+        assertThat(parsedCreatedEvent.getClientInfo()).isEqualTo(createdEvent.getContext().getClientInfo().orElse(null));
+        assertThat(parsedCreatedEvent.getPrincipal()).isEqualTo(createdEvent.getContext().getPrincipal().orElse(null));
     }
 
     @Test
@@ -69,10 +74,11 @@ public class TestQueryEventListener
 
         assertThat(parsedCompletedEvent.getEventType()).isEqualTo("QueryCompleted");
         assertThat(parsedCompletedEvent.getQueryId()).isEqualTo(completedEvent.getMetadata().getQueryId());
-        assertThat(parsedCompletedEvent.getCreateTime()).isEqualTo(completedEvent.getCreateTime().toString());
-        assertThat(parsedCompletedEvent.getQueuedTime()).isEqualTo(completedEvent.getStatistics().getQueuedTime().toString());
-        assertThat(parsedCompletedEvent.getWallTime()).isEqualTo(completedEvent.getStatistics().getWallTime().toString());
-        assertThat(parsedCompletedEvent.getCpuTime()).isEqualTo(completedEvent.getStatistics().getCpuTime().toString());
+        assertThat(parsedCompletedEvent.getCreateTime()).isEqualTo(LocalDateTime.ofInstant(completedEvent.getCreateTime(), ZoneId.systemDefault()));
+        assertThat(parsedCompletedEvent.getQueuedTime()).isEqualTo(completedEvent.getStatistics().getQueuedTime().toMillis());
+        assertThat(parsedCompletedEvent.getWallTime()).isEqualTo(completedEvent.getStatistics().getWallTime().toMillis());
+        assertThat(parsedCompletedEvent.getCpuTime()).isEqualTo(completedEvent.getStatistics().getCpuTime().toMillis());
+        assertThat(parsedCompletedEvent.getEndTime()).isEqualTo(LocalDateTime.ofInstant(completedEvent.getEndTime(), ZoneOffset.systemDefault()));
         assertThat(parsedCompletedEvent.getUser()).isEqualTo(completedEvent.getContext().getUser());
         assertThat(parsedCompletedEvent.getSchema()).isEqualTo(completedEvent.getContext().getSchema().orElse(null));
         assertThat(parsedCompletedEvent.getCatalog()).isEqualTo(completedEvent.getContext().getCatalog().orElse(null));

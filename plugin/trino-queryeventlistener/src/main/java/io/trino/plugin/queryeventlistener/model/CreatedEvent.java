@@ -17,6 +17,9 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.trino.spi.eventlistener.QueryCreatedEvent;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+
 public class CreatedEvent
 {
     private static final String KEY_EVENT_TYPE = "eventType";
@@ -27,15 +30,17 @@ public class CreatedEvent
     private static final String KEY_CATALOG = "catalog";
     private static final String KEY_SQL = "sql";
     private static final String KEY_USER_AGENT = "userAgent";
+    private static final String KEY_CLIENT_INFO = "clientInfo";
+    private static final String KEY_PRINCIPAL = "principal";
 
     @JsonProperty(KEY_EVENT_TYPE)
-    private final String eventType = "QueryCreate";
+    private final String eventType = "QueryCreated";
 
     @JsonProperty(KEY_QUERY_ID)
     private final String queryId;
 
     @JsonProperty(KEY_CREATE_TIME)
-    private final String createTime;
+    private final LocalDateTime createTime;
 
     @JsonProperty(KEY_USER)
     private final String user;
@@ -52,27 +57,37 @@ public class CreatedEvent
     @JsonProperty(KEY_USER_AGENT)
     private final String userAgent;
 
+    @JsonProperty(KEY_CLIENT_INFO)
+    private final String clientInfo;
+
+    @JsonProperty(KEY_PRINCIPAL)
+    private final String principal;
+
     public CreatedEvent(QueryCreatedEvent queryCreatedEvent)
     {
         this.queryId = queryCreatedEvent.getMetadata().getQueryId();
-        this.createTime = queryCreatedEvent.getCreateTime().toString();
+        this.createTime = LocalDateTime.ofInstant(queryCreatedEvent.getCreateTime(), ZoneOffset.systemDefault());
         this.user = queryCreatedEvent.getContext().getUser();
         this.schema = queryCreatedEvent.getContext().getSchema().orElse(null);
         this.catalog = queryCreatedEvent.getContext().getCatalog().orElse(null);
         this.sql = queryCreatedEvent.getMetadata().getQuery();
         this.userAgent = queryCreatedEvent.getContext().getUserAgent().orElse(null);
+        this.clientInfo = queryCreatedEvent.getContext().getClientInfo().orElse(null);
+        this.principal = queryCreatedEvent.getContext().getPrincipal().orElse(null);
     }
 
     @JsonCreator
     private CreatedEvent(
             @JsonProperty(KEY_EVENT_TYPE) String eventType,
             @JsonProperty(KEY_QUERY_ID) String queryId,
-            @JsonProperty(KEY_CREATE_TIME) String createTime,
+            @JsonProperty(KEY_CREATE_TIME) LocalDateTime createTime,
             @JsonProperty(KEY_USER) String user,
             @JsonProperty(KEY_SCHEMA) String schema,
             @JsonProperty(KEY_CATALOG) String catalog,
             @JsonProperty(KEY_SQL) String sql,
-            @JsonProperty(KEY_USER_AGENT) String userAgent)
+            @JsonProperty(KEY_USER_AGENT) String userAgent,
+            @JsonProperty(KEY_CLIENT_INFO) String clientInfo,
+            @JsonProperty(KEY_PRINCIPAL) String principal)
     {
         this.queryId = queryId;
         this.createTime = createTime;
@@ -81,6 +96,8 @@ public class CreatedEvent
         this.catalog = catalog;
         this.sql = sql;
         this.userAgent = userAgent;
+        this.clientInfo = clientInfo;
+        this.principal = principal;
     }
 
     public String getEventType()
@@ -93,7 +110,7 @@ public class CreatedEvent
         return queryId;
     }
 
-    public String getCreateTime()
+    public LocalDateTime getCreateTime()
     {
         return createTime;
     }
@@ -123,18 +140,30 @@ public class CreatedEvent
         return userAgent;
     }
 
+    public String getClientInfo()
+    {
+        return clientInfo;
+    }
+
+    public String getPrincipal()
+    {
+        return principal;
+    }
+
     @Override
     public String toString()
     {
-        return "CreateEventJson{" +
+        return "CreatedEvent{" +
                 "eventType='" + eventType + '\'' +
                 ", queryId='" + queryId + '\'' +
-                ", createTime='" + createTime + '\'' +
+                ", createTime=" + createTime +
                 ", user='" + user + '\'' +
                 ", schema='" + schema + '\'' +
                 ", catalog='" + catalog + '\'' +
                 ", sql='" + sql + '\'' +
                 ", userAgent='" + userAgent + '\'' +
+                ", clientInfo='" + clientInfo + '\'' +
+                ", principal='" + principal + '\'' +
                 '}';
     }
 }

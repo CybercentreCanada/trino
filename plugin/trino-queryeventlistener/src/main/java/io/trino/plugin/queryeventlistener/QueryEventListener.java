@@ -15,6 +15,8 @@ package io.trino.plugin.queryeventlistener;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.base.Strings;
 import io.airlift.log.Logger;
 import io.trino.plugin.queryeventlistener.model.CompletedEvent;
@@ -30,10 +32,18 @@ public class QueryEventListener
         implements EventListener
 {
     private static final Logger logger = Logger.get(QueryEventListener.class);
-    static final ObjectMapper objectMapper = new ObjectMapper();
+    static final ObjectMapper objectMapper = configuredObjectMapper();
 
     public QueryEventListener(Map<String, String> config)
     {
+    }
+
+    private static ObjectMapper configuredObjectMapper()
+    {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        return mapper;
     }
 
     @Override
