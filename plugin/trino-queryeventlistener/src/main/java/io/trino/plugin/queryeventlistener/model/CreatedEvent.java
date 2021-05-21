@@ -26,11 +26,11 @@ public class CreatedEvent
     private static final String KEY_QUERY_ID = "queryId";
     private static final String KEY_CREATE_TIME = "createTime";
     private static final String KEY_USER = "user";
+    private static final String KEY_PRINCIPAL = "principal";
+    private static final String KEY_SOURCE = "source";
     private static final String KEY_SCHEMA = "schema";
     private static final String KEY_CATALOG = "catalog";
     private static final String KEY_SQL = "sql";
-    private static final String KEY_SOURCE = "source";
-    private static final String KEY_PRINCIPAL = "principal";
 
     @JsonProperty(KEY_EVENT_TYPE)
     private final String eventType = "QueryCreated";
@@ -44,6 +44,12 @@ public class CreatedEvent
     @JsonProperty(KEY_USER)
     private final String user;
 
+    @JsonProperty(KEY_PRINCIPAL)
+    private final String principal;
+
+    @JsonProperty(KEY_SOURCE)
+    private final String source;
+
     @JsonProperty(KEY_SCHEMA)
     private final String schema;
 
@@ -53,22 +59,16 @@ public class CreatedEvent
     @JsonProperty(KEY_SQL)
     private final String sql;
 
-    @JsonProperty(KEY_SOURCE)
-    private final String source;
-
-    @JsonProperty(KEY_PRINCIPAL)
-    private final String principal;
-
     public CreatedEvent(QueryCreatedEvent queryCreatedEvent)
     {
         this.queryId = queryCreatedEvent.getMetadata().getQueryId();
         this.createTime = LocalDateTime.ofInstant(queryCreatedEvent.getCreateTime(), ZoneOffset.systemDefault());
         this.user = queryCreatedEvent.getContext().getUser();
+        this.principal = queryCreatedEvent.getContext().getPrincipal().orElse(null);
+        this.source = queryCreatedEvent.getContext().getSource().orElse(null);
         this.schema = queryCreatedEvent.getContext().getSchema().orElse(null);
         this.catalog = queryCreatedEvent.getContext().getCatalog().orElse(null);
         this.sql = queryCreatedEvent.getMetadata().getQuery();
-        this.source = queryCreatedEvent.getContext().getSource().orElse(null);
-        this.principal = queryCreatedEvent.getContext().getPrincipal().orElse(null);
     }
 
     @JsonCreator
@@ -77,20 +77,20 @@ public class CreatedEvent
             @JsonProperty(KEY_QUERY_ID) String queryId,
             @JsonProperty(KEY_CREATE_TIME) LocalDateTime createTime,
             @JsonProperty(KEY_USER) String user,
+            @JsonProperty(KEY_PRINCIPAL) String principal,
+            @JsonProperty(KEY_SOURCE) String source,
             @JsonProperty(KEY_SCHEMA) String schema,
             @JsonProperty(KEY_CATALOG) String catalog,
-            @JsonProperty(KEY_SQL) String sql,
-            @JsonProperty(KEY_SOURCE) String source,
-            @JsonProperty(KEY_PRINCIPAL) String principal)
+            @JsonProperty(KEY_SQL) String sql)
     {
         this.queryId = queryId;
         this.createTime = createTime;
         this.user = user;
+        this.principal = principal;
+        this.source = source;
         this.schema = schema;
         this.catalog = catalog;
         this.sql = sql;
-        this.source = source;
-        this.principal = principal;
     }
 
     public String getEventType()
@@ -113,6 +113,16 @@ public class CreatedEvent
         return user;
     }
 
+    public String getPrincipal()
+    {
+        return principal;
+    }
+
+    public String getSource()
+    {
+        return source;
+    }
+
     public String getSchema()
     {
         return schema;
@@ -128,16 +138,6 @@ public class CreatedEvent
         return sql;
     }
 
-    public String getSource()
-    {
-        return source;
-    }
-
-    public String getPrincipal()
-    {
-        return principal;
-    }
-
     @Override
     public String toString()
     {
@@ -146,11 +146,11 @@ public class CreatedEvent
                 ", queryId='" + queryId + '\'' +
                 ", createTime=" + createTime +
                 ", user='" + user + '\'' +
+                ", principal='" + principal + '\'' +
+                ", source='" + source + '\'' +
                 ", schema='" + schema + '\'' +
                 ", catalog='" + catalog + '\'' +
                 ", sql='" + sql + '\'' +
-                ", source='" + source + '\'' +
-                ", principal='" + principal + '\'' +
                 '}';
     }
 }

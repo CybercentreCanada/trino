@@ -32,18 +32,10 @@ public class QueryEventListener
         implements EventListener
 {
     private static final Logger logger = Logger.get(QueryEventListener.class);
-    static final ObjectMapper objectMapper = configuredObjectMapper();
+    static final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule()).disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     public QueryEventListener(Map<String, String> config)
     {
-    }
-
-    private static ObjectMapper configuredObjectMapper()
-    {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        return mapper;
     }
 
     @Override

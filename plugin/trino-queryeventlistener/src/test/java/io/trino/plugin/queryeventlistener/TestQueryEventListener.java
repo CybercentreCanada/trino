@@ -56,11 +56,11 @@ public class TestQueryEventListener
         assertThat(parsedCreatedEvent.getQueryId()).isEqualTo(createdEvent.getMetadata().getQueryId());
         assertThat(parsedCreatedEvent.getCreateTime()).isEqualTo(LocalDateTime.ofInstant(createdEvent.getCreateTime(), ZoneId.systemDefault()));
         assertThat(parsedCreatedEvent.getUser()).isEqualTo(createdEvent.getContext().getUser());
+        assertThat(parsedCreatedEvent.getPrincipal()).isEqualTo(createdEvent.getContext().getPrincipal().orElse(null));
+        assertThat(parsedCreatedEvent.getSource()).isEqualTo(createdEvent.getContext().getSource().orElse(null));
         assertThat(parsedCreatedEvent.getSchema()).isEqualTo(createdEvent.getContext().getSchema().orElse(null));
         assertThat(parsedCreatedEvent.getCatalog()).isEqualTo(createdEvent.getContext().getCatalog().orElse(null));
         assertThat(parsedCreatedEvent.getSql()).isEqualTo(createdEvent.getMetadata().getQuery());
-        assertThat(parsedCreatedEvent.getSource()).isEqualTo(createdEvent.getContext().getSource().orElse(null));
-        assertThat(parsedCreatedEvent.getPrincipal()).isEqualTo(createdEvent.getContext().getPrincipal().orElse(null));
     }
 
     @Test
@@ -79,12 +79,12 @@ public class TestQueryEventListener
         assertThat(parsedCompletedEvent.getCpuTime()).isEqualTo(completedEvent.getStatistics().getCpuTime().toMillis());
         assertThat(parsedCompletedEvent.getEndTime()).isEqualTo(LocalDateTime.ofInstant(completedEvent.getEndTime(), ZoneOffset.systemDefault()));
         assertThat(parsedCompletedEvent.getUser()).isEqualTo(completedEvent.getContext().getUser());
+        assertThat(parsedCompletedEvent.getSource()).isEqualTo(completedEvent.getContext().getSource().orElse(null));
         assertThat(parsedCompletedEvent.getSchema()).isEqualTo(completedEvent.getContext().getSchema().orElse(null));
         assertThat(parsedCompletedEvent.getCatalog()).isEqualTo(completedEvent.getContext().getCatalog().orElse(null));
         assertThat(parsedCompletedEvent.getRecords()).isEqualTo(completedEvent.getStatistics().getTotalRows());
         assertThat(parsedCompletedEvent.isCompleted()).isEqualTo(completedEvent.getStatistics().isComplete());
         assertThat(parsedCompletedEvent.getSql()).isEqualTo(completedEvent.getMetadata().getQuery());
-        assertThat(parsedCompletedEvent.getSource()).isEqualTo(completedEvent.getContext().getSource().orElse(null));
     }
 
     private QueryCreatedEvent getNewQueryCreatedEvent()

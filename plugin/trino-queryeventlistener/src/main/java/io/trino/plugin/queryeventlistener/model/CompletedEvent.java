@@ -30,12 +30,12 @@ public class CompletedEvent
     private static final String KEY_CPU_TIME = "cpuTime";
     private static final String KEY_END_TIME = "endTime";
     private static final String KEY_USER = "user";
+    private static final String KEY_SOURCE = "source";
     private static final String KEY_SCHEMA = "schema";
     private static final String KEY_CATALOG = "catalog";
     private static final String KEY_RECORDS = "records";
     private static final String KEY_COMPLETED = "completed";
     private static final String KEY_SQL = "sql";
-    private static final String KEY_SOURCE = "source";
 
     @JsonProperty(KEY_EVENT_TYPE)
     private final String eventType = "QueryCompleted";
@@ -61,6 +61,9 @@ public class CompletedEvent
     @JsonProperty(KEY_USER)
     private final String user;
 
+    @JsonProperty(KEY_SOURCE)
+    private final String source;
+
     @JsonProperty(KEY_SCHEMA)
     private final String schema;
 
@@ -76,9 +79,6 @@ public class CompletedEvent
     @JsonProperty(KEY_SQL)
     private final String sql;
 
-    @JsonProperty(KEY_SOURCE)
-    private final String source;
-
     public CompletedEvent(QueryCompletedEvent queryCompletedEvent)
     {
         this.queryId = queryCompletedEvent.getMetadata().getQueryId();
@@ -88,12 +88,12 @@ public class CompletedEvent
         this.cpuTime = queryCompletedEvent.getStatistics().getCpuTime().toMillis();
         this.endTime = LocalDateTime.ofInstant(queryCompletedEvent.getEndTime(), ZoneOffset.systemDefault());
         this.user = queryCompletedEvent.getContext().getUser();
+        this.source = queryCompletedEvent.getContext().getSource().orElse(null);
         this.schema = queryCompletedEvent.getContext().getSchema().orElse(null);
         this.catalog = queryCompletedEvent.getContext().getCatalog().orElse(null);
         this.records = queryCompletedEvent.getStatistics().getTotalRows();
         this.completed = queryCompletedEvent.getStatistics().isComplete();
         this.sql = queryCompletedEvent.getMetadata().getQuery();
-        this.source = queryCompletedEvent.getContext().getSource().orElse(null);
     }
 
     @JsonCreator
@@ -106,12 +106,12 @@ public class CompletedEvent
             @JsonProperty(KEY_CPU_TIME) Long cpuTime,
             @JsonProperty(KEY_END_TIME) LocalDateTime endTime,
             @JsonProperty(KEY_USER) String user,
+            @JsonProperty(KEY_SOURCE) String source,
             @JsonProperty(KEY_SCHEMA) String schema,
             @JsonProperty(KEY_CATALOG) String catalog,
             @JsonProperty(KEY_RECORDS) Long records,
             @JsonProperty(KEY_COMPLETED) Boolean completed,
-            @JsonProperty(KEY_SQL) String sql,
-            @JsonProperty(KEY_SOURCE) String source)
+            @JsonProperty(KEY_SQL) String sql)
     {
         this.queryId = queryId;
         this.createTime = createTime;
@@ -120,12 +120,12 @@ public class CompletedEvent
         this.cpuTime = cpuTime;
         this.endTime = endTime;
         this.user = user;
+        this.source = source;
         this.schema = schema;
         this.catalog = catalog;
         this.records = (records == null) ? -1L : records;
         this.completed = completed != null && completed;
         this.sql = sql;
-        this.source = source;
     }
 
     public String getEventType()
@@ -168,6 +168,11 @@ public class CompletedEvent
         return user;
     }
 
+    public String getSource()
+    {
+        return source;
+    }
+
     public String getSchema()
     {
         return schema;
@@ -193,11 +198,6 @@ public class CompletedEvent
         return sql;
     }
 
-    public String getSource()
-    {
-        return source;
-    }
-
     @Override
     public String toString()
     {
@@ -210,12 +210,12 @@ public class CompletedEvent
                 ", cpuTime=" + cpuTime +
                 ", endTime=" + endTime +
                 ", user='" + user + '\'' +
+                ", source='" + source + '\'' +
                 ", schema='" + schema + '\'' +
                 ", catalog='" + catalog + '\'' +
                 ", records=" + records +
                 ", completed=" + completed +
                 ", sql='" + sql + '\'' +
-                ", source='" + source + '\'' +
                 '}';
     }
 }
