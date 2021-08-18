@@ -14,6 +14,7 @@
 package io.trino.plugin.fission;
 
 import io.airlift.slice.Slice;
+import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.function.Description;
 import io.trino.spi.function.ScalarFunction;
 import io.trino.spi.function.SqlType;
@@ -28,6 +29,8 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
+
+import static io.airlift.slice.Slices.utf8Slice;
 
 public class FissionFunctionFunctions
 {
@@ -45,7 +48,7 @@ public class FissionFunctionFunctions
     public static long FetchDnsDb(@SqlType(StandardTypes.VARCHAR) Slice slice) throws JSONException, IOException
     {
         int count = 0;
-        JSONObject jsonObject  = ExecuteFissionFunctionGET(String.format("%s/dnsdb?lookup=%s", FissionFunctionConfigProvider.getFissionFunctionBaseURL(), slice.toStringUtf8()));
+        JSONObject jsonObject = ExecuteFissionFunctionGET(String.format("%s/dnsdb?lookup=%s", FissionFunctionConfigProvider.getFissionFunctionBaseURL(), slice.toStringUtf8()));
 
         if (jsonObject .has("total_count")) {
             count = Integer.parseInt(jsonObject .getString("total_count"));
@@ -60,7 +63,7 @@ public class FissionFunctionFunctions
     public static long FetchDespicableName(@SqlType(StandardTypes.VARCHAR) Slice slice) throws JSONException, IOException
     {
         int count = 0;
-        JSONObject jsonObject  = ExecuteFissionFunctionGET(String.format("%s/despicablename?domain=%s", FissionFunctionConfigProvider.getFissionFunctionBaseURL(), slice.toStringUtf8()));
+        JSONObject jsonObject = ExecuteFissionFunctionGET(String.format("%s/despicablename?domain=%s", FissionFunctionConfigProvider.getFissionFunctionBaseURL(), slice.toStringUtf8()));
 
         if (jsonObject .has("probs")) {
             count = Integer.parseInt(jsonObject .getJSONArray("probs").getJSONArray(0).getString(0));
@@ -69,7 +72,16 @@ public class FissionFunctionFunctions
         return count;
     }
 
-    private static JSONObject ExecuteFissionFunctionGET(String endpoint) throws JSONException, IOException
+    @ScalarFunction("fission_listdatalake")
+    @Description("Explore datalake, Requires AzureToken")
+    @SqlType(StandardTypes.VARCHAR)
+    public static Slice FetchListDataLake(ConnectorSession session, @SqlType(StandardTypes.VARCHAR) Slice filesystem, @SqlType(StandardTypes.VARCHAR) Slice filepath) throws JSONException, IOException
+    {
+        JSONObject jsonObject = ExecuteFissionFunctionGET(String.format("%s/listdatalake?filesystem=%s&filepath=%s", FissionFunctionConfigProvider.getFissionFunctionBaseURL(), filesystem.toStringUtf8(), filepath.toStringUtf8()), session.getIdentity().getExtraCredentials().get("access-token"));
+        return utf8Slice(jsonObject.getJSONArray("result").toString());
+    }
+
+    private static JSONObject ExecuteFissionFunctionGET(String endPoint) throws JSONException, IOException
     {
         String result = "";
 
@@ -77,11 +89,32 @@ public class FissionFunctionFunctions
         HttpClientBuilder builder = HttpClientBuilder.create().setDefaultCookieStore(cookieStore);
         httpClient = builder.build();
 
-        HttpGet getRequest = new HttpGet(endpoint);
+        HttpGet getRequest = new HttpGet(endPoint);
         HttpResponse response = httpClient.execute(getRequest);
         result = EntityUtils.toString(response.getEntity());
-        JSONObject jsonObject  = new JSONObject(result);
+        JSONObject jsonObject = new JSONObject(result);
 
-        return jsonObject ;
+        return jsonObject;
+    }
+
+    private static JSONObject ExecuteFissionFunctionGET(String endPoint, String azureToken) throws JSONException, IOException
+    {
+        String result = "";
+
+        CloseableHttpClient httpClient;
+        HttpClientBuilder builder = HttpClientBuilder.create().setDefaultCookieStore(cookieStore);
+        httpClient = builder.build();
+
+        HttpGet getRequest = new HttpGet(endPoint);
+
+        if (!azureToken.isEmpty()) {
+            getRequest.setHeader("Authorization", "Bearer " + azureToken);
+        }
+
+        HttpResponse response = httpClient.execute(getRequest);
+        result = EntityUtils.toString(response.getEntity());
+        JSONObject jsonObject = new JSONObject(result);
+
+        return jsonObject;
     }
 }
