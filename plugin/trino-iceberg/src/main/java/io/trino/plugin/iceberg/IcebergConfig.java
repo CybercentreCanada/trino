@@ -17,6 +17,7 @@ import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.units.Duration;
 import io.trino.plugin.hive.HiveCompressionCodec;
+import io.trino.spi.function.Description;
 import org.apache.iceberg.FileFormat;
 
 import javax.validation.constraints.Min;
@@ -36,6 +37,7 @@ public class IcebergConfig
     private boolean uniqueTableLocation;
     private CatalogType catalogType = HIVE_METASTORE;
     private Duration dynamicFilteringWaitTimeout = new Duration(0, SECONDS);
+    private String catalogWarehouse;
 
     public CatalogType getCatalogType()
     {
@@ -47,6 +49,19 @@ public class IcebergConfig
     {
         this.catalogType = catalogType;
         return this;
+    }
+
+    @Config("iceberg.catalog.warehouse")
+    @Description("Iceberg default warehouse location, used to generate default table location")
+    public IcebergConfig setCatalogWarehouse(String warehouse)
+    {
+        this.catalogWarehouse = warehouse;
+        return this;
+    }
+
+    public String getCatalogWarehouse()
+    {
+        return catalogWarehouse;
     }
 
     @NotNull

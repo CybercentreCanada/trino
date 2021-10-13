@@ -51,6 +51,7 @@ public class TrinoCatalogFactory
     private final String trinoVersion;
     private final CatalogType catalogType;
     private final boolean isUniqueTableLocation;
+    private final String warehouse;
 
     @Inject
     public TrinoCatalogFactory(
@@ -71,6 +72,7 @@ public class TrinoCatalogFactory
         requireNonNull(config, "config is null");
         this.catalogType = config.getCatalogType();
         this.isUniqueTableLocation = config.isUniqueTableLocation();
+        this.warehouse = config.getCatalogWarehouse();
     }
 
     public TrinoCatalog create()
@@ -78,7 +80,8 @@ public class TrinoCatalogFactory
         switch (catalogType) {
             case TESTING_FILE_METASTORE:
             case HIVE_METASTORE:
-                return new TrinoHiveCatalog(catalogName, memoizeMetastore(metastore, 1000), hdfsEnvironment, typeManager, tableOperationsProvider, trinoVersion, isUniqueTableLocation);
+                return new TrinoHiveCatalog(catalogName, memoizeMetastore(metastore, 1000), hdfsEnvironment, typeManager, tableOperationsProvider, trinoVersion,
+                        isUniqueTableLocation, warehouse);
             case GLUE:
                 // TODO not supported yet
                 throw new TrinoException(NOT_SUPPORTED, "Unknown Trino Iceberg catalog type");

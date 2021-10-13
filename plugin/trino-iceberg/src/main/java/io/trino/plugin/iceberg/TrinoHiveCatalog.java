@@ -96,6 +96,7 @@ import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static io.trino.plugin.hive.HiveErrorCode.HIVE_DATABASE_LOCATION_ERROR;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_INVALID_METADATA;
 import static io.trino.plugin.hive.HiveMetadata.STORAGE_TABLE;
 import static io.trino.plugin.hive.HiveMetadata.TABLE_COMMENT;
@@ -122,6 +123,7 @@ import static io.trino.spi.StandardErrorCode.INVALID_SCHEMA_PROPERTY;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.SCHEMA_NOT_EMPTY;
 import static io.trino.spi.StandardErrorCode.TABLE_NOT_FOUND;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.UUID.randomUUID;
 import static org.apache.hadoop.hive.metastore.TableType.VIRTUAL_VIEW;
@@ -156,6 +158,7 @@ class TrinoHiveCatalog
     private final IcebergTableOperationsProvider tableOperationsProvider;
     private final String trinoVersion;
     private final boolean useUniqueTableLocation;
+    private final String warehouse;
 
     private final Map<SchemaTableName, TableMetadata> tableMetadataCache = new ConcurrentHashMap<>();
     private final ViewReaderUtil.PrestoViewReader viewReader = new ViewReaderUtil.PrestoViewReader();
@@ -167,7 +170,8 @@ class TrinoHiveCatalog
             TypeManager typeManager,
             IcebergTableOperationsProvider tableOperationsProvider,
             String trinoVersion,
-            boolean useUniqueTableLocation)
+            boolean useUniqueTableLocation,
+            String warehouse)
     {
         this.catalogName = requireNonNull(catalogName, "catalogName is null");
         this.metastore = requireNonNull(metastore, "metastore is null");
@@ -176,6 +180,7 @@ class TrinoHiveCatalog
         this.tableOperationsProvider = requireNonNull(tableOperationsProvider, "tableOperationsProvider is null");
         this.trinoVersion = requireNonNull(trinoVersion, "trinoVersion is null");
         this.useUniqueTableLocation = useUniqueTableLocation;
+        this.warehouse = warehouse;
     }
 
     @Override
@@ -342,6 +347,16 @@ class TrinoHiveCatalog
         String tableNameForLocation = schemaTableName.getTableName();
         if (useUniqueTableLocation) {
             tableNameForLocation += "-" + randomUUID().toString().replace("-", "");
+        }
+        if (database.getLocation().isEmpty() || database.getLocation().get().isEmpty()) {
+            if (warehouse == null) {
+                throw new TrinoException(HIVE_DATABASE_LOCATION_ERROR, format("Database '%s' location cannot be determined, " +
+                        "please either set 'location' when creating the database, or set 'iceberg.catalog.warehouse' " +
+                        "to allow a default location at 'warehousePath/databaseName.db'", database.getDatabaseName()));
+            }
+            database = Database.builder(database)
+                    .setLocation(Optional.of(format("%s/%s.db", warehouse, schemaTableName.getSchemaName())))
+                    .build();
         }
         return getTableDefaultLocation(database, new HdfsEnvironment.HdfsContext(session), hdfsEnvironment,
                 schemaTableName.getSchemaName(), tableNameForLocation).toString();
