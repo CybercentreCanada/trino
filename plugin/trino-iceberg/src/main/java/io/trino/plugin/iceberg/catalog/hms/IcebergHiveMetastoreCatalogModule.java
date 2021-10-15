@@ -18,6 +18,7 @@ import com.google.inject.Scopes;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.trino.plugin.hive.metastore.thrift.ThriftMetastoreModule;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
+import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
 
 public class IcebergHiveMetastoreCatalogModule
         extends AbstractConfigurationAwareModule
@@ -26,6 +27,7 @@ public class IcebergHiveMetastoreCatalogModule
     protected void setup(Binder binder)
     {
         install(new ThriftMetastoreModule());
+        binder.bind(TrinoCatalogFactory.class).to(TrinoHiveCatalogFactory.class).in(Scopes.SINGLETON);
         binder.bind(IcebergTableOperationsProvider.class).to(HiveMetastoreTableOperationsProvider.class).in(Scopes.SINGLETON);
     }
 }

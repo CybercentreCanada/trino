@@ -11,11 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.iceberg.catalog.hms;
+package io.trino.plugin.iceberg.catalog.glue;
 
-import io.trino.plugin.hive.HdfsEnvironment.HdfsContext;
-import io.trino.plugin.hive.metastore.HiveMetastore;
-import io.trino.plugin.hive.metastore.thrift.ThriftMetastore;
+import com.amazonaws.services.glue.AWSGlueAsync;
+import io.trino.plugin.hive.HdfsEnvironment;
+import io.trino.plugin.hive.metastore.glue.GlueHiveMetastoreConfig;
+import io.trino.plugin.hive.metastore.glue.GlueMetastoreStats;
 import io.trino.plugin.iceberg.FileIoProvider;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperations;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
@@ -25,21 +26,26 @@ import javax.inject.Inject;
 
 import java.util.Optional;
 
+import static io.trino.plugin.hive.metastore.glue.GlueHiveMetastore.createAsyncGlueClient;
 import static java.util.Objects.requireNonNull;
 
-public class HiveMetastoreTableOperationsProvider
+public class GlueTableOperationsProvider
         implements IcebergTableOperationsProvider
 {
-    private final HiveMetastore hiveMetastore;
+    private final AWSGlueAsync glueClient;
+    private final String catalogId;
     private final FileIoProvider fileIoProvider;
-    private final ThriftMetastore thriftMetastore;
+    private final GlueMetastoreStats stats = new GlueMetastoreStats();
 
     @Inject
-    public HiveMetastoreTableOperationsProvider(HiveMetastore hiveMetastore, FileIoProvider fileIoProvider, ThriftMetastore thriftMetastore)
+    public GlueTableOperationsProvider(
+            GlueHiveMetastoreConfig glueConfig,
+            FileIoProvider fileIoProvider)
     {
-        this.hiveMetastore = requireNonNull(hiveMetastore, "hiveMetastore is null");
-        this.fileIoProvider = requireNonNull(fileIoProvider, "fileIoProvider is null");
-        this.thriftMetastore = requireNonNull(thriftMetastore, "thriftMetastore is null");
+        this.fileIoProvider = fileIoProvider;
+        requireNonNull(glueConfig, "glueConfig is null");
+        this.glueClient = createAsyncGlueClient(glueConfig, Optional.empty(), stats.newRequestMetricsCollector());
+        this.catalogId = glueConfig.getCatalogId().orElse(null);
     }
 
     @Override
@@ -50,10 +56,11 @@ public class HiveMetastoreTableOperationsProvider
             Optional<String> owner,
             Optional<String> location)
     {
-        return new HiveMetastoreTableOperations(
-                fileIoProvider.createFileIo(new HdfsContext(session), session.getQueryId()),
-                hiveMetastore,
-                thriftMetastore,
+        return new GlueTableOperations(
+                glueClient,
+                stats,
+                catalogId,
+                fileIoProvider.createFileIo(new HdfsEnvironment.HdfsContext(session), session.getQueryId()),
                 session,
                 database,
                 table,

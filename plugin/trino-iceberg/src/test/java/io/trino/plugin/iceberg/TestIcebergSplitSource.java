@@ -84,7 +84,7 @@ public class TestIcebergSplitSource
         File tempDir = Files.createTempDirectory("test_iceberg_split_source").toFile();
         this.metastoreDir = new File(tempDir, "iceberg_data");
         this.metastore = createTestingFileHiveMetastore(metastoreDir);
-        this.operationsProvider = new FileMetastoreTableOperationsProvider(new HdfsFileIoProvider(hdfsEnvironment));
+        this.operationsProvider = new FileMetastoreTableOperationsProvider(metastore, new HdfsFileIoProvider(hdfsEnvironment));
 
         return createIcebergQueryRunner(ImmutableMap.of(), ImmutableMap.of(), ImmutableList.of(NATION), Optional.of(metastoreDir));
     }
@@ -109,7 +109,7 @@ public class TestIcebergSplitSource
                 Optional.empty(),
                 TupleDomain.all(),
                 TupleDomain.all());
-        Table nationTable = loadIcebergTable(metastore, operationsProvider, SESSION, schemaTableName);
+        Table nationTable = loadIcebergTable(operationsProvider, SESSION, schemaTableName);
 
         IcebergSplitSource splitSource = new IcebergSplitSource(
                 tableHandle,

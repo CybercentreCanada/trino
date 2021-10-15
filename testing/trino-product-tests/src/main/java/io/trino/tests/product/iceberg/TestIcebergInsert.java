@@ -36,7 +36,6 @@ import static io.trino.tests.product.TestGroups.ICEBERG;
 import static io.trino.tests.product.TestGroups.STORAGE_FORMATS_DETAILED;
 import static io.trino.tests.product.hive.util.TemporaryHiveTable.randomTableSuffix;
 import static io.trino.tests.product.utils.QueryExecutors.onTrino;
-import static java.util.concurrent.TimeUnit.SECONDS;
 
 public class TestIcebergInsert
         extends ProductTest
@@ -64,7 +63,7 @@ public class TestIcebergInsert
                             .mapToObj(thread -> (Callable<List<Long>>) () -> {
                                 List<Long> inserted = new ArrayList<>();
                                 for (int i = 0; i < insertsPerThread; i++) {
-                                    barrier.await(20, SECONDS);
+                                    barrier.await();
                                     long value = i + (long) insertsPerThread * thread;
                                     try {
                                         onTrino.executeQuery("INSERT INTO " + tableName + " VALUES " + value);

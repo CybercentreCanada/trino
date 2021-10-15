@@ -29,17 +29,18 @@ import static java.util.Objects.requireNonNull;
 public class FileMetastoreTableOperationsProvider
         implements IcebergTableOperationsProvider
 {
+    private final HiveMetastore hiveMetastore;
     private final FileIoProvider fileIoProvider;
 
     @Inject
-    public FileMetastoreTableOperationsProvider(FileIoProvider fileIoProvider)
+    public FileMetastoreTableOperationsProvider(HiveMetastore hiveMetastore, FileIoProvider fileIoProvider)
     {
+        this.hiveMetastore = requireNonNull(hiveMetastore, "hiveMetastore is null");
         this.fileIoProvider = requireNonNull(fileIoProvider, "fileIoProvider is null");
     }
 
     @Override
     public IcebergTableOperations createTableOperations(
-            HiveMetastore hiveMetastore,
             ConnectorSession session,
             String database,
             String table,

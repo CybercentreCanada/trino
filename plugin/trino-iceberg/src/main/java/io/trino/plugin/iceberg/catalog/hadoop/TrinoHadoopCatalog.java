@@ -11,18 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.iceberg.catalog;
+package io.trino.plugin.iceberg.catalog.hadoop;
 
-import io.trino.spi.connector.ConnectorSession;
-
-import java.util.Optional;
-
-public interface IcebergTableOperationsProvider
+public class TrinoHadoopCatalog
 {
-    IcebergTableOperations createTableOperations(
-            ConnectorSession session,
-            String database,
-            String table,
-            Optional<String> owner,
-            Optional<String> location);
 }
