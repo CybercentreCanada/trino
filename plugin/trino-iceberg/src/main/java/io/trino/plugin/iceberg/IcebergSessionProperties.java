@@ -16,6 +16,7 @@ package io.trino.plugin.iceberg;
 import com.google.common.collect.ImmutableList;
 import io.airlift.units.DataSize;
 import io.trino.orc.OrcWriteValidation.OrcWriteValidationMode;
+import io.trino.plugin.base.session.SessionPropertiesProvider;
 import io.trino.plugin.hive.HiveCompressionCodec;
 import io.trino.plugin.hive.orc.OrcReaderConfig;
 import io.trino.plugin.hive.orc.OrcWriterConfig;
@@ -40,6 +41,7 @@ import static io.trino.spi.session.PropertyMetadata.integerProperty;
 import static java.lang.String.format;
 
 public final class IcebergSessionProperties
+        implements SessionPropertiesProvider
 {
     private static final String COMPRESSION_CODEC = "compression_codec";
     private static final String USE_FILE_SIZE_FROM_METADATA = "use_file_size_from_metadata";
@@ -61,6 +63,7 @@ public final class IcebergSessionProperties
     private static final String PARQUET_MAX_READ_BLOCK_SIZE = "parquet_max_read_block_size";
     private static final String PARQUET_WRITER_BLOCK_SIZE = "parquet_writer_block_size";
     private static final String PARQUET_WRITER_PAGE_SIZE = "parquet_writer_page_size";
+    private static final String PARQUET_WRITER_BATCH_SIZE = "parquet_writer_batch_size";
     private final List<PropertyMetadata<?>> sessionProperties;
 
     @Inject
@@ -182,9 +185,15 @@ public final class IcebergSessionProperties
                         "Parquet: Writer page size",
                         parquetWriterConfig.getPageSize(),
                         false))
+                .add(integerProperty(
+                        PARQUET_WRITER_BATCH_SIZE,
+                        "Parquet: Maximum number of rows passed to the writer in each batch",
+                        parquetWriterConfig.getBatchSize(),
+                        false))
                 .build();
     }
 
+    @Override
     public List<PropertyMetadata<?>> getSessionProperties()
     {
         return sessionProperties;
@@ -294,6 +303,11 @@ public final class IcebergSessionProperties
 
     public static DataSize getParquetWriterBlockSize(ConnectorSession session)
     {
-        return session.getProperty(PARQUET_WRITER_PAGE_SIZE, DataSize.class);
+        return session.getProperty(PARQUET_WRITER_BLOCK_SIZE, DataSize.class);
+    }
+
+    public static int getParquetWriterBatchSize(ConnectorSession session)
+    {
+        return session.getProperty(PARQUET_WRITER_BATCH_SIZE, Integer.class);
     }
 }

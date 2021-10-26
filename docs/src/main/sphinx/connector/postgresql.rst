@@ -23,8 +23,8 @@ The connector can query a database on a PostgreSQL server. Create a catalog
 properties file that specifies the PostgreSQL connector by setting the
 ``connector.name`` to ``postgresql``.
 
-For example, to access a database as the ``postgresqlsdb`` catalog, create the
-file ``etc/catalog/postgresqlsdb.properties``. Replace the connection properties
+For example, to access a database as the ``postgresql`` catalog, create the
+file ``etc/catalog/postgresql.properties``. Replace the connection properties
 as appropriate for your setup:
 
 .. code-block:: text
@@ -58,6 +58,10 @@ To add another catalog, simply add another properties file to ``etc/catalog``
 with a different name, making sure it ends in ``.properties``. For example,
 if you name the property file ``sales.properties``, Trino creates a
 catalog named ``sales`` using the configured connector.
+
+.. include:: jdbc-common-configurations.fragment
+
+.. include:: non-transactional-insert.fragment
 
 .. _postgresql-type-mapping:
 
@@ -119,6 +123,24 @@ Finally, you can access the ``clicks`` table in the ``web`` schema::
 If you used a different name for your catalog properties file, use
 that catalog name instead of ``postgresql`` in the above examples.
 
+.. _postgresql-sql-support:
+
+SQL support
+-----------
+
+The connector provides read access and write access to data and metadata in
+PostgreSQL.  In addition to the :ref:`globally available
+<sql-globally-available>` and :ref:`read operation <sql-read-operations>`
+statements, the connector supports the following features:
+
+* :doc:`/sql/insert`
+* :doc:`/sql/delete`
+* :ref:`sql-schema-table-management`
+
+.. include:: sql-delete-limitation.fragment
+
+.. include:: alter-table-limitation.fragment
+
 .. _postgresql-pushdown:
 
 Pushdown
@@ -148,15 +170,3 @@ The connector supports pushdown for a number of operations:
 * :func:`corr`
 * :func:`regr_intercept`
 * :func:`regr_slope`
-
-Limitations
------------
-
-The following SQL statements are not yet supported:
-
-* :doc:`/sql/delete`
-* :doc:`/sql/grant`
-* :doc:`/sql/revoke`
-* :doc:`/sql/show-grants`
-* :doc:`/sql/show-roles`
-* :doc:`/sql/show-role-grants`

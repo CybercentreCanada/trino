@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.cassandra;
 
+import com.datastax.driver.core.LocalDate;
 import com.datastax.driver.core.querybuilder.Insert;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
 import com.google.common.collect.ImmutableList;
@@ -36,6 +37,7 @@ public final class CassandraTestingUtils
     public static final String TABLE_ALL_TYPES = "table_all_types";
     public static final String TABLE_ALL_TYPES_INSERT = "table_all_types_insert";
     public static final String TABLE_ALL_TYPES_PARTITION_KEY = "table_all_types_partition_key";
+    public static final String TABLE_TUPLE_TYPE = "table_tuple_type";
     public static final String TABLE_CLUSTERING_KEYS = "table_clustering_keys";
     public static final String TABLE_CLUSTERING_KEYS_LARGE = "table_clustering_keys_large";
     public static final String TABLE_MULTI_PARTITION_CLUSTERING_KEYS = "table_multi_partition_clustering_keys";
@@ -50,6 +52,7 @@ public final class CassandraTestingUtils
         createTableAllTypes(cassandraSession, new SchemaTableName(keyspace, TABLE_ALL_TYPES), date, 9);
         createTableAllTypes(cassandraSession, new SchemaTableName(keyspace, TABLE_ALL_TYPES_INSERT), date, 0);
         createTableAllTypesPartitionKey(cassandraSession, new SchemaTableName(keyspace, TABLE_ALL_TYPES_PARTITION_KEY), date);
+        createTableTupleType(cassandraSession, new SchemaTableName(keyspace, TABLE_TUPLE_TYPE));
         createTableClusteringKeys(cassandraSession, new SchemaTableName(keyspace, TABLE_CLUSTERING_KEYS), 9);
         createTableClusteringKeys(cassandraSession, new SchemaTableName(keyspace, TABLE_CLUSTERING_KEYS_LARGE), 1000);
         createTableMultiPartitionClusteringKeys(cassandraSession, new SchemaTableName(keyspace, TABLE_MULTI_PARTITION_CLUSTERING_KEYS));
@@ -151,9 +154,12 @@ public final class CassandraTestingUtils
         session.execute("CREATE TABLE " + table + " (" +
                 " key text PRIMARY KEY, " +
                 " typeuuid uuid, " +
+                " typetinyint tinyint, " +
+                " typesmallint smallint, " +
                 " typeinteger int, " +
                 " typelong bigint, " +
                 " typebytes blob, " +
+                " typedate date, " +
                 " typetimestamp timestamp, " +
                 " typeansi ascii, " +
                 " typeboolean boolean, " +
@@ -178,9 +184,12 @@ public final class CassandraTestingUtils
         session.execute("CREATE TABLE " + table + " (" +
                 " key text, " +
                 " typeuuid uuid, " +
+                " typetinyint tinyint, " +
+                " typesmallint smallint, " +
                 " typeinteger int, " +
                 " typelong bigint, " +
                 " typebytes blob, " +
+                " typedate date, " +
                 " typetimestamp timestamp, " +
                 " typeansi ascii, " +
                 " typeboolean boolean, " +
@@ -197,10 +206,13 @@ public final class CassandraTestingUtils
                 " PRIMARY KEY ((" +
                 "   key, " +
                 "   typeuuid, " +
+                "   typetinyint, " +
+                "   typesmallint, " +
                 "   typeinteger, " +
                 "   typelong, " +
                 // TODO: NOT YET SUPPORTED AS A PARTITION KEY
                 "   typebytes, " +
+                "   typedate, " +
                 "   typetimestamp, " +
                 "   typeansi, " +
                 "   typeboolean, " +
@@ -223,15 +235,32 @@ public final class CassandraTestingUtils
         insertTestData(session, table, date, 9);
     }
 
+    public static void createTableTupleType(CassandraSession session, SchemaTableName table)
+    {
+        session.execute("DROP TABLE IF EXISTS " + table);
+
+        session.execute("CREATE TABLE " + table + " (" +
+                " key int PRIMARY KEY, " +
+                " typetuple frozen<tuple<int, text, float>>" +
+                ")");
+        session.execute(format("INSERT INTO %s (key, typetuple) VALUES (1, (1, 'text-1', 1.11))", table));
+        session.execute(format("INSERT INTO %s (key, typetuple) VALUES (2, (2, 'text-2', 2.22))", table));
+
+        assertEquals(session.execute("SELECT COUNT(*) FROM " + table).all().get(0).getLong(0), 2);
+    }
+
     private static void insertTestData(CassandraSession session, SchemaTableName table, Date date, int rowsCount)
     {
         for (int rowNumber = 1; rowNumber <= rowsCount; rowNumber++) {
             Insert insert = QueryBuilder.insertInto(table.getSchemaName(), table.getTableName())
                     .value("key", "key " + rowNumber)
                     .value("typeuuid", UUID.fromString(format("00000000-0000-0000-0000-%012d", rowNumber)))
+                    .value("typetinyint", rowNumber)
+                    .value("typesmallint", rowNumber)
                     .value("typeinteger", rowNumber)
                     .value("typelong", rowNumber + 1000)
                     .value("typebytes", ByteBuffer.wrap(Ints.toByteArray(rowNumber)).asReadOnlyBuffer())
+                    .value("typedate", LocalDate.fromMillisSinceEpoch(date.getTime()))
                     .value("typetimestamp", date)
                     .value("typeansi", "ansi " + rowNumber)
                     .value("typeboolean", rowNumber % 2 == 0)

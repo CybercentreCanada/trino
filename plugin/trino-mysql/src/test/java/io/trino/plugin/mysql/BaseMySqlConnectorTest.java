@@ -65,6 +65,9 @@ public abstract class BaseMySqlConnectorTest
             case SUPPORTS_ARRAY:
                 return false;
 
+            case SUPPORTS_RENAME_SCHEMA:
+                return false;
+
             default:
                 return super.hasBehavior(connectorBehavior);
         }
@@ -122,8 +125,7 @@ public abstract class BaseMySqlConnectorTest
     protected Optional<DataMappingTestSetup> filterDataMappingSmokeTestData(DataMappingTestSetup dataMappingTestSetup)
     {
         String typeName = dataMappingTestSetup.getTrinoTypeName();
-        if (typeName.equals("time")
-                || typeName.equals("timestamp(3) with time zone")) {
+        if (typeName.equals("timestamp(3) with time zone")) {
             return Optional.of(dataMappingTestSetup.asUnsupported());
         }
 
@@ -211,7 +213,7 @@ public abstract class BaseMySqlConnectorTest
     {
         Session session = testSessionBuilder()
                 .setCatalog("mysql")
-                .setSchema(getSession().getSchema().get())
+                .setSchema(getSession().getSchema())
                 .build();
 
         assertFalse(getQueryRunner().tableExists(session, "test_table"));

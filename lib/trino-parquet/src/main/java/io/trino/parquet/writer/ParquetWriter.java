@@ -13,6 +13,7 @@
  */
 package io.trino.parquet.writer;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.OutputStreamSliceOutput;
@@ -57,13 +58,12 @@ public class ParquetWriter
     private static final int INSTANCE_SIZE = ClassLayout.parseClass(ParquetWriter.class).instanceSize();
 
     private static final int CHUNK_MAX_BYTES = toIntExact(DataSize.of(128, MEGABYTE).toBytes());
-    private static final int DEFAULT_ROW_GROUP_MAX_ROW_COUNT = 10_000;
 
     private final List<ColumnWriter> columnWriters;
     private final OutputStreamSliceOutput outputStream;
     private final ParquetWriterOptions writerOption;
     private final MessageType messageType;
-
+    private final String createdBy;
     private final int chunkMaxLogicalBytes;
 
     private final ImmutableList.Builder<RowGroup> rowGroupBuilder = ImmutableList.builder();
@@ -80,7 +80,8 @@ public class ParquetWriter
             MessageType messageType,
             Map<List<String>, Type> primitiveTypes,
             ParquetWriterOptions writerOption,
-            CompressionCodecName compressionCodecName)
+            CompressionCodecName compressionCodecName,
+            String trinoVersion)
     {
         this.outputStream = new OutputStreamSliceOutput(requireNonNull(outputStream, "outputstream is null"));
         this.messageType = requireNonNull(messageType, "messageType is null");
@@ -96,11 +97,12 @@ public class ParquetWriter
         this.columnWriters = ParquetWriters.getColumnWriters(messageType, primitiveTypes, parquetProperties, compressionCodecName);
 
         this.chunkMaxLogicalBytes = max(1, CHUNK_MAX_BYTES / 2);
+        this.createdBy = formatCreatedBy(requireNonNull(trinoVersion, "trinoVersion is null"));
     }
 
     public long getWrittenBytes()
     {
-        return outputStream.size();
+        return outputStream.longSize();
     }
 
     public long getBufferedBytes()
@@ -127,7 +129,7 @@ public class ParquetWriter
         checkArgument(page.getChannelCount() == columnWriters.size());
 
         while (page != null) {
-            int chunkRows = min(page.getPositionCount(), DEFAULT_ROW_GROUP_MAX_ROW_COUNT);
+            int chunkRows = min(page.getPositionCount(), writerOption.getBatchSize());
             Page chunk = page.getRegion(0, chunkRows);
 
             // avoid chunk with huge logical size
@@ -235,11 +237,12 @@ public class ParquetWriter
         createDataOutput(MAGIC).writeData(outputStream);
     }
 
-    static Slice getFooter(List<RowGroup> rowGroups, MessageType messageType)
+    Slice getFooter(List<RowGroup> rowGroups, MessageType messageType)
             throws IOException
     {
         FileMetaData fileMetaData = new FileMetaData();
         fileMetaData.setVersion(1);
+        fileMetaData.setCreated_by(createdBy);
         fileMetaData.setSchema(MessageTypeConverter.toParquetSchema(messageType));
         long totalRows = rowGroups.stream().mapToLong(RowGroup::getNum_rows).sum();
         fileMetaData.setNum_rows(totalRows);
@@ -277,5 +280,12 @@ public class ParquetWriter
             currentOffset += column.getTotal_compressed_size();
         }
         return builder.build();
+    }
+
+    @VisibleForTesting
+    static String formatCreatedBy(String trinoVersion)
+    {
+        // Add "(build n/a)" suffix to satisfy Parquet's VersionParser expectations
+        return "Trino version " + trinoVersion + " (build n/a)";
     }
 }

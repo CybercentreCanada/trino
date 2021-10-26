@@ -73,6 +73,7 @@ import io.trino.sql.tree.IntervalLiteral;
 import io.trino.sql.tree.LambdaArgumentDeclaration;
 import io.trino.sql.tree.LambdaExpression;
 import io.trino.sql.tree.LongLiteral;
+import io.trino.sql.tree.MeasureDefinition;
 import io.trino.sql.tree.Node;
 import io.trino.sql.tree.NodeRef;
 import io.trino.sql.tree.Offset;
@@ -87,6 +88,7 @@ import io.trino.sql.tree.StringLiteral;
 import io.trino.sql.tree.Table;
 import io.trino.sql.tree.Union;
 import io.trino.sql.tree.Update;
+import io.trino.sql.tree.VariableDefinition;
 import io.trino.sql.tree.WindowFrame;
 import io.trino.sql.tree.WindowOperation;
 import io.trino.type.TypeCoercion;
@@ -94,6 +96,7 @@ import io.trino.type.TypeCoercion;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -225,7 +228,12 @@ class QueryPlanner
 
         // prune anchor plan outputs to contain only the symbols exposed in the scope
         NodeAndMappings prunedAnchorPlan = pruneInvisibleFields(anchorPlan, idAllocator);
-        anchorPlan = new RelationPlan(prunedAnchorPlan.getNode(), analysis.getScope(query), prunedAnchorPlan.getFields(), outerContext);
+
+        // if the anchor plan has duplicate output symbols, add projection on top to make the symbols unique
+        // This is necessary to successfully unroll recursion: the recursion step relation must follow
+        // the same layout while it might not have duplicate outputs where the anchor plan did
+        NodeAndMappings disambiguatedAnchorPlan = disambiguateOutputs(prunedAnchorPlan, symbolAllocator, idAllocator);
+        anchorPlan = new RelationPlan(disambiguatedAnchorPlan.getNode(), analysis.getScope(query), disambiguatedAnchorPlan.getFields(), outerContext);
 
         recursionSteps.add(copy(anchorPlan.getRoot(), anchorPlan.getFieldMappings()));
 
@@ -261,6 +269,11 @@ class QueryPlanner
         for (int i = 0; i < maxRecursionDepth; i++) {
             recursionSteps.add(copy(recursionStep, mappings));
             NodeAndMappings replacement = copy(recursionStep, mappings);
+
+            // if the recursion step plan has duplicate output symbols, add projection on top to make the symbols unique
+            // This is necessary to successfully unroll recursion: the relation on the next recursion step must follow
+            // the same layout while it might not have duplicate outputs where the plan for this step did
+            replacement = disambiguateOutputs(replacement, symbolAllocator, idAllocator);
             recursionStep = replace(recursionStep, replacementSpot, replacement);
             replacementSpot = replacement;
         }
@@ -443,14 +456,14 @@ class QueryPlanner
                 outerContext);
     }
 
-    private boolean hasExpressionsToUnfold(List<SelectExpression> selectExpressions)
+    private static boolean hasExpressionsToUnfold(List<SelectExpression> selectExpressions)
     {
         return selectExpressions.stream()
                 .map(SelectExpression::getUnfoldedExpressions)
                 .anyMatch(Optional::isPresent);
     }
 
-    private List<Expression> outputExpressions(List<SelectExpression> selectExpressions)
+    private static List<Expression> outputExpressions(List<SelectExpression> selectExpressions)
     {
         ImmutableList.Builder<Expression> result = ImmutableList.builder();
         for (SelectExpression selectExpression : selectExpressions) {
@@ -568,7 +581,7 @@ class QueryPlanner
                 outputs);
     }
 
-    private Optional<PlanNodeId> getIdForLeftTableScan(PlanNode node)
+    private static Optional<PlanNodeId> getIdForLeftTableScan(PlanNode node)
     {
         if (node instanceof TableScanNode) {
             return Optional.of(node.getId());
@@ -833,7 +846,7 @@ class QueryPlanner
                 .collect(toImmutableList());
     }
 
-    private OrderingScheme translateOrderingScheme(List<SortItem> items, Function<Expression, Symbol> coercions)
+    private static OrderingScheme translateOrderingScheme(List<SortItem> items, Function<Expression, Symbol> coercions)
     {
         List<Symbol> coerced = items.stream()
                 .map(SortItem::getSortKey)
@@ -855,7 +868,7 @@ class QueryPlanner
         return new OrderingScheme(symbols.build(), orders);
     }
 
-    private List<Set<FieldId>> enumerateGroupingSets(GroupingSetAnalysis groupingSetAnalysis)
+    private static List<Set<FieldId>> enumerateGroupingSets(GroupingSetAnalysis groupingSetAnalysis)
     {
         List<List<Set<FieldId>>> partialSets = new ArrayList<>();
 
@@ -1016,6 +1029,8 @@ class QueryPlanner
             }
 
             if (window.getFrame().isPresent() && window.getFrame().get().getPattern().isPresent()) {
+                WindowFrame frame = window.getFrame().get();
+                subPlan = subqueryPlanner.handleSubqueries(subPlan, extractPatternRecognitionExpressions(frame.getVariableDefinitions(), frame.getMeasures()), analysis.getSubqueries(node));
                 subPlan = planPatternRecognition(subPlan, windowFunction, window, coercions, frameEnd);
             }
             else {
@@ -1062,7 +1077,7 @@ class QueryPlanner
         // Then, coerce the sortKey so that we can add / subtract the offset.
         // Note: for that we cannot rely on the usual mechanism of using the coerce() method. The coerce() method can only handle one coercion for a node,
         // while the sortKey node might require several different coercions, e.g. one for frame start and one for frame end.
-        Expression sortKey = Iterables.getOnlyElement(window.getOrderBy().get().getSortItems()).getSortKey();
+        Expression sortKey = Iterables.getOnlyElement(window.getOrderBy().orElseThrow().getSortItems()).getSortKey();
         Symbol sortKeyCoercedForFrameBoundCalculation = coercions.get(sortKey);
         Optional<Type> coercion = frameOffset.map(analysis::getSortKeyCoercionForFrameBoundCalculation);
         if (coercion.isPresent()) {
@@ -1209,7 +1224,7 @@ class QueryPlanner
         return new FrameOffsetPlanAndSymbol(subPlan, Optional.of(coercedOffsetSymbol));
     }
 
-    private Expression zeroOfType(Type type)
+    private static Expression zeroOfType(Type type)
     {
         if (isNumericType(type)) {
             return new Cast(new LongLiteral("0"), toSqlType(type));
@@ -1309,8 +1324,8 @@ class QueryPlanner
         WindowNode.Specification specification = planWindowSpecification(window.getPartitionBy(), window.getOrderBy(), coercions::get);
 
         // in window frame with pattern recognition, the frame extent is specified as `ROWS BETWEEN CURRENT ROW AND ... `
-        WindowFrame frame = window.getFrame().get();
-        FrameBound frameEnd = frame.getEnd().get();
+        WindowFrame frame = window.getFrame().orElseThrow();
+        FrameBound frameEnd = frame.getEnd().orElseThrow();
         WindowNode.Frame baseFrame = new WindowNode.Frame(
                 WindowFrame.Type.ROWS,
                 FrameBound.Type.CURRENT_ROW,
@@ -1347,7 +1362,7 @@ class QueryPlanner
                         ImmutableList.of(),
                         frame.getAfterMatchSkipTo(),
                         frame.getPatternSearchMode(),
-                        frame.getPattern().get(),
+                        frame.getPattern().orElseThrow(),
                         frame.getVariableDefinitions());
 
         // create pattern recognition node
@@ -1413,7 +1428,8 @@ class QueryPlanner
                     .addAll(getSortItemsFromOrderBy(window.getOrderBy()).stream()
                             .map(SortItem::getSortKey)
                             .iterator());
-            Optional<Expression> endValue = window.getFrame().get().getEnd().get().getValue();
+            WindowFrame frame = window.getFrame().orElseThrow();
+            Optional<Expression> endValue = frame.getEnd().orElseThrow().getValue();
             endValue.ifPresent(inputsBuilder::add);
 
             List<Expression> inputs = inputsBuilder.build();
@@ -1426,10 +1442,26 @@ class QueryPlanner
             subPlan = plan.getSubPlan();
             Optional<Symbol> frameEnd = plan.getFrameOffsetSymbol();
 
+            subPlan = subqueryPlanner.handleSubqueries(subPlan, extractPatternRecognitionExpressions(frame.getVariableDefinitions(), frame.getMeasures()), analysis.getSubqueries(node));
             subPlan = planPatternRecognition(subPlan, windowMeasure, window, frameEnd);
         }
 
         return subPlan;
+    }
+
+    public static List<Expression> extractPatternRecognitionExpressions(List<VariableDefinition> variableDefinitions, List<MeasureDefinition> measureDefinitions)
+    {
+        ImmutableList.Builder<Expression> expressions = ImmutableList.builder();
+
+        variableDefinitions.stream()
+                .map(VariableDefinition::getExpression)
+                .forEach(expressions::add);
+
+        measureDefinitions.stream()
+                .map(MeasureDefinition::getExpression)
+                .forEach(expressions::add);
+
+        return expressions.build();
     }
 
     private PlanBuilder planPatternRecognition(
@@ -1441,8 +1473,8 @@ class QueryPlanner
         WindowNode.Specification specification = planWindowSpecification(window.getPartitionBy(), window.getOrderBy(), subPlan::translate);
 
         // in window frame with pattern recognition, the frame extent is specified as `ROWS BETWEEN CURRENT ROW AND ... `
-        WindowFrame frame = window.getFrame().get();
-        FrameBound frameEnd = frame.getEnd().get();
+        WindowFrame frame = window.getFrame().orElseThrow();
+        FrameBound frameEnd = frame.getEnd().orElseThrow();
         WindowNode.Frame baseFrame = new WindowNode.Frame(
                 WindowFrame.Type.ROWS,
                 FrameBound.Type.CURRENT_ROW,
@@ -1461,7 +1493,7 @@ class QueryPlanner
                         ImmutableList.of(analysis.getMeasureDefinition(windowMeasure)),
                         frame.getAfterMatchSkipTo(),
                         frame.getPatternSearchMode(),
-                        frame.getPattern().get(),
+                        frame.getPattern().orElseThrow(),
                         frame.getVariableDefinitions());
 
         Symbol measureSymbol = getOnlyElement(components.getMeasures().keySet());
@@ -1587,6 +1619,33 @@ class QueryPlanner
         List<Symbol> visibleFields = visibleFields(plan);
         ProjectNode pruned = new ProjectNode(idAllocator.getNextId(), plan.getRoot(), Assignments.identity(visibleFields));
         return new NodeAndMappings(pruned, visibleFields);
+    }
+
+    public static NodeAndMappings disambiguateOutputs(NodeAndMappings plan, SymbolAllocator symbolAllocator, PlanNodeIdAllocator idAllocator)
+    {
+        Set<Symbol> distinctOutputs = ImmutableSet.copyOf(plan.getFields());
+
+        if (distinctOutputs.size() < plan.getFields().size()) {
+            Assignments.Builder assignments = Assignments.builder();
+            ImmutableList.Builder<Symbol> newOutputs = ImmutableList.builder();
+            Set<Symbol> uniqueOutputs = new HashSet<>();
+
+            for (Symbol output : plan.getFields()) {
+                if (uniqueOutputs.add(output)) {
+                    assignments.putIdentity(output);
+                    newOutputs.add(output);
+                }
+                else {
+                    Symbol newOutput = symbolAllocator.newSymbol(output);
+                    assignments.put(newOutput, output.toSymbolReference());
+                    newOutputs.add(newOutput);
+                }
+            }
+
+            return new NodeAndMappings(new ProjectNode(idAllocator.getNextId(), plan.getNode(), assignments.build()), newOutputs.build());
+        }
+
+        return plan;
     }
 
     private PlanBuilder distinct(PlanBuilder subPlan, QuerySpecification node, List<Expression> expressions)

@@ -1368,10 +1368,8 @@ public final class UnscaledDecimal128Arithmetic
         int[] multiPrecisionQuotient = new int[NUMBER_OF_INTS * 2];
         divideUnsignedMultiPrecision(dividend, divisor, multiPrecisionQuotient);
 
-        packUnsigned(multiPrecisionQuotient, quotient);
-        packUnsigned(dividend, remainder);
-        setNegative(quotient, quotientIsNegative);
-        setNegative(remainder, dividendIsNegative);
+        pack(multiPrecisionQuotient, quotient, quotientIsNegative);
+        pack(dividend, remainder, dividendIsNegative);
         throwIfOverflows(quotient);
         throwIfOverflows(remainder);
     }
@@ -1671,7 +1669,7 @@ public final class UnscaledDecimal128Arithmetic
         return (int) val;
     }
 
-    private static void packUnsigned(int[] digits, Slice decimal)
+    private static void pack(int[] digits, Slice decimal, boolean negative)
     {
         if (digitsInIntegerBase(digits) > NUMBER_OF_INTS) {
             throwOverflowException();
@@ -1679,7 +1677,7 @@ public final class UnscaledDecimal128Arithmetic
         if ((digits[3] & SIGN_INT_MASK) != 0) {
             throwOverflowException();
         }
-        pack(decimal, digits[0], digits[1], digits[2], digits[3], false);
+        pack(decimal, digits[0], digits[1], digits[2], digits[3], negative);
     }
 
     private static boolean divideCheckRound(Slice decimal, int divisor, Slice result)
@@ -1688,8 +1686,7 @@ public final class UnscaledDecimal128Arithmetic
         return (remainder >= (divisor >> 1));
     }
 
-    // visible for testing
-    static int divide(Slice decimal, int divisor, Slice result)
+    private static int divide(Slice decimal, int divisor, Slice result)
     {
         if (divisor == 0) {
             throwDivisionByZeroException();
@@ -1742,6 +1739,8 @@ public final class UnscaledDecimal128Arithmetic
 
     private static void pack(Slice decimal, int v0, int v1, int v2, int v3, boolean negative)
     {
+        // check if the result is zero and if so, don't create negative zeros:
+        negative &= v0 != 0 | v1 != 0 | v2 != 0 | v3 != 0;
         setRawInt(decimal, 0, v0);
         setRawInt(decimal, 1, v1);
         setRawInt(decimal, 2, v2);
@@ -1750,6 +1749,8 @@ public final class UnscaledDecimal128Arithmetic
 
     private static void pack(Slice decimal, int v0, int v1, long high, boolean negative)
     {
+        // check if the result is zero and if so, don't create negative zeros:
+        negative &= v0 != 0 | v1 != 0 | high != 0;
         setRawInt(decimal, 0, v0);
         setRawInt(decimal, 1, v1);
         setNegativeLong(decimal, high, negative);
@@ -1757,6 +1758,8 @@ public final class UnscaledDecimal128Arithmetic
 
     private static void pack(Slice decimal, long low, long high, boolean negative)
     {
+        // check if the result is zero and if so, don't create negative zeros:
+        negative &= low != 0 | high != 0;
         setRawLong(decimal, 0, low);
         setNegativeLong(decimal, high, negative);
     }

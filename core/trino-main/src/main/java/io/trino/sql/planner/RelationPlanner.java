@@ -113,6 +113,7 @@ import static io.trino.sql.analyzer.TypeSignatureTranslator.toSqlType;
 import static io.trino.sql.planner.PlanBuilder.newPlanBuilder;
 import static io.trino.sql.planner.QueryPlanner.coerce;
 import static io.trino.sql.planner.QueryPlanner.coerceIfNecessary;
+import static io.trino.sql.planner.QueryPlanner.extractPatternRecognitionExpressions;
 import static io.trino.sql.planner.QueryPlanner.planWindowSpecification;
 import static io.trino.sql.planner.QueryPlanner.pruneInvisibleFields;
 import static io.trino.sql.planner.plan.AggregationNode.singleGroupingSet;
@@ -231,6 +232,13 @@ class RelationPlanner
             PlanNode root = TableScanNode.newInstance(idAllocator.getNextId(), handle, outputSymbols, columns.build(), updateTarget, Optional.empty());
 
             plan = new RelationPlan(root, scope, outputSymbols, outerContext);
+
+            List<Type> types = analysis.getRelationCoercion(node);
+            if (types != null) {
+                // apply required coercion and prune invisible fields from child outputs
+                NodeAndMappings coerced = coerce(plan, types, symbolAllocator, idAllocator);
+                plan = new RelationPlan(coerced.getNode(), scope, coerced.getFields(), outerContext);
+            }
         }
 
         plan = addRowFilters(node, plan);
@@ -279,7 +287,7 @@ class RelationPlanner
         for (int i = 0; i < plan.getDescriptor().getAllFieldCount(); i++) {
             Field field = plan.getDescriptor().getFieldByIndex(i);
 
-            for (Expression mask : columnMasks.getOrDefault(field.getName().get(), ImmutableList.of())) {
+            for (Expression mask : columnMasks.getOrDefault(field.getName().orElseThrow(), ImmutableList.of())) {
                 planBuilder = subqueryPlanner.handleSubqueries(planBuilder, mask, analysis.getSubqueries(mask));
 
                 Map<Symbol, Expression> assignments = new LinkedHashMap<>();
@@ -353,6 +361,8 @@ class RelationPlanner
                     .forEach(outputLayout::add);
         }
 
+        planBuilder = subqueryPlanner.handleSubqueries(planBuilder, extractPatternRecognitionExpressions(node.getVariableDefinitions(), node.getMeasures()), analysis.getSubqueries(node));
+
         PatternRecognitionComponents components = planPatternRecognitionComponents(
                 planBuilder::rewrite,
                 node.getSubsets(),
@@ -406,7 +416,7 @@ class RelationPlanner
         for (SubsetDefinition subsetDefinition : subsets) {
             IrLabel label = irLabel(subsetDefinition.getName());
             Set<IrLabel> elements = subsetDefinition.getIdentifiers().stream()
-                    .map(this::irLabel)
+                    .map(RelationPlanner::irLabel)
                     .collect(toImmutableSet());
             rewrittenSubsets.put(label, elements);
         }
@@ -443,19 +453,19 @@ class RelationPlanner
                 rewrittenSubsets.build(),
                 rewrittenMeasures.build(),
                 measureOutputs.build(),
-                skipTo.flatMap(SkipTo::getIdentifier).map(this::irLabel),
+                skipTo.flatMap(SkipTo::getIdentifier).map(RelationPlanner::irLabel),
                 skipTo.map(SkipTo::getPosition).orElse(PAST_LAST),
                 searchMode.map(mode -> mode.getMode() == INITIAL).orElse(TRUE),
                 rewrittenPattern,
                 rewrittenVariableDefinitions.build());
     }
 
-    private IrLabel irLabel(Identifier identifier)
+    private static IrLabel irLabel(Identifier identifier)
     {
         return new IrLabel(identifier.getCanonicalValue());
     }
 
-    private IrLabel irLabel(String label)
+    private static IrLabel irLabel(String label)
     {
         return new IrLabel(label);
     }
@@ -704,7 +714,7 @@ class RelationPlanner
             they will be removed by optimization passes.
         */
 
-        List<Identifier> joinColumns = ((JoinUsing) node.getCriteria().get()).getColumns();
+        List<Identifier> joinColumns = ((JoinUsing) node.getCriteria().orElseThrow()).getColumns();
 
         Analysis.JoinUsingAnalysis joinAnalysis = analysis.getJoinUsing(node);
 
@@ -797,7 +807,7 @@ class RelationPlanner
                 outerContext);
     }
 
-    private Optional<Unnest> getUnnest(Relation relation)
+    private static Optional<Unnest> getUnnest(Relation relation)
     {
         if (relation instanceof AliasedRelation) {
             return getUnnest(((AliasedRelation) relation).getRelation());
@@ -808,7 +818,7 @@ class RelationPlanner
         return Optional.empty();
     }
 
-    private Optional<Lateral> getLateral(Relation relation)
+    private static Optional<Lateral> getLateral(Relation relation)
     {
         if (relation instanceof AliasedRelation) {
             return getLateral(((AliasedRelation) relation).getRelation());
@@ -1093,7 +1103,7 @@ class RelationPlanner
                 Optional.empty());
     }
 
-    private static class SetOperationPlan
+    private static final class SetOperationPlan
     {
         private final List<PlanNode> sources;
         private final ListMultimap<Symbol, Symbol> symbolMapping;

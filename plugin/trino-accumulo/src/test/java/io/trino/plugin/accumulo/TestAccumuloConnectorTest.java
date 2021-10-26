@@ -64,6 +64,10 @@ public class TestAccumuloConnectorTest
             case SUPPORTS_RENAME_TABLE_ACROSS_SCHEMAS:
                 return false;
 
+            case SUPPORTS_ADD_COLUMN:
+            case SUPPORTS_DROP_COLUMN:
+                return false;
+
             case SUPPORTS_COMMENT_ON_TABLE:
             case SUPPORTS_COMMENT_ON_COLUMN:
                 return false;
@@ -83,20 +87,6 @@ public class TestAccumuloConnectorTest
     protected TestTable createTableWithDefaultColumns()
     {
         throw new SkipException("Accumulo connector does not support column default values");
-    }
-
-    @Override
-    public void testAddColumn()
-    {
-        assertThatThrownBy(super::testAddColumn).hasMessage("This connector does not support adding columns");
-        throw new SkipException("Accumulo connector does not support adding columns");
-    }
-
-    @Override
-    public void testDropColumn()
-    {
-        assertThatThrownBy(super::testDropColumn).hasMessage("This connector does not support dropping columns");
-        throw new SkipException("Dropping columns are not supported by the connector");
     }
 
     @Override
@@ -321,5 +311,12 @@ public class TestAccumuloConnectorTest
             return Optional.of(dataMappingTestSetup.asUnsupported());
         }
         return Optional.of(dataMappingTestSetup);
+    }
+
+    @Override
+    public void testCharVarcharComparison()
+    {
+        assertThatThrownBy(super::testCharVarcharComparison)
+                .hasMessage("Unsupported Trino type: char(3)");
     }
 }

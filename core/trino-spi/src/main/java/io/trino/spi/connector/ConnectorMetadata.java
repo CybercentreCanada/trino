@@ -45,7 +45,7 @@ import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static java.lang.String.format;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
-import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toUnmodifiableList;
 
 public interface ConnectorMetadata
 {
@@ -207,7 +207,7 @@ public interface ConnectorMetadata
     }
 
     /**
-     * List table and view names, possibly filtered by schema. An empty list is returned if none match.
+     * List table, view and materialized view names, possibly filtered by schema. An empty list is returned if none match.
      */
     default List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName)
     {
@@ -393,7 +393,7 @@ public interface ConnectorMetadata
                             .collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey));
                     List<String> partitionColumns = partitioning.getPartitioningColumns().stream()
                             .map(columnNamesByHandle::get)
-                            .collect(toList());
+                            .collect(toUnmodifiableList());
 
                     return new ConnectorNewTableLayout(partitioning.getPartitioningHandle(), partitionColumns);
                 });
@@ -662,7 +662,7 @@ public interface ConnectorMetadata
      */
     default Map<String, Object> getSchemaProperties(ConnectorSession session, CatalogSchemaName schemaName)
     {
-        throw new TrinoException(NOT_SUPPORTED, "This connector does not support schema properties");
+        return Map.of();
     }
 
     /**
@@ -670,7 +670,7 @@ public interface ConnectorMetadata
      */
     default Optional<TrinoPrincipal> getSchemaOwner(ConnectorSession session, CatalogSchemaName schemaName)
     {
-        throw new TrinoException(NOT_SUPPORTED, "This connector does not support schema ownership");
+        return Optional.empty();
     }
 
     /**
@@ -716,6 +716,14 @@ public interface ConnectorMetadata
     default Optional<ConnectorResolvedIndex> resolveIndex(ConnectorSession session, ConnectorTableHandle tableHandle, Set<ColumnHandle> indexableColumns, Set<ColumnHandle> outputColumns, TupleDomain<ColumnHandle> tupleDomain)
     {
         return Optional.empty();
+    }
+
+    /**
+     * Does the specified role exist.
+     */
+    default boolean roleExists(ConnectorSession session, String role)
+    {
+        return listRoles(session).contains(role);
     }
 
     /**
@@ -1202,6 +1210,8 @@ public interface ConnectorMetadata
 
     /**
      * The method is used by the engine to determine if a materialized view is current with respect to the tables it depends on.
+     *
+     * @throws MaterializedViewNotFoundException when materialized view is not found
      */
     default MaterializedViewFreshness getMaterializedViewFreshness(ConnectorSession session, SchemaTableName name)
     {

@@ -362,6 +362,47 @@ public abstract class AbstractTestEngineOnlyQueries
     }
 
     @Test
+    public void testCharVarcharComparison()
+    {
+        // with implicit coercions
+        assertQuery("SELECT * FROM (VALUES" +
+                "   CAST(NULL AS char(3)), " +
+                "   CAST('   ' AS char(3))) t(x) " +
+                "WHERE x = CAST('  ' AS varchar(2))");
+
+        // with explicit casts
+        assertQuery(
+                "SELECT * FROM (VALUES" +
+                        "   CAST(NULL AS char(3)), " +
+                        "   CAST('   ' AS char(3))) t(x) " +
+                        "WHERE CAST(x AS varchar(2)) = CAST('  ' AS varchar(2))",
+                // H2 returns '' on CAST char(3) to varchar(2)
+                "SELECT '   '");
+    }
+
+    @Test
+    public void testVarcharCharComparison()
+    {
+        // with implicit coercions
+        assertQuery("SELECT * FROM (VALUES" +
+                "   CAST(NULL AS varchar(3)), " +
+                "   CAST('' AS varchar(3))," +
+                "   CAST(' ' AS varchar(3)), " +
+                "   CAST('  ' AS varchar(3)), " +
+                "   CAST('   ' AS varchar(3))) t(x) " +
+                "WHERE x = CAST('  ' AS char(2))");
+
+        // with explicit casts
+        assertQuery("SELECT * FROM (VALUES" +
+                "   CAST(NULL AS varchar(3)), " +
+                "   CAST('' AS varchar(3))," +
+                "   CAST(' ' AS varchar(3)), " +
+                "   CAST('  ' AS varchar(3)), " +
+                "   CAST('   ' AS varchar(3))) t(x) " +
+                "WHERE CAST(x AS char(2)) = CAST('  ' AS char(2))");
+    }
+
+    @Test
     public void testRollupOverUnion()
     {
         assertQuery("" +
@@ -6081,6 +6122,53 @@ public abstract class AbstractTestEngineOnlyQueries
                 "    CAST(JSON '{\"key\": {\"name\": \"trino\"}}' AS map(varchar, map(varchar, varchar)))['key'] mapped " +
                 ") b ON contains(b.names, a.name)"))
                 .matches("SELECT CAST(map(ARRAY['name'], ARRAY['trino']) AS map(varchar, varchar))");
+    }
+
+    /**
+     * See https://github.com/trinodb/trino/issues/9171
+     * <p>
+     * Only occurs in distributed planning mode
+     */
+    @Test
+    public void testPartialLimitWithPresortedConstantInputs()
+    {
+        assertThat(query("SELECT a " +
+                "FROM (" +
+                "    SELECT 0, 1" +
+                "    FROM (" +
+                "        SELECT 1" +
+                "        FROM (VALUES (1, 1, 1)) t(k, g, h)" +
+                "            CROSS JOIN (VALUES 1)" +
+                "        GROUP BY k" +
+                "    )" +
+                "    UNION ALL" +
+                "    SELECT 0, 1" +
+                ") u(a, b) " +
+                "ORDER BY b " +
+                "LIMIT 10"))
+                .matches("VALUES (0), (0)");
+
+        assertThat(query("SELECT * " +
+                "FROM (" +
+                "    VALUES (0, 1)" +
+                "    UNION ALL" +
+                "    SELECT k, 1" +
+                "    FROM (" +
+                "        SELECT k" +
+                "        FROM (VALUES 1) t(k)" +
+                "        GROUP BY k" +
+                "     )" +
+                ") u(a, b) " +
+                "ORDER BY b " +
+                "LIMIT 10"))
+                .matches("VALUES (1, 1), (0, 1)");
+
+        assertThat(query("SELECT orderkey, custkey " +
+                "FROM orders " +
+                "WHERE orderkey = 1 AND custkey = 370 " +
+                "ORDER BY orderkey " +
+                "LIMIT 1"))
+                .matches("VALUES (BIGINT '1', BIGINT '370')");
     }
 
     private static ZonedDateTime zonedDateTime(String value)

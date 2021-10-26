@@ -44,6 +44,7 @@ import io.trino.sql.tree.DropView;
 import io.trino.sql.tree.Except;
 import io.trino.sql.tree.Execute;
 import io.trino.sql.tree.Explain;
+import io.trino.sql.tree.ExplainAnalyze;
 import io.trino.sql.tree.ExplainFormat;
 import io.trino.sql.tree.ExplainOption;
 import io.trino.sql.tree.ExplainType;
@@ -891,9 +892,6 @@ public final class SqlFormatter
         protected Void visitExplain(Explain node, Integer indent)
         {
             builder.append("EXPLAIN ");
-            if (node.isAnalyze()) {
-                builder.append("ANALYZE ");
-            }
 
             List<String> options = new ArrayList<>();
 
@@ -915,6 +913,20 @@ public final class SqlFormatter
                 builder.append(")");
             }
 
+            builder.append("\n");
+
+            process(node.getStatement(), indent);
+
+            return null;
+        }
+
+        @Override
+        protected Void visitExplainAnalyze(ExplainAnalyze node, Integer indent)
+        {
+            builder.append("EXPLAIN ANALYZE");
+            if (node.isVerbose()) {
+                builder.append(" VERBOSE");
+            }
             builder.append("\n");
 
             process(node.getStatement(), indent);
@@ -1555,6 +1567,10 @@ public final class SqlFormatter
             if (node.getGrantor().isPresent()) {
                 builder.append(" WITH ADMIN ").append(formatGrantor(node.getGrantor().get()));
             }
+            if (node.getCatalog().isPresent()) {
+                builder.append(" IN ")
+                        .append(node.getCatalog().get());
+            }
             return null;
         }
 
@@ -1562,6 +1578,10 @@ public final class SqlFormatter
         protected Void visitDropRole(DropRole node, Integer context)
         {
             builder.append("DROP ROLE ").append(node.getName());
+            if (node.getCatalog().isPresent()) {
+                builder.append(" IN ")
+                        .append(node.getCatalog().get());
+            }
             return null;
         }
 
@@ -1581,6 +1601,10 @@ public final class SqlFormatter
             }
             if (node.getGrantor().isPresent()) {
                 builder.append(" GRANTED BY ").append(formatGrantor(node.getGrantor().get()));
+            }
+            if (node.getCatalog().isPresent()) {
+                builder.append(" IN ")
+                        .append(node.getCatalog().get());
             }
             return null;
         }
@@ -1602,6 +1626,10 @@ public final class SqlFormatter
             if (node.getGrantor().isPresent()) {
                 builder.append(" GRANTED BY ").append(formatGrantor(node.getGrantor().get()));
             }
+            if (node.getCatalog().isPresent()) {
+                builder.append(" IN ")
+                        .append(node.getCatalog().get());
+            }
             return null;
         }
 
@@ -1613,13 +1641,19 @@ public final class SqlFormatter
             switch (type) {
                 case ALL:
                 case NONE:
-                    builder.append(type.toString());
-                    return null;
+                    builder.append(type);
+                    break;
                 case ROLE:
                     builder.append(node.getRole().get());
-                    return null;
+                    break;
+                default:
+                    throw new IllegalArgumentException("Unsupported type: " + type);
             }
-            throw new IllegalArgumentException("Unsupported type: " + type);
+            if (node.getCatalog().isPresent()) {
+                builder.append(" IN ")
+                        .append(node.getCatalog().get());
+            }
+            return null;
         }
 
         @Override

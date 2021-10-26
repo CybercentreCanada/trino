@@ -87,7 +87,7 @@ Multiple GCP projects
 
 The BigQuery connector can only access a single GCP project.Thus, if you have
 data in multiple GCP projects, You need to create several catalogs, each
-pointingto a different GCP project. For example, if you have two GCP projects,
+pointing to a different GCP project. For example, if you have two GCP projects,
 one for the sales and one for analytics, you can create two properties files in
 ``etc/catalog`` named ``sales.properties`` and ``analytics.properties``, both
 having ``connector.name=bigquery`` but with different ``project-id``. This will
@@ -124,9 +124,9 @@ a few caveats:
 Configuration properties
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-===================================================== ============================================================== ==============================================
+===================================================== ============================================================== ======================================================
 Property                                              Description                                                    Default
-===================================================== ============================================================== ==============================================
+===================================================== ============================================================== ======================================================
 ``bigquery.project-id``                               The Google Cloud Project ID where the data reside              Taken from the service account
 ``bigquery.parent-project-id``                        The project ID Google Cloud Project to bill for the export     Taken from the service account
 ``bigquery.parallelism``                              The number of partitions to split the data into                The number of executors
@@ -135,16 +135,18 @@ Property                                              Description               
                                                       enabling this feature.
 ``bigquery.view-materialization-project``             The project where the materialized view is going to be created The view's project
 ``bigquery.view-materialization-dataset``             The dataset where the materialized view is going to be created The view's dataset
+``bigquery.views-cache-ttl``                          Duration for which the materialization of a view will be       ``15m``
+                                                      cached and reused. Set to ``0ms`` to disable the cache.
 ``bigquery.max-read-rows-retries``                    The number of retries in case of retryable server issues       ``3``
-``bigquery.credentials-key``                          The base64 encoded credentials key                             None. See `authentication <#authentication>`_
-``bigquery.credentials-file``                         The path to the JSON credentials file                          None. See `authentication <#authentication>`_
+``bigquery.credentials-key``                          The base64 encoded credentials key                             None. See the `requirements <#requirements>`_ section.
+``bigquery.credentials-file``                         The path to the JSON credentials file                          None. See the `requirements <#requirements>`_ section.
 ``bigquery.case-insensitive-name-matching``           Match dataset and table names case-insensitively               ``false``
 ``bigquery.case-insensitive-name-matching.cache-ttl`` Duration for which remote dataset and table names will be      ``1m``
                                                       cached. Higher values reduce the number of API calls to
                                                       BigQuery but can cause newly created dataset or tables to not
                                                       be visible until the configured duration. Set to ``0ms`` to
                                                       disable the cache.
-===================================================== ============================================================== ==============================================
+===================================================== ============================================================== ======================================================
 
 Data types
 ----------
@@ -152,22 +154,23 @@ Data types
 With a few exceptions, all BigQuery types are mapped directly to their Trino
 counterparts. Here are all the mappings:
 
-=============  ============================ =============================================================================================================
-BigQuery       Trino                        Notes
-=============  ============================ =============================================================================================================
+=============  =============================== =============================================================================================================
+BigQuery       Trino                           Notes
+=============  =============================== =============================================================================================================
+``ARRAY``      ``ARRAY``
 ``BOOLEAN``    ``BOOLEAN``
 ``BYTES``      ``VARBINARY``
 ``DATE``       ``DATE``
-``DATETIME``   ``TIMESTAMP``
+``DATETIME``   ``TIMESTAMP(6)``
 ``FLOAT``      ``DOUBLE``
-``GEOGRAPHY``  ``VARCHAR``                  In `Well-known text (WKT) <https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry>`_ format
+``GEOGRAPHY``  ``VARCHAR``                     In `Well-known text (WKT) <https://en.wikipedia.org/wiki/Well-known_text_representation_of_geometry>`_ format
 ``INTEGER``    ``BIGINT``
-``NUMERIC``    ``DECIMAL(38,9)``
+``NUMERIC``    ``DECIMAL(P,S)``                Defaults to ``38`` as precision and ``9`` as scale
 ``RECORD``     ``ROW``
 ``STRING``     ``VARCHAR``
-``TIME``       ``TIME_WITH_TIME_ZONE``      Time zone is UTC
-``TIMESTAMP``  ``TIMESTAMP_WITH_TIME_ZONE`` Time zone is UTC
-=============  ============================ =============================================================================================================
+``TIME``       ``TIME(6)``
+``TIMESTAMP``  ``TIMESTAMP(6) WITH TIME ZONE`` Time zone is UTC
+=============  =============================== =============================================================================================================
 
 System tables
 -------------
@@ -175,6 +178,21 @@ System tables
 For each Trino table which maps to BigQuery view there exists a system table which exposes BigQuery view definition.
 Given a BigQuery view ``customer_view`` you can send query
 ``SELECT * customer_view$view_definition`` to see the SQL which defines view in BigQuery.
+
+.. _bigquery-sql-support:
+
+SQL support
+-----------
+
+The connector provides read and write access to data and metadata in
+the BigQuery database. In addition to the :ref:`globally available
+<sql-globally-available>` and :ref:`read operation <sql-read-operations>`
+statements, the connector supports the following features:
+
+* :doc:`/sql/create-table`
+* :doc:`/sql/drop-table`
+* :doc:`/sql/create-schema`
+* :doc:`/sql/drop-schema`
 
 FAQ
 ---
@@ -184,4 +202,3 @@ What is the Pricing for the Storage API?
 
 See the `BigQuery pricing documentation
 <https://cloud.google.com/bigquery/pricing#storage-api>`_.
-

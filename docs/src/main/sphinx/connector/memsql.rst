@@ -20,8 +20,8 @@ Configuration
 -------------
 
 To configure the SingleStore connector, create a catalog properties file
-in ``etc/catalog`` named, for example, ``memsql.properties``, to
-mount the SingleStore connector as the ``memsql`` catalog.
+in ``etc/catalog`` named, for example, ``singlestore.properties``, to
+mount the SingleStore connector as the ``singlestore`` catalog.
 Create the file with the following contents, replacing the
 connection properties as appropriate for your setup:
 
@@ -40,6 +40,10 @@ SingleStore servers, simply add another properties file to ``etc/catalog``
 with a different name (making sure it ends in ``.properties``). For
 example, if you name the property file ``sales.properties``, Trino
 will create a catalog named ``sales`` using the configured connector.
+
+.. include:: jdbc-common-configurations.fragment
+
+.. include:: non-transactional-insert.fragment
 
 Querying SingleStore
 --------------------
@@ -85,14 +89,25 @@ The connector supports pushdown for a number of operations:
 * :ref:`limit-pushdown`
 * :ref:`topn-pushdown`
 
-Limitations
+.. _singlestore-sql-support:
+
+SQL support
 -----------
 
-The following SQL statements are not yet supported:
+The connector provides read access and write access to data and metadata in
+a SingleStore database.  In addition to the :ref:`globally available
+<sql-globally-available>` and :ref:`read operation <sql-read-operations>`
+statements, the connector supports the following features:
 
+* :doc:`/sql/insert`
 * :doc:`/sql/delete`
-* :doc:`/sql/grant`
-* :doc:`/sql/revoke`
-* :doc:`/sql/show-grants`
-* :doc:`/sql/show-roles`
-* :doc:`/sql/show-role-grants`
+* :doc:`/sql/create-table`
+* :doc:`/sql/create-table-as`
+* :doc:`/sql/drop-table`
+* :doc:`/sql/alter-table`
+* :doc:`/sql/create-schema`
+* :doc:`/sql/drop-schema`
+
+.. include:: sql-delete-limitation.fragment
+
+.. include:: alter-table-limitation.fragment

@@ -341,6 +341,21 @@ public class QueryAssertions
             });
         }
 
+        public final QueryAssert matches(PlanMatchPattern expectedPlan)
+        {
+            transaction(runner.getTransactionManager(), runner.getAccessControl())
+                    .execute(session, session -> {
+                        Plan plan = runner.createPlan(session, query, WarningCollector.NOOP);
+                        assertPlan(
+                                session,
+                                runner.getMetadata(),
+                                noopStatsCalculator(),
+                                plan,
+                                expectedPlan);
+                    });
+            return this;
+        }
+
         public QueryAssert containsAll(@Language("SQL") String query)
         {
             MaterializedResult expected = runner.execute(session, query);
@@ -387,7 +402,7 @@ public class QueryAssertions
         public QueryAssert returnsEmptyResult()
         {
             return satisfies(actual -> {
-                assertThat(actual.getRowCount()).as("row count").isEqualTo(0);
+                assertThat(actual.getMaterializedRows()).as("rows").isEmpty();
             });
         }
 

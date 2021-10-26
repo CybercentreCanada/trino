@@ -63,22 +63,25 @@ public class TestingHydraIdentityProvider
         implements AutoCloseable
 {
     private static final String HYDRA_IMAGE = "oryd/hydra:v1.9.0-sqlite";
+    private static final String ISSUER = "https://localhost:4444/";
 
     private final Network network = Network.newNetwork();
     private final AutoCloseableCloser closer = AutoCloseableCloser.create();
     private final ObjectMapper mapper = new ObjectMapper();
     private final Duration ttlAccessToken;
+    private final boolean useJwt;
     private final OkHttpClient httpClient;
     private GenericContainer<?> hydraContainer;
 
     public TestingHydraIdentityProvider()
     {
-        this(Duration.ofMinutes(30));
+        this(Duration.ofMinutes(30), true);
     }
 
-    public TestingHydraIdentityProvider(Duration ttlAccessToken)
+    public TestingHydraIdentityProvider(Duration ttlAccessToken, boolean useJwt)
     {
         this.ttlAccessToken = requireNonNull(ttlAccessToken, "ttlAccessToken is null");
+        this.useJwt = useJwt;
         OkHttpClient.Builder httpClientBuilder = new OkHttpClient.Builder();
         setupInsecureSsl(httpClientBuilder);
         httpClientBuilder.followRedirects(false);
@@ -98,13 +101,13 @@ public class TestingHydraIdentityProvider
                 .withNetworkAliases("hydra")
                 .withExposedPorts(4444, 4445)
                 .withEnv("DSN", "memory")
-                .withEnv("URLS_SELF_ISSUER", "https://localhost:4444/")
+                .withEnv("URLS_SELF_ISSUER", ISSUER)
                 .withEnv("URLS_CONSENT", loginAndConsentBaseUrl + "/consent")
                 .withEnv("URLS_LOGIN", loginAndConsentBaseUrl + "/login")
                 .withEnv("SERVE_TLS_KEY_PATH", "/tmp/certs/localhost.pem")
                 .withEnv("SERVE_TLS_CERT_PATH", "/tmp/certs/localhost.pem")
-                .withEnv("STRATEGIES_ACCESS_TOKEN", "jwt")
                 .withEnv("TTL_ACCESS_TOKEN", ttlAccessToken.getSeconds() + "s")
+                .withEnv("STRATEGIES_ACCESS_TOKEN", useJwt ? "jwt" : null)
                 .withCommand("serve", "all")
                 .withCopyFileToContainer(MountableFile.forClasspathResource("/cert"), "/tmp/certs")
                 .waitingFor(new WaitAllStrategy()
@@ -241,12 +244,12 @@ public class TestingHydraIdentityProvider
                 throws IOException
         {
             return httpClient.newCall(
-                    new Request.Builder()
-                            .url("https://localhost:" + getAdminPort() + "/oauth2/auth/requests/login/accept?login_challenge=" + loginChallenge)
-                            .put(RequestBody.create(
-                                    MediaType.get(APPLICATION_JSON),
-                                    mapper.writeValueAsString(mapper.createObjectNode().put("subject", "foo@bar.com"))))
-                            .build())
+                            new Request.Builder()
+                                    .url("https://localhost:" + getAdminPort() + "/oauth2/auth/requests/login/accept?login_challenge=" + loginChallenge)
+                                    .put(RequestBody.create(
+                                            MediaType.get(APPLICATION_JSON),
+                                            mapper.writeValueAsString(mapper.createObjectNode().put("subject", "foo@bar.com"))))
+                                    .build())
                     .execute();
         }
 
@@ -254,10 +257,10 @@ public class TestingHydraIdentityProvider
                 throws IOException
         {
             try (Response response = httpClient.newCall(
-                    new Request.Builder()
-                            .url("https://localhost:" + getAdminPort() + "/oauth2/auth/requests/consent?consent_challenge=" + consentChallenge)
-                            .get()
-                            .build())
+                            new Request.Builder()
+                                    .url("https://localhost:" + getAdminPort() + "/oauth2/auth/requests/consent?consent_challenge=" + consentChallenge)
+                                    .get()
+                                    .build())
                     .execute()) {
                 requireNonNull(response.body());
                 return mapper.readTree(response.body().byteStream());
@@ -268,14 +271,14 @@ public class TestingHydraIdentityProvider
                 throws IOException
         {
             return httpClient.newCall(
-                    new Request.Builder()
-                            .url("https://localhost:" + getAdminPort() + "/oauth2/auth/requests/consent/accept?consent_challenge=" + consentChallenge)
-                            .put(RequestBody.create(
-                                    MediaType.get(APPLICATION_JSON),
-                                    mapper.writeValueAsString(mapper.createObjectNode()
-                                            .<ObjectNode>set("grant_scope", consentRequest.get("requested_scope"))
-                                            .<ObjectNode>set("grant_access_token_audience", consentRequest.get("requested_access_token_audience")))))
-                            .build())
+                            new Request.Builder()
+                                    .url("https://localhost:" + getAdminPort() + "/oauth2/auth/requests/consent/accept?consent_challenge=" + consentChallenge)
+                                    .put(RequestBody.create(
+                                            MediaType.get(APPLICATION_JSON),
+                                            mapper.writeValueAsString(mapper.createObjectNode()
+                                                    .<ObjectNode>set("grant_scope", consentRequest.get("requested_scope"))
+                                                    .<ObjectNode>set("grant_access_token_audience", consentRequest.get("requested_access_token_audience")))))
+                                    .build())
                     .execute();
         }
 
@@ -322,12 +325,12 @@ public class TestingHydraIdentityProvider
                                     .put("http-server.https.keystore.path", Resources.getResource("cert/localhost.pem").getPath())
                                     .put("http-server.https.keystore.key", "")
                                     .put("http-server.authentication.type", "oauth2")
+                                    .put("http-server.authentication.oauth2.issuer", ISSUER)
                                     .put("http-server.authentication.oauth2.auth-url", authServerUrl + "/oauth2/auth")
                                     .put("http-server.authentication.oauth2.token-url", authServerUrl + "/oauth2/token")
                                     .put("http-server.authentication.oauth2.jwks-url", authServerUrl + "/.well-known/jwks.json")
                                     .put("http-server.authentication.oauth2.client-id", "trino-client")
                                     .put("http-server.authentication.oauth2.client-secret", "trino-secret")
-                                    .put("http-server.authentication.oauth2.audience", "https://localhost:8443/ui")
                                     .put("http-server.authentication.oauth2.user-mapping.pattern", "(.*)@.*")
                                     .put("oauth2-jwk.http-client.trust-store-path", Resources.getResource("cert/localhost.pem").getPath())
                                     .build())

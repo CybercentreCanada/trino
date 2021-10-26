@@ -13,6 +13,7 @@
  */
 package io.trino.parquet;
 
+import io.airlift.slice.Slice;
 import io.trino.spi.type.DecimalType;
 import org.apache.parquet.column.Encoding;
 import org.apache.parquet.io.ColumnIO;
@@ -25,6 +26,9 @@ import org.apache.parquet.schema.DecimalMetadata;
 import org.apache.parquet.schema.GroupType;
 import org.apache.parquet.schema.MessageType;
 
+import javax.annotation.Nullable;
+
+import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -32,6 +36,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static io.trino.spi.type.UnscaledDecimal128Arithmetic.unscaledDecimal;
 import static org.apache.parquet.schema.OriginalType.DECIMAL;
 import static org.apache.parquet.schema.Type.Repetition.REPEATED;
 
@@ -205,6 +210,18 @@ public final class ParquetTypeUtils
         return null;
     }
 
+    @Nullable
+    public static ColumnIO lookupColumnById(GroupColumnIO groupColumnIO, int columnId)
+    {
+        for (int i = 0; i < groupColumnIO.getChildrenCount(); i++) {
+            ColumnIO child = groupColumnIO.getChild(i);
+            if (child.getType().getId().intValue() == columnId) {
+                return child;
+            }
+        }
+        return null;
+    }
+
     public static Optional<DecimalType> createDecimalType(RichColumnDescriptor descriptor)
     {
         if (descriptor.getPrimitiveType().getOriginalType() != DECIMAL) {
@@ -240,5 +257,11 @@ public final class ParquetTypeUtils
         }
 
         return value;
+    }
+
+    public static Slice getLongDecimalValue(byte[] bytes)
+    {
+        BigInteger value = new BigInteger(bytes);
+        return unscaledDecimal(value);
     }
 }

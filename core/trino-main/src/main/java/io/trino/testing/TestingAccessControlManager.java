@@ -16,6 +16,7 @@ package io.trino.testing;
 import com.google.common.collect.ImmutableSet;
 import io.trino.eventlistener.EventListenerManager;
 import io.trino.metadata.QualifiedObjectName;
+import io.trino.plugin.base.security.DefaultSystemAccessControl;
 import io.trino.security.AccessControlConfig;
 import io.trino.security.AccessControlManager;
 import io.trino.security.SecurityContext;
@@ -124,9 +125,14 @@ public class TestingAccessControlManager
     private BiPredicate<Identity, String> denyIdentityTable = IDENTITY_TABLE_TRUE;
 
     @Inject
+    public TestingAccessControlManager(TransactionManager transactionManager, EventListenerManager eventListenerManager, AccessControlConfig accessControlConfig)
+    {
+        super(transactionManager, eventListenerManager, accessControlConfig, DefaultSystemAccessControl.NAME);
+    }
+
     public TestingAccessControlManager(TransactionManager transactionManager, EventListenerManager eventListenerManager)
     {
-        super(transactionManager, eventListenerManager, new AccessControlConfig());
+        this(transactionManager, eventListenerManager, new AccessControlConfig());
     }
 
     public void loadSystemAccessControl(String name, Map<String, String> properties)

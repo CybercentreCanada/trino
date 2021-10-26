@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.errorprone.annotations.FormatMethod;
 import io.airlift.log.Logger;
 import io.airlift.units.Duration;
 import io.trino.plugin.hive.HdfsEnvironment;
@@ -83,6 +84,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_CORRUPTED_COLUMN_STATISTICS;
@@ -99,6 +101,7 @@ import static io.trino.plugin.hive.metastore.MetastoreUtil.buildInitialPrivilege
 import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.NUM_ROWS;
 import static io.trino.plugin.hive.util.HiveUtil.toPartitionValues;
 import static io.trino.plugin.hive.util.HiveWriteUtils.createDirectory;
+import static io.trino.plugin.hive.util.HiveWriteUtils.isFileCreatedByQuery;
 import static io.trino.plugin.hive.util.HiveWriteUtils.pathExists;
 import static io.trino.plugin.hive.util.Statistics.ReduceOperator.SUBTRACT;
 import static io.trino.plugin.hive.util.Statistics.merge;
@@ -385,14 +388,16 @@ public class SemiTransactionalHiveMetastore
     // TODO: Allow updating statistics for 2 tables in the same transaction
     public synchronized void setPartitionStatistics(HiveIdentity identity, Table table, Map<List<String>, PartitionStatistics> partitionStatisticsMap)
     {
+        Map<String, Function<PartitionStatistics, PartitionStatistics>> updates = partitionStatisticsMap.entrySet().stream().collect(
+                toImmutableMap(
+                        entry -> getPartitionName(table, entry.getKey()),
+                        entry -> oldPartitionStats -> updatePartitionStatistics(oldPartitionStats, entry.getValue())));
         setExclusive((delegate, hdfsEnvironment) ->
-                partitionStatisticsMap.forEach((partitionValues, newPartitionStats) ->
-                        delegate.updatePartitionStatistics(
-                                identity,
-                                table.getDatabaseName(),
-                                table.getTableName(),
-                                getPartitionName(table, partitionValues),
-                                oldPartitionStats -> updatePartitionStatistics(oldPartitionStats, newPartitionStats))));
+                delegate.updatePartitionStatistics(
+                        identity,
+                        table.getDatabaseName(),
+                        table.getTableName(),
+                        updates));
     }
 
     // For HiveBasicStatistics, we only overwrite the original statistics if the new one is not empty.
@@ -1409,25 +1414,30 @@ public class SemiTransactionalHiveMetastore
         }
         catch (Throwable t) {
             log.warn("Rolling back due to metastore commit failure: %s", t.getMessage());
-            committer.cancelUnstartedAsyncRenames();
+            try {
+                committer.cancelUnstartedAsyncRenames();
 
-            committer.undoUpdateStatisticsOperations(transaction);
-            committer.undoAddPartitionOperations();
-            committer.undoAddTableOperations();
+                committer.undoUpdateStatisticsOperations(transaction);
+                committer.undoAddPartitionOperations();
+                committer.undoAddTableOperations();
 
-            committer.waitForAsyncRenamesSuppressThrowables();
+                committer.waitForAsyncRenamesSuppressThrowables();
 
-            // fileRenameFutures must all come back before any file system cleanups are carried out.
-            // Otherwise, files that should be deleted may be created after cleanup is done.
-            committer.executeCleanupTasksForAbort(declaredIntentionsToWrite);
+                // fileRenameFutures must all come back before any file system cleanups are carried out.
+                // Otherwise, files that should be deleted may be created after cleanup is done.
+                committer.executeCleanupTasksForAbort(declaredIntentionsToWrite);
 
-            committer.executeRenameTasksForAbort();
+                committer.executeRenameTasksForAbort();
 
-            // Partition directory must be put back before relevant metastore operation can be undone
-            committer.undoAlterTableOperations();
-            committer.undoAlterPartitionOperations();
+                // Partition directory must be put back before relevant metastore operation can be undone
+                committer.undoAlterTableOperations();
+                committer.undoAlterPartitionOperations();
 
-            rollbackShared();
+                rollbackShared();
+            }
+            catch (RuntimeException e) {
+                t.addSuppressed(new Exception("Failed to roll back after commit failure", e));
+            }
 
             throw t;
         }
@@ -1561,45 +1571,48 @@ public class SemiTransactionalHiveMetastore
 
             Table table = tableAndMore.getTable();
             if (table.getTableType().equals(MANAGED_TABLE.name())) {
-                String targetLocation = table.getStorage().getLocation();
-                checkArgument(!targetLocation.isEmpty(), "target location is empty");
-                Optional<Path> currentPath = tableAndMore.getCurrentLocation();
-                Path targetPath = new Path(targetLocation);
-                if (table.getPartitionColumns().isEmpty() && currentPath.isPresent()) {
-                    // CREATE TABLE AS SELECT unpartitioned table
-                    if (targetPath.equals(currentPath.get())) {
-                        // Target path and current path are the same. Therefore, directory move is not needed.
-                    }
-                    else {
-                        renameDirectory(
-                                context,
-                                hdfsEnvironment,
-                                currentPath.get(),
-                                targetPath,
-                                () -> cleanUpTasksForAbort.add(new DirectoryCleanUpTask(context, targetPath, true)));
-                    }
-                }
-                else {
-                    // CREATE TABLE AS SELECT partitioned table, or
-                    // CREATE TABLE partitioned/unpartitioned table (without data)
-                    if (pathExists(context, hdfsEnvironment, targetPath)) {
-                        if (currentPath.isPresent() && currentPath.get().equals(targetPath)) {
-                            // It is okay to skip directory creation when currentPath is equal to targetPath
-                            // because the directory may have been created when creating partition directories.
-                            // However, it is important to note that the two being equal does not guarantee
-                            // a directory had been created.
+                Optional<String> targetLocation = table.getStorage().getOptionalLocation();
+                if (targetLocation.isPresent()) {
+                    checkArgument(!targetLocation.get().isEmpty(), "target location is empty");
+                    Optional<Path> currentPath = tableAndMore.getCurrentLocation();
+                    Path targetPath = new Path(targetLocation.get());
+                    if (table.getPartitionColumns().isEmpty() && currentPath.isPresent()) {
+                        // CREATE TABLE AS SELECT unpartitioned table
+                        if (targetPath.equals(currentPath.get())) {
+                            // Target path and current path are the same. Therefore, directory move is not needed.
                         }
                         else {
-                            throw new TrinoException(
-                                    HIVE_PATH_ALREADY_EXISTS,
-                                    format("Unable to create directory %s: target directory already exists", targetPath));
+                            renameDirectory(
+                                    context,
+                                    hdfsEnvironment,
+                                    currentPath.get(),
+                                    targetPath,
+                                    () -> cleanUpTasksForAbort.add(new DirectoryCleanUpTask(context, targetPath, true)));
                         }
                     }
                     else {
-                        cleanUpTasksForAbort.add(new DirectoryCleanUpTask(context, targetPath, true));
-                        createDirectory(context, hdfsEnvironment, targetPath);
+                        // CREATE TABLE AS SELECT partitioned table, or
+                        // CREATE TABLE partitioned/unpartitioned table (without data)
+                        if (pathExists(context, hdfsEnvironment, targetPath)) {
+                            if (currentPath.isPresent() && currentPath.get().equals(targetPath)) {
+                                // It is okay to skip directory creation when currentPath is equal to targetPath
+                                // because the directory may have been created when creating partition directories.
+                                // However, it is important to note that the two being equal does not guarantee
+                                // a directory had been created.
+                            }
+                            else {
+                                throw new TrinoException(
+                                        HIVE_PATH_ALREADY_EXISTS,
+                                        format("Unable to create directory %s: target directory already exists", targetPath));
+                            }
+                        }
+                        else {
+                            cleanUpTasksForAbort.add(new DirectoryCleanUpTask(context, targetPath, true));
+                            createDirectory(context, hdfsEnvironment, targetPath);
+                        }
                     }
                 }
+                // if targetLocation is not set in table we assume table directory is created by HMS
             }
             addTableOperations.add(new CreateTableOperation(tableAndMore.getIdentity(), table, tableAndMore.getPrincipalPrivileges(), tableAndMore.isIgnoreExisting()));
             if (!isPrestoView(table)) {
@@ -2031,7 +2044,7 @@ public class SemiTransactionalHiveMetastore
                     logCleanupFailure("Failed to rollback: add_partition for partitions %s.%s %s",
                             partitionAdder.getSchemaName(),
                             partitionAdder.getTableName(),
-                            partitionsFailedToRollback.stream());
+                            partitionsFailedToRollback);
                 }
             }
         }
@@ -2296,6 +2309,7 @@ public class SemiTransactionalHiveMetastore
         return parent.equals(child);
     }
 
+    @FormatMethod
     private void logCleanupFailure(String format, Object... args)
     {
         if (throwOnCleanupFailure) {
@@ -2304,6 +2318,7 @@ public class SemiTransactionalHiveMetastore
         log.warn(format, args);
     }
 
+    @FormatMethod
     private void logCleanupFailure(Throwable t, String format, Object... args)
     {
         if (throwOnCleanupFailure) {
@@ -2441,7 +2456,7 @@ public class SemiTransactionalHiveMetastore
                 boolean eligible = false;
                 // don't delete hidden Trino directories use by FileHiveMetastore
                 if (!fileName.startsWith(".trino")) {
-                    eligible = queryIds.stream().anyMatch(id -> fileName.startsWith(id) || fileName.endsWith(id));
+                    eligible = queryIds.stream().anyMatch(id -> isFileCreatedByQuery(fileName, id));
                 }
                 if (eligible) {
                     if (!deleteIfExists(fileSystem, filePath, false)) {
@@ -2684,7 +2699,7 @@ public class SemiTransactionalHiveMetastore
             this.statistics = requireNonNull(statistics, "statistics is null");
             this.statisticsUpdate = requireNonNull(statisticsUpdate, "statisticsUpdate is null");
 
-            checkArgument(!table.getStorage().getLocation().isEmpty() || currentLocation.isEmpty(), "currentLocation cannot be supplied for table without location");
+            checkArgument(!table.getStorage().getOptionalLocation().orElse("").isEmpty() || currentLocation.isEmpty(), "currentLocation cannot be supplied for table without location");
             checkArgument(fileNames.isEmpty() || currentLocation.isPresent(), "fileNames can be supplied only when currentLocation is supplied");
         }
 

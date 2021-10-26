@@ -31,6 +31,7 @@ import io.trino.server.DynamicFilterService;
 import io.trino.spi.TrinoException;
 import io.trino.split.RemoteSplit;
 import io.trino.sql.planner.PlanFragment;
+import io.trino.sql.planner.plan.DynamicFilterId;
 import io.trino.sql.planner.plan.PlanFragmentId;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.sql.planner.plan.RemoteSourceNode;
@@ -46,7 +47,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -62,8 +62,10 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.Sets.newConcurrentHashSet;
 import static io.airlift.http.client.HttpUriBuilder.uriBuilderFrom;
+import static io.trino.SystemSessionProperties.isEnableCoordinatorDynamicFiltersDistribution;
 import static io.trino.failuredetector.FailureDetector.State.GONE;
 import static io.trino.operator.ExchangeOperator.REMOTE_CONNECTOR_ID;
+import static io.trino.server.DynamicFilterService.getOutboundDynamicFilters;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.REMOTE_HOST_GONE;
 import static java.util.Objects.requireNonNull;
@@ -106,6 +108,8 @@ public final class SqlStageExecution
     private final AtomicReference<OutputBuffers> outputBuffers = new AtomicReference<>();
 
     private final ListenerManager<Set<Lifespan>> completedLifespansChangeListeners = new ListenerManager<>();
+
+    private final Set<DynamicFilterId> outboundDynamicFilterIds;
 
     public static SqlStageExecution createSqlStageExecution(
             StageId stageId,
@@ -167,6 +171,12 @@ public final class SqlStageExecution
             }
         }
         this.exchangeSources = fragmentToExchangeSource.build();
+        if (isEnableCoordinatorDynamicFiltersDistribution(stateMachine.getSession())) {
+            this.outboundDynamicFilterIds = getOutboundDynamicFilters(stateMachine.getFragment());
+        }
+        else {
+            this.outboundDynamicFilterIds = ImmutableSet.of();
+        }
     }
 
     // this is a separate method to ensure that the `this` reference is not leaked during construction
@@ -241,9 +251,6 @@ public final class SqlStageExecution
             return;
         }
 
-        if (getAllTasks().stream().anyMatch(task -> getState() == StageState.RUNNING)) {
-            stateMachine.transitionToRunning();
-        }
         if (isFlushing()) {
             stateMachine.transitionToFlushing();
         }
@@ -286,7 +293,7 @@ public final class SqlStageExecution
         return stateMachine.getTotalMemoryReservation();
     }
 
-    public synchronized Duration getTotalCpuTime()
+    public Duration getTotalCpuTime()
     {
         long millis = getAllTasks().stream()
                 .mapToLong(task -> task.getTaskInfo().getStats().getTotalCpuTime().toMillis())
@@ -381,7 +388,7 @@ public final class SqlStageExecution
                 .collect(toImmutableList());
     }
 
-    public synchronized Optional<RemoteTask> scheduleTask(InternalNode node, int partition, OptionalInt totalPartitions)
+    public synchronized Optional<RemoteTask> scheduleTask(InternalNode node, int partition)
     {
         requireNonNull(node, "node is null");
 
@@ -389,7 +396,7 @@ public final class SqlStageExecution
             return Optional.empty();
         }
         checkState(!splitsScheduled.get(), "scheduleTask cannot be called once splits have been scheduled");
-        return Optional.of(scheduleTask(node, new TaskId(stateMachine.getStageId(), partition), ImmutableMultimap.of(), totalPartitions));
+        return Optional.of(scheduleTask(node, new TaskId(stateMachine.getStageId(), partition), ImmutableMultimap.of()));
     }
 
     public synchronized Set<RemoteTask> scheduleSplits(InternalNode node, Multimap<PlanNodeId, Split> splits, Multimap<PlanNodeId, Lifespan> noMoreSplitsNotification)
@@ -411,7 +418,7 @@ public final class SqlStageExecution
             // The output buffer depends on the task id starting from 0 and being sequential, since each
             // task is assigned a private buffer based on task id.
             TaskId taskId = new TaskId(stateMachine.getStageId(), nextTaskId.getAndIncrement());
-            task = scheduleTask(node, taskId, splits, OptionalInt.empty());
+            task = scheduleTask(node, taskId, splits);
             newTasks.add(task);
         }
         else {
@@ -430,7 +437,7 @@ public final class SqlStageExecution
         return newTasks.build();
     }
 
-    private synchronized RemoteTask scheduleTask(InternalNode node, TaskId taskId, Multimap<PlanNodeId, Split> sourceSplits, OptionalInt totalPartitions)
+    private synchronized RemoteTask scheduleTask(InternalNode node, TaskId taskId, Multimap<PlanNodeId, Split> sourceSplits)
     {
         checkArgument(!allTasks.contains(taskId), "A task with id %s already exists", taskId);
 
@@ -453,9 +460,9 @@ public final class SqlStageExecution
                 node,
                 stateMachine.getFragment(),
                 initialSplits.build(),
-                totalPartitions,
                 outputBuffers,
                 nodeTaskMap.createPartitionedSplitCountTracker(node, taskId),
+                outboundDynamicFilterIds,
                 summarizeTaskInfo);
 
         completeSources.forEach(task::noMoreSplits);

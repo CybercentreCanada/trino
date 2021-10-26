@@ -24,6 +24,7 @@ import io.trino.testing.MaterializedResult;
 import io.trino.testing.ResultWithQueryId;
 import io.trino.testing.TestingConnectorBehavior;
 import io.trino.testing.sql.TestTable;
+import io.trino.testing.sql.TestView;
 import org.testng.annotations.Test;
 
 import java.util.Optional;
@@ -110,7 +111,7 @@ public abstract class BaseOracleConnectorTest
     {
         return new TestTable(
                 onRemoteDatabase(),
-                "test_default_columns",
+                "test_default_cols",
                 "(col_required decimal(20,0) NOT NULL," +
                         "col_nullable decimal(20,0)," +
                         "col_default decimal(20,0) DEFAULT 43," +
@@ -282,6 +283,59 @@ public abstract class BaseOracleConnectorTest
     }
 
     @Override
+    public void testCharVarcharComparison()
+    {
+        // test overridden because super uses all-space char values ('  ') that are null-out by Oracle
+
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_char_varchar",
+                "(k, v) AS VALUES" +
+                        "   (-1, CAST(NULL AS char(3))), " +
+                        "   (3, CAST('x  ' AS char(3)))")) {
+            assertQuery(
+                    "SELECT k, v FROM " + table.getName() + " WHERE v = CAST('x ' AS varchar(2))",
+                    // The value is included because both sides of the comparison are coerced to char(3)
+                    "VALUES (3, 'x  ')");
+
+            assertQuery(
+                    "SELECT k, v FROM " + table.getName() + " WHERE v = CAST('x ' AS varchar(4))",
+                    // The value is included because both sides of the comparison are coerced to char(4)
+                    "VALUES (3, 'x  ')");
+        }
+    }
+
+    @Override
+    public void testVarcharCharComparison()
+    {
+        // test overridden because Oracle nulls-out '' varchar value, impacting results
+
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_varchar_char",
+                "(k, v) AS VALUES" +
+                        "   (-1, CAST(NULL AS varchar(3))), " +
+                        "   (0, CAST('' AS varchar(3)))," + // '' gets replaced with null in Oracle
+                        "   (1, CAST(' ' AS varchar(3))), " +
+                        "   (2, CAST('  ' AS varchar(3))), " +
+                        "   (3, CAST('   ' AS varchar(3)))," +
+                        "   (4, CAST('x' AS varchar(3)))," +
+                        "   (5, CAST('x ' AS varchar(3)))," +
+                        "   (6, CAST('x  ' AS varchar(3)))")) {
+            assertQuery(
+                    "SELECT k, v FROM " + table.getName() + " WHERE v = CAST('  ' AS char(2))",
+                    // The 3-spaces value is included because both sides of the comparison are coerced to char(3)
+                    "VALUES (1, ' '), (2, '  '), (3, '   ')");
+
+            // value that's not all-spaces
+            assertQuery(
+                    "SELECT k, v FROM " + table.getName() + " WHERE v = CAST('x ' AS char(2))",
+                    // The 3-spaces value is included because both sides of the comparison are coerced to char(3)
+                    "VALUES (4, 'x'), (5, 'x '), (6, 'x  ')");
+        }
+    }
+
+    @Override
     public void testAggregationWithUnsupportedResultType()
     {
         // Overridden because for approx_set(bigint) a ProjectNode is present above table scan because Oracle doesn't support bigint
@@ -311,7 +365,7 @@ public abstract class BaseOracleConnectorTest
     @Test
     public void testViews()
     {
-        try (TestView view = new TestView(onRemoteDatabase(), getUser() + ".test_view", "AS SELECT 'O' as status FROM dual")) {
+        try (TestView view = new TestView(onRemoteDatabase(), getUser() + ".test_view", "SELECT 'O' as status FROM dual")) {
             assertQuery("SELECT status FROM " + view.getName(), "SELECT 'O'");
         }
     }
@@ -409,7 +463,8 @@ public abstract class BaseOracleConnectorTest
 
     private void predicatePushdownTest(String oracleType, String oracleLiteral, String operator, String filterLiteral)
     {
-        String tableName = "test_pdown_" + oracleType.replaceAll("[^a-zA-Z0-9]", "");
+        String tableName = ("test_pdown_" + oracleType.replaceAll("[^a-zA-Z0-9]", ""))
+                .replaceFirst("^(.{18}).*", "$1__");
         try (TestTable table = new TestTable(onRemoteDatabase(), getUser() + "." + tableName, format("(c %s)", oracleType))) {
             onRemoteDatabase().execute(format("INSERT INTO %s VALUES (%s)", table.getName(), oracleLiteral));
 

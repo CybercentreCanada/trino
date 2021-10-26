@@ -76,6 +76,12 @@ public abstract class AbstractTestDistributedQueries
         return true;
     }
 
+    private boolean supportsDropSchema()
+    {
+        // A connector either supports CREATE SCHEMA and DROP SCHEMA or none of them.
+        return supportsCreateSchema();
+    }
+
     protected boolean supportsCreateTable()
     {
         return true;
@@ -132,11 +138,11 @@ public abstract class AbstractTestDistributedQueries
     {
         String tableName = "test_create_" + randomTableSuffix();
         if (!supportsCreateTable()) {
-            assertQueryFails("CREATE TABLE " + tableName + " (a bigint, b double, c varchar)", "This connector does not support creating tables");
+            assertQueryFails("CREATE TABLE " + tableName + " (a bigint, b double, c varchar(50))", "This connector does not support creating tables");
             return;
         }
 
-        assertUpdate("CREATE TABLE " + tableName + " (a bigint, b double, c varchar)");
+        assertUpdate("CREATE TABLE " + tableName + " (a bigint, b double, c varchar(50))");
         assertTrue(getQueryRunner().tableExists(getSession(), tableName));
         assertTableColumnNames(tableName, "a", "b", "c");
 
@@ -147,12 +153,12 @@ public abstract class AbstractTestDistributedQueries
         assertFalse(getQueryRunner().tableExists(getSession(), tableName));
 
         // TODO (https://github.com/trinodb/trino/issues/5901) revert to longer name when Oracle version is updated
-        tableName = "test_cr_tab_not_exists_" + randomTableSuffix();
-        assertUpdate("CREATE TABLE " + tableName + " (a bigint, b varchar, c double)");
+        tableName = "test_cr_not_exists_" + randomTableSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (a bigint, b varchar(50), c double)");
         assertTrue(getQueryRunner().tableExists(getSession(), tableName));
         assertTableColumnNames(tableName, "a", "b", "c");
 
-        assertUpdate("CREATE TABLE IF NOT EXISTS " + tableName + " (d bigint, e varchar)");
+        assertUpdate("CREATE TABLE IF NOT EXISTS " + tableName + " (d bigint, e varchar(50))");
         assertTrue(getQueryRunner().tableExists(getSession(), tableName));
         assertTableColumnNames(tableName, "a", "b", "c");
 
@@ -160,13 +166,13 @@ public abstract class AbstractTestDistributedQueries
         assertFalse(getQueryRunner().tableExists(getSession(), tableName));
 
         // Test CREATE TABLE LIKE
-        tableName = "test_create_original_" + randomTableSuffix();
-        assertUpdate("CREATE TABLE " + tableName + " (a bigint, b double, c varchar)");
+        tableName = "test_create_orig_" + randomTableSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (a bigint, b double, c varchar(50))");
         assertTrue(getQueryRunner().tableExists(getSession(), tableName));
         assertTableColumnNames(tableName, "a", "b", "c");
 
         String tableNameLike = "test_create_like_" + randomTableSuffix();
-        assertUpdate("CREATE TABLE " + tableNameLike + " (LIKE " + tableName + ", d bigint, e varchar)");
+        assertUpdate("CREATE TABLE " + tableNameLike + " (LIKE " + tableName + ", d bigint, e varchar(50))");
         assertTrue(getQueryRunner().tableExists(getSession(), tableNameLike));
         assertTableColumnNames(tableNameLike, "a", "b", "c", "d", "e");
 
@@ -288,7 +294,7 @@ public abstract class AbstractTestDistributedQueries
         assertUpdate("ALTER TABLE " + tableName + " RENAME TO " + renamedTable);
         assertQuery("SELECT x FROM " + renamedTable, "VALUES 123");
 
-        String testExistsTableName = "test_rename_new_exists_" + randomTableSuffix();
+        String testExistsTableName = "test_rename_exists_" + randomTableSuffix();
         assertUpdate("ALTER TABLE IF EXISTS " + renamedTable + " RENAME TO " + testExistsTableName);
         assertQuery("SELECT x FROM " + testExistsTableName, "VALUES 123");
 
@@ -482,7 +488,7 @@ public abstract class AbstractTestDistributedQueries
         assertQueryFails("ALTER TABLE " + tableName + " ADD COLUMN X bigint", ".* Column 'X' already exists");
         assertQueryFails("ALTER TABLE " + tableName + " ADD COLUMN q bad_type", ".* Unknown type 'bad_type' for column 'q'");
 
-        assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN a varchar");
+        assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN a varchar(50)");
         assertUpdate("INSERT INTO " + tableName + " SELECT 'second', 'xxx'", 1);
         assertQuery(
                 "SELECT x, a FROM " + tableName,
@@ -494,8 +500,8 @@ public abstract class AbstractTestDistributedQueries
                 "SELECT x, a, b FROM " + tableName,
                 "VALUES ('first', NULL, NULL), ('second', 'xxx', NULL), ('third', 'yyy', 33.3)");
 
-        assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN IF NOT EXISTS c varchar");
-        assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN IF NOT EXISTS c varchar");
+        assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN IF NOT EXISTS c varchar(50)");
+        assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN IF NOT EXISTS c varchar(50)");
         assertUpdate("INSERT INTO " + tableName + " SELECT 'fourth', 'zzz', 55.3E0, 'newColumn'", 1);
         assertQuery(
                 "SELECT x, a, b, c FROM " + tableName,
@@ -560,13 +566,13 @@ public abstract class AbstractTestDistributedQueries
 
         String tableName = "test_insert_unicode_" + randomTableSuffix();
 
-        assertUpdate("CREATE TABLE " + tableName + "(test varchar)");
+        assertUpdate("CREATE TABLE " + tableName + "(test varchar(50))");
         assertUpdate("INSERT INTO " + tableName + "(test) VALUES 'Hello', U&'hello\\6d4B\\8Bd5\\+10FFFFworld\\7F16\\7801' ", 2);
         assertThat(computeActual("SELECT test FROM " + tableName).getOnlyColumnAsSet())
                 .containsExactlyInAnyOrder("Hello", "hello测试􏿿world编码");
         assertUpdate("DROP TABLE " + tableName);
 
-        assertUpdate("CREATE TABLE " + tableName + "(test varchar)");
+        assertUpdate("CREATE TABLE " + tableName + "(test varchar(50))");
         assertUpdate("INSERT INTO " + tableName + "(test) VALUES 'aa', 'bé'", 2);
         assertQuery("SELECT test FROM " + tableName, "VALUES 'aa', 'bé'");
         assertQuery("SELECT test FROM " + tableName + " WHERE test = 'aa'", "VALUES 'aa'");
@@ -575,7 +581,7 @@ public abstract class AbstractTestDistributedQueries
         assertQueryReturnsEmptyResult("SELECT test FROM " + tableName + " WHERE test = 'ba'");
         assertUpdate("DROP TABLE " + tableName);
 
-        assertUpdate("CREATE TABLE " + tableName + "(test varchar)");
+        assertUpdate("CREATE TABLE " + tableName + "(test varchar(50))");
         assertUpdate("INSERT INTO " + tableName + "(test) VALUES 'a', 'é'", 2);
         assertQuery("SELECT test FROM " + tableName, "VALUES 'a', 'é'");
         assertQuery("SELECT test FROM " + tableName + " WHERE test = 'a'", "VALUES 'a'");
@@ -610,25 +616,11 @@ public abstract class AbstractTestDistributedQueries
     @Test
     public void testDelete()
     {
-        if (!supportsDelete()) {
-            assertQueryFails("DELETE FROM nation", "This connector does not support deletes");
-            return;
-        }
+        skipTestUnlessSupportsDeletes();
 
         String tableName = "test_delete_" + randomTableSuffix();
-        assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM orders", "SELECT count(*) FROM orders");
-
-        // delete half the table, then delete the rest
-        assertUpdate("DELETE FROM " + tableName + " WHERE orderkey % 2 = 0", "SELECT count(*) FROM orders WHERE orderkey % 2 = 0");
-        assertQuery("SELECT * FROM " + tableName, "SELECT * FROM orders WHERE orderkey % 2 <> 0");
-
-        assertUpdate("DELETE FROM " + tableName, "SELECT count(*) FROM orders WHERE orderkey % 2 <> 0");
-        assertQuery("SELECT * FROM " + tableName, "SELECT * FROM orders LIMIT 0");
-
-        assertUpdate("DROP TABLE " + tableName);
 
         // delete successive parts of the table
-
         assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM orders", "SELECT count(*) FROM orders");
 
         assertUpdate("DELETE FROM " + tableName + " WHERE custkey <= 100", "SELECT count(*) FROM orders WHERE custkey <= 100");
@@ -642,30 +634,58 @@ public abstract class AbstractTestDistributedQueries
 
         assertUpdate("DROP TABLE " + tableName);
 
-        // delete using a constant property
-
-        assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM orders", "SELECT count(*) FROM orders");
-
-        assertUpdate("DELETE FROM " + tableName + " WHERE orderstatus = 'O'", "SELECT count(*) FROM orders WHERE orderstatus = 'O'");
-        assertQuery("SELECT * FROM " + tableName, "SELECT * FROM orders WHERE orderstatus <> 'O'");
-
-        assertUpdate("DROP TABLE " + tableName);
-
         // delete without matching any rows
-
         assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM orders", "SELECT count(*) FROM orders");
-        assertUpdate("DELETE FROM " + tableName + " WHERE rand() < 0", 0);
         assertUpdate("DELETE FROM " + tableName + " WHERE orderkey < 0", 0);
         assertUpdate("DROP TABLE " + tableName);
 
         // delete with a predicate that optimizes to false
-
         assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM orders", "SELECT count(*) FROM orders");
         assertUpdate("DELETE FROM " + tableName + " WHERE orderkey > 5 AND orderkey < 4", 0);
         assertUpdate("DROP TABLE " + tableName);
 
-        // delete using a subquery
+        // test EXPLAIN ANALYZE with CTAS
+        assertExplainAnalyze("EXPLAIN ANALYZE CREATE TABLE " + tableName + " AS SELECT CAST(orderstatus AS VARCHAR(15)) orderstatus FROM orders");
+        assertQuery("SELECT * from " + tableName, "SELECT orderstatus FROM orders");
+        // check that INSERT works also
+        assertExplainAnalyze("EXPLAIN ANALYZE INSERT INTO " + tableName + " SELECT clerk FROM orders");
+        assertQuery("SELECT * from " + tableName, "SELECT orderstatus FROM orders UNION ALL SELECT clerk FROM orders");
+        // check DELETE works with EXPLAIN ANALYZE
+        assertExplainAnalyze("EXPLAIN ANALYZE DELETE FROM " + tableName + " WHERE TRUE");
+        assertQuery("SELECT COUNT(*) from " + tableName, "SELECT 0");
+        assertUpdate("DROP TABLE " + tableName);
+    }
 
+    @Test
+    public void testDeleteWithComplexPredicate()
+    {
+        skipTestUnlessSupportsDeletes();
+
+        // TODO (https://github.com/trinodb/trino/issues/5901) Use longer table name once Oracle version is updated
+        String tableName = "test_delete_complex_" + randomTableSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM orders", "SELECT count(*) FROM orders");
+
+        // delete half the table, then delete the rest
+        assertUpdate("DELETE FROM " + tableName + " WHERE orderkey % 2 = 0", "SELECT count(*) FROM orders WHERE orderkey % 2 = 0");
+        assertQuery("SELECT * FROM " + tableName, "SELECT * FROM orders WHERE orderkey % 2 <> 0");
+
+        assertUpdate("DELETE FROM " + tableName, "SELECT count(*) FROM orders WHERE orderkey % 2 <> 0");
+        assertQuery("SELECT * FROM " + tableName, "SELECT * FROM orders LIMIT 0");
+
+        assertUpdate("DELETE FROM " + tableName + " WHERE rand() < 0", 0);
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testDeleteWithSubquery()
+    {
+        skipTestUnlessSupportsDeletes();
+
+        // TODO (https://github.com/trinodb/trino/issues/5901) Use longer table name once Oracle version is updated
+        String tableName = "test_delete_subquery" + randomTableSuffix();
+
+        // delete using a subquery
         assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM nation", 25);
 
         assertUpdate("DELETE FROM " + tableName + " WHERE regionkey IN (SELECT regionkey FROM region WHERE name LIKE 'A%')", 15);
@@ -675,8 +695,24 @@ public abstract class AbstractTestDistributedQueries
 
         assertUpdate("DROP TABLE " + tableName);
 
-        // delete with multiple SemiJoin
+        // delete using a scalar and EXISTS subquery
+        assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM orders", "SELECT count(*) FROM orders");
+        assertUpdate("DELETE FROM " + tableName + " WHERE orderkey = (SELECT orderkey FROM orders ORDER BY orderkey LIMIT 1)", 1);
+        assertUpdate("DELETE FROM " + tableName + " WHERE orderkey = (SELECT orderkey FROM orders WHERE false)", 0);
+        assertUpdate("DELETE FROM " + tableName + " WHERE EXISTS(SELECT 1 WHERE false)", 0);
+        assertUpdate("DELETE FROM " + tableName + " WHERE EXISTS(SELECT 1)", "SELECT count(*) - 1 FROM orders");
+        assertUpdate("DROP TABLE " + tableName);
+    }
 
+    @Test
+    public void testDeleteWithSemiJoin()
+    {
+        skipTestUnlessSupportsDeletes();
+
+        // TODO (https://github.com/trinodb/trino/issues/5901) Use longer table name once Oracle version is updated
+        String tableName = "test_delete_semijoin" + randomTableSuffix();
+
+        // delete with multiple SemiJoin
         assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM nation", 25);
 
         assertUpdate(
@@ -693,7 +729,6 @@ public abstract class AbstractTestDistributedQueries
         assertUpdate("DROP TABLE " + tableName);
 
         // delete with SemiJoin null handling
-
         assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM orders", "SELECT count(*) FROM orders");
 
         assertUpdate(
@@ -707,25 +742,31 @@ public abstract class AbstractTestDistributedQueries
                         "WHERE (orderkey IN (SELECT CASE WHEN orderkey % 3 = 0 THEN NULL ELSE orderkey END FROM lineitem)) IS NOT NULL\n");
 
         assertUpdate("DROP TABLE " + tableName);
+    }
 
-        // delete using a scalar and EXISTS subquery
+    @Test
+    public void testDeleteWithVarcharPredicate()
+    {
+        skipTestUnlessSupportsDeletes();
+
+        String tableName = "test_delete_with_varchar_predicate_" + randomTableSuffix();
         assertUpdate("CREATE TABLE " + tableName + " AS SELECT * FROM orders", "SELECT count(*) FROM orders");
-        assertUpdate("DELETE FROM " + tableName + " WHERE orderkey = (SELECT orderkey FROM orders ORDER BY orderkey LIMIT 1)", 1);
-        assertUpdate("DELETE FROM " + tableName + " WHERE orderkey = (SELECT orderkey FROM orders WHERE false)", 0);
-        assertUpdate("DELETE FROM " + tableName + " WHERE EXISTS(SELECT 1 WHERE false)", 0);
-        assertUpdate("DELETE FROM " + tableName + " WHERE EXISTS(SELECT 1)", "SELECT count(*) - 1 FROM orders");
-        assertUpdate("DROP TABLE " + tableName);
 
-        // test EXPLAIN ANALYZE with CTAS
-        assertExplainAnalyze("EXPLAIN ANALYZE CREATE TABLE " + tableName + " AS SELECT CAST(orderstatus AS VARCHAR(15)) orderstatus FROM orders");
-        assertQuery("SELECT * from " + tableName, "SELECT orderstatus FROM orders");
-        // check that INSERT works also
-        assertExplainAnalyze("EXPLAIN ANALYZE INSERT INTO " + tableName + " SELECT clerk FROM orders");
-        assertQuery("SELECT * from " + tableName, "SELECT orderstatus FROM orders UNION ALL SELECT clerk FROM orders");
-        // check DELETE works with EXPLAIN ANALYZE
-        assertExplainAnalyze("EXPLAIN ANALYZE DELETE FROM " + tableName + " WHERE TRUE");
-        assertQuery("SELECT COUNT(*) from " + tableName, "SELECT 0");
+        assertUpdate("DELETE FROM " + tableName + " WHERE orderstatus = 'O'", "SELECT count(*) FROM orders WHERE orderstatus = 'O'");
+        assertQuery("SELECT * FROM " + tableName, "SELECT * FROM orders WHERE orderstatus <> 'O'");
+
         assertUpdate("DROP TABLE " + tableName);
+    }
+
+    protected void skipTestUnlessSupportsDeletes()
+    {
+        skipTestUnless(supportsCreateTable());
+        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_supports_delete", "(col varchar(1))", ImmutableList.of("'a'", "'A'"))) {
+            if (!supportsDelete()) {
+                assertQueryFails("DELETE FROM " + table.getName(), "This connector does not support deletes");
+                throw new SkipException("This connector does not support deletes");
+            }
+        }
     }
 
     @Test
@@ -983,7 +1024,7 @@ public abstract class AbstractTestDistributedQueries
             DispatchManager dispatchManager = ((DistributedQueryRunner) getQueryRunner()).getCoordinator().getDispatchManager();
             long beforeCompletedQueriesCount = waitUntilStable(() -> dispatchManager.getStats().getCompletedQueries().getTotalCount(), new Duration(5, SECONDS));
             long beforeSubmittedQueriesCount = dispatchManager.getStats().getSubmittedQueries().getTotalCount();
-            String tableName = "test_query_logging_count" + randomTableSuffix();
+            String tableName = "test_logging_count" + randomTableSuffix();
             assertUpdate("CREATE TABLE " + tableName + " AS SELECT 1 foo_1, 2 foo_2_4", 1);
             assertQuery("SELECT foo_1, foo_2_4 FROM " + tableName, "SELECT 1, 2");
             assertUpdate("DROP TABLE " + tableName);
@@ -1059,6 +1100,14 @@ public abstract class AbstractTestDistributedQueries
     }
 
     @Test
+    public void testShowCreateSchema()
+    {
+        String schemaName = getSession().getSchema().orElseThrow();
+        assertThat((String) computeScalar("SHOW CREATE SCHEMA " + schemaName))
+                .isEqualTo(format("CREATE SCHEMA %s.%s", getSession().getCatalog().orElseThrow(), schemaName));
+    }
+
+    @Test
     public void testCreateSchema()
     {
         String schemaName = "test_schema_create_" + randomTableSuffix();
@@ -1068,10 +1117,37 @@ public abstract class AbstractTestDistributedQueries
         }
         assertThat(computeActual("SHOW SCHEMAS").getOnlyColumnAsSet()).doesNotContain(schemaName);
         assertUpdate("CREATE SCHEMA " + schemaName);
+
+        // verify listing of new schema
         assertThat(computeActual("SHOW SCHEMAS").getOnlyColumnAsSet()).contains(schemaName);
+
+        // verify SHOW CREATE SCHEMA works
+        assertThat((String) computeScalar("SHOW CREATE SCHEMA " + schemaName))
+                .startsWith(format("CREATE SCHEMA %s.%s", getSession().getCatalog().orElseThrow(), schemaName));
+
+        // try to create duplicate schema
         assertQueryFails("CREATE SCHEMA " + schemaName, format("line 1:1: Schema '.*\\.%s' already exists", schemaName));
+
+        // cleanup
         assertUpdate("DROP SCHEMA " + schemaName);
+
+        // verify DROP SCHEMA for non-existing schema
         assertQueryFails("DROP SCHEMA " + schemaName, format("line 1:1: Schema '.*\\.%s' does not exist", schemaName));
+    }
+
+    @Test
+    public void testDropNonEmptySchema()
+    {
+        String schemaName = "test_drop_non_empty_schema_" + randomTableSuffix();
+        if (!supportsDropSchema()) {
+            return;
+        }
+
+        assertUpdate("CREATE SCHEMA " + schemaName);
+        assertUpdate("CREATE TABLE " + schemaName + ".t(x int)");
+        assertQueryFails("DROP SCHEMA " + schemaName, ".*Cannot drop non-empty schema '\\Q" + schemaName + "\\E'");
+        assertUpdate("DROP TABLE " + schemaName + ".t");
+        assertUpdate("DROP SCHEMA " + schemaName);
     }
 
     @Test
@@ -1111,11 +1187,11 @@ public abstract class AbstractTestDistributedQueries
         if (delimited) {
             nameInSql = "\"" + columnName.replace("\"", "\"\"") + "\"";
         }
-        String tableName = "tcn_" + nameInSql.toLowerCase(ENGLISH).replaceAll("[^a-z0-9]", "_") + "_" + randomTableSuffix();
+        String tableName = "tcn_" + nameInSql.toLowerCase(ENGLISH).replaceAll("[^a-z0-9]", "") + randomTableSuffix();
 
         try {
             // TODO test with both CTAS *and* CREATE TABLE + INSERT, since they use different connector API methods.
-            assertUpdate("CREATE TABLE " + tableName + "(key varchar, " + nameInSql + " varchar)");
+            assertUpdate("CREATE TABLE " + tableName + "(key varchar(50), " + nameInSql + " varchar(50))");
         }
         catch (RuntimeException e) {
             if (isColumnNameRejected(e, columnName, delimited)) {
@@ -1144,7 +1220,7 @@ public abstract class AbstractTestDistributedQueries
         return false;
     }
 
-    private static boolean requiresDelimiting(String identifierName)
+    protected static boolean requiresDelimiting(String identifierName)
     {
         return !identifierName.matches("[a-zA-Z][a-zA-Z0-9_]*");
     }
@@ -1215,7 +1291,7 @@ public abstract class AbstractTestDistributedQueries
             // TODO test with both CTAS *and* CREATE TABLE + INSERT, since they use different connector API methods.
             String createTable = "" +
                     "CREATE TABLE " + tableName + " AS " +
-                    "SELECT CAST(row_id AS varchar) row_id, CAST(value AS " + trinoTypeName + ") value " +
+                    "SELECT CAST(row_id AS varchar(50)) row_id, CAST(value AS " + trinoTypeName + ") value " +
                     "FROM (VALUES " +
                     "  ('null value', NULL), " +
                     "  ('sample value', " + sampleValueLiteral + "), " +

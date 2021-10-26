@@ -18,8 +18,9 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
+import io.trino.spi.Mergeable;
+import io.trino.spi.metrics.Metrics;
 import io.trino.sql.planner.plan.PlanNodeId;
-import io.trino.util.Mergeable;
 
 import javax.annotation.Nullable;
 import javax.annotation.concurrent.Immutable;
@@ -63,6 +64,8 @@ public class OperatorStats
     private final long outputPositions;
 
     private final long dynamicFilterSplitsProcessed;
+    private final Metrics metrics;
+    private final Metrics connectorMetrics;
 
     private final DataSize physicalWrittenDataSize;
 
@@ -115,6 +118,8 @@ public class OperatorStats
             @JsonProperty("outputPositions") long outputPositions,
 
             @JsonProperty("dynamicFilterSplitsProcessed") long dynamicFilterSplitsProcessed,
+            @JsonProperty("metrics") Metrics metrics,
+            @JsonProperty("connectorMetrics") Metrics connectorMetrics,
 
             @JsonProperty("physicalWrittenDataSize") DataSize physicalWrittenDataSize,
 
@@ -169,6 +174,8 @@ public class OperatorStats
         this.outputPositions = outputPositions;
 
         this.dynamicFilterSplitsProcessed = dynamicFilterSplitsProcessed;
+        this.metrics = requireNonNull(metrics, "metrics is null");
+        this.connectorMetrics = requireNonNull(connectorMetrics, "connectorMetrics is null");
 
         this.physicalWrittenDataSize = requireNonNull(physicalWrittenDataSize, "physicalWrittenDataSize is null");
 
@@ -333,6 +340,18 @@ public class OperatorStats
     }
 
     @JsonProperty
+    public Metrics getMetrics()
+    {
+        return metrics;
+    }
+
+    @JsonProperty
+    public Metrics getConnectorMetrics()
+    {
+        return connectorMetrics;
+    }
+
+    @JsonProperty
     public DataSize getPhysicalWrittenDataSize()
     {
         return physicalWrittenDataSize;
@@ -451,6 +470,8 @@ public class OperatorStats
         long outputPositions = this.outputPositions;
 
         long dynamicFilterSplitsProcessed = this.dynamicFilterSplitsProcessed;
+        Metrics.Accumulator metricsAccumulator = Metrics.accumulator().add(this.getMetrics());
+        Metrics.Accumulator connectorMetricsAccumulator = Metrics.accumulator().add(this.getConnectorMetrics());
 
         long physicalWrittenDataSize = this.physicalWrittenDataSize.toBytes();
 
@@ -498,6 +519,8 @@ public class OperatorStats
             outputPositions += operator.getOutputPositions();
 
             dynamicFilterSplitsProcessed += operator.getDynamicFilterSplitsProcessed();
+            metricsAccumulator.add(operator.getMetrics());
+            connectorMetricsAccumulator.add(operator.getConnectorMetrics());
 
             physicalWrittenDataSize += operator.getPhysicalWrittenDataSize().toBytes();
 
@@ -557,6 +580,8 @@ public class OperatorStats
                 outputPositions,
 
                 dynamicFilterSplitsProcessed,
+                metricsAccumulator.get(),
+                connectorMetricsAccumulator.get(),
 
                 succinctBytes(physicalWrittenDataSize),
 
@@ -623,6 +648,8 @@ public class OperatorStats
                 outputDataSize,
                 outputPositions,
                 dynamicFilterSplitsProcessed,
+                metrics,
+                connectorMetrics,
                 physicalWrittenDataSize,
                 blockedWall,
                 finishCalls,

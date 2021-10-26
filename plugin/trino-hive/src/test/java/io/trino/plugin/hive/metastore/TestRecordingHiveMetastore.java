@@ -21,9 +21,9 @@ import io.airlift.json.JsonCodecFactory;
 import io.airlift.json.ObjectMapperProvider;
 import io.airlift.slice.Slices;
 import io.airlift.units.Duration;
+import io.trino.plugin.base.TypeDeserializer;
 import io.trino.plugin.hive.HiveBasicStatistics;
 import io.trino.plugin.hive.HiveBucketProperty;
-import io.trino.plugin.hive.HiveModule;
 import io.trino.plugin.hive.HiveType;
 import io.trino.plugin.hive.PartitionStatistics;
 import io.trino.plugin.hive.RecordingMetastoreConfig;
@@ -76,7 +76,7 @@ public class TestRecordingHiveMetastore
             Optional.of("comment"));
     private static final Storage TABLE_STORAGE = new Storage(
             StorageFormat.create("serde", "input", "output"),
-            "location",
+            Optional.of("location"),
             Optional.of(new HiveBucketProperty(ImmutableList.of("column"), BUCKETING_V1, 10, ImmutableList.of(new SortingColumn("column", Order.ASCENDING)))),
             true,
             ImmutableMap.of("param", "value2"));
@@ -146,7 +146,7 @@ public class TestRecordingHiveMetastore
     private JsonCodec<RecordingHiveMetastore.Recording> createJsonCodec()
     {
         ObjectMapperProvider objectMapperProvider = new ObjectMapperProvider();
-        HiveModule.TypeDeserializer typeDeserializer = new HiveModule.TypeDeserializer(new TestingTypeManager());
+        TypeDeserializer typeDeserializer = new TypeDeserializer(new TestingTypeManager());
         objectMapperProvider.setJsonDeserializers(
                 ImmutableMap.of(
                         Block.class, new TestingBlockJsonSerde.Deserializer(new HiveBlockEncodingSerde()),

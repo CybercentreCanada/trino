@@ -21,15 +21,19 @@ import io.trino.spi.predicate.SortedRangeSet;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
 import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.BigintType;
+import io.trino.spi.type.BooleanType;
 import io.trino.spi.type.DateType;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Decimals;
+import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.IntegerType;
 import io.trino.spi.type.LongTimestampWithTimeZone;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.RealType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
+import io.trino.spi.type.UuidType;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
 import org.apache.iceberg.expressions.Expression;
@@ -42,8 +46,10 @@ import java.util.Map;
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static io.trino.plugin.iceberg.util.Timestamps.timestampTzToMicros;
 import static io.trino.spi.type.TimeType.TIME_MICROS;
+import static io.trino.spi.type.TimestampType.TIMESTAMP_MICROS;
 import static io.trino.spi.type.TimestampWithTimeZoneType.TIMESTAMP_TZ_MICROS;
 import static io.trino.spi.type.Timestamps.PICOSECONDS_PER_MICROSECOND;
+import static io.trino.spi.type.UuidType.trinoUuidToJavaUuid;
 import static java.lang.Float.intBitsToFloat;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
@@ -94,9 +100,10 @@ public final class ExpressionConverter
             return domain.isNullAllowed() ? alwaysTrue() : not(isNull(columnName));
         }
 
-        // Skip structural types. TODO: Evaluate Apache Iceberg's support for predicate on structural types
+        // Skip structural types. TODO (https://github.com/trinodb/trino/issues/8759) Evaluate Apache Iceberg's support for predicate on structural types
         if (type instanceof ArrayType || type instanceof MapType || type instanceof RowType) {
-            return alwaysTrue();
+            // Fail fast. Ignoring expression could lead to data loss in case of deletions.
+            throw new UnsupportedOperationException("Unsupported type for expression: " + type);
         }
 
         ValueSet domainValues = domain.getValues();
@@ -162,12 +169,24 @@ public final class ExpressionConverter
     {
         requireNonNull(trinoNativeValue, "trinoNativeValue is null");
 
+        if (type instanceof BooleanType) {
+            return (boolean) trinoNativeValue;
+        }
+
         if (type instanceof IntegerType) {
             return toIntExact((long) trinoNativeValue);
         }
 
+        if (type instanceof BigintType) {
+            return (long) trinoNativeValue;
+        }
+
         if (type instanceof RealType) {
             return intBitsToFloat(toIntExact((long) trinoNativeValue));
+        }
+
+        if (type instanceof DoubleType) {
+            return (double) trinoNativeValue;
         }
 
         // TODO: Remove this conversion once we move to next iceberg version
@@ -177,6 +196,10 @@ public final class ExpressionConverter
 
         if (type.equals(TIME_MICROS)) {
             return ((long) trinoNativeValue) / PICOSECONDS_PER_MICROSECOND;
+        }
+
+        if (type.equals(TIMESTAMP_MICROS)) {
+            return (long) trinoNativeValue;
         }
 
         if (type.equals(TIMESTAMP_TZ_MICROS)) {
@@ -191,6 +214,10 @@ public final class ExpressionConverter
             return ByteBuffer.wrap(((Slice) trinoNativeValue).getBytes());
         }
 
+        if (type instanceof UuidType) {
+            return trinoUuidToJavaUuid(((Slice) trinoNativeValue));
+        }
+
         if (type instanceof DecimalType) {
             DecimalType decimalType = (DecimalType) type;
             if (Decimals.isShortDecimal(decimalType)) {
@@ -199,8 +226,6 @@ public final class ExpressionConverter
             return new BigDecimal(Decimals.decodeUnscaledValue((Slice) trinoNativeValue), decimalType.getScale());
         }
 
-        // TODO we should have explicit conversion for all supported types and fail fast on an unsupported type.
-        //  Assuming native representation is the same may lead to subtle bugs.
-        return trinoNativeValue;
+        throw new UnsupportedOperationException("Unsupported type: " + type);
     }
 }

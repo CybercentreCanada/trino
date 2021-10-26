@@ -26,6 +26,7 @@ import io.trino.spi.type.Type;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
 import org.apache.parquet.schema.GroupType;
+import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.OriginalType;
 import org.apache.parquet.schema.PrimitiveType;
@@ -49,8 +50,6 @@ import static io.trino.spi.type.StandardTypes.ROW;
 import static io.trino.spi.type.TinyintType.TINYINT;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
-import static org.apache.parquet.schema.OriginalType.TIMESTAMP_MICROS;
-import static org.apache.parquet.schema.OriginalType.TIMESTAMP_MILLIS;
 import static org.apache.parquet.schema.Type.Repetition.OPTIONAL;
 
 public class ParquetSchemaConverter
@@ -134,10 +133,15 @@ public class ParquetSchemaConverter
             TimestampType timestampType = (TimestampType) type;
 
             if (timestampType.getPrecision() <= 3) {
-                return Types.primitive(PrimitiveType.PrimitiveTypeName.INT64, OPTIONAL).as(TIMESTAMP_MILLIS).named(name);
+                return Types.primitive(PrimitiveType.PrimitiveTypeName.INT64, OPTIONAL).as(LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MILLIS)).named(name);
             }
             if (timestampType.getPrecision() <= 6) {
-                return Types.primitive(PrimitiveType.PrimitiveTypeName.INT64, OPTIONAL).as(TIMESTAMP_MICROS).named(name);
+                return Types.primitive(PrimitiveType.PrimitiveTypeName.INT64, OPTIONAL).as(LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.MICROS)).named(name);
+            }
+            if (timestampType.getPrecision() <= 9) {
+                // Per https://github.com/apache/parquet-format/blob/master/LogicalTypes.md, nanosecond precision timestamp should be stored as INT64
+                // even though it can only hold values within 1677-09-21 00:12:43 and 2262-04-11 23:47:16 range.
+                return Types.primitive(PrimitiveType.PrimitiveTypeName.INT64, OPTIONAL).as(LogicalTypeAnnotation.timestampType(false, LogicalTypeAnnotation.TimeUnit.NANOS)).named(name);
             }
         }
         if (DOUBLE.equals(type)) {

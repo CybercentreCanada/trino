@@ -122,6 +122,11 @@ public abstract class AstVisitor<R, C>
         return visitStatement(node, context);
     }
 
+    protected R visitExplainAnalyze(ExplainAnalyze node, C context)
+    {
+        return visitStatement(node, context);
+    }
+
     protected R visitShowTables(ShowTables node, C context)
     {
         return visitStatement(node, context);
@@ -427,7 +432,7 @@ public abstract class AstVisitor<R, C>
         return visitExpression(node, context);
     }
 
-    protected R visitLogicalBinaryExpression(LogicalBinaryExpression node, C context)
+    protected R visitLogicalExpression(LogicalExpression node, C context)
     {
         return visitExpression(node, context);
     }

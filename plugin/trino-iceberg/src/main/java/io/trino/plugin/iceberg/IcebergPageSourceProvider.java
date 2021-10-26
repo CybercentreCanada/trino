@@ -44,8 +44,10 @@ import io.trino.plugin.hive.orc.OrcPageSource;
 import io.trino.plugin.hive.orc.OrcPageSource.ColumnAdaptation;
 import io.trino.plugin.hive.orc.OrcReaderConfig;
 import io.trino.plugin.hive.parquet.HdfsParquetDataSource;
+import io.trino.plugin.hive.parquet.HiveParquetColumnIOConverter;
 import io.trino.plugin.hive.parquet.ParquetPageSource;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
+import io.trino.plugin.iceberg.IcebergParquetColumnIOConverter.FieldContext;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorPageSource;
@@ -57,6 +59,7 @@ import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
+import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.StandardTypes;
 import io.trino.spi.type.Type;
 import org.apache.hadoop.conf.Configuration;
@@ -70,6 +73,7 @@ import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
 import org.apache.parquet.hadoop.metadata.FileMetaData;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
+import org.apache.parquet.io.ColumnIO;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.schema.MessageType;
 
@@ -95,7 +99,6 @@ import static io.trino.parquet.ParquetTypeUtils.getDescriptors;
 import static io.trino.parquet.ParquetTypeUtils.getParquetTypeByName;
 import static io.trino.parquet.predicate.PredicateUtils.buildPredicate;
 import static io.trino.parquet.predicate.PredicateUtils.predicateMatches;
-import static io.trino.plugin.hive.parquet.ParquetColumnIOConverter.constructField;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_BAD_DATA;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_CANNOT_OPEN_SPLIT;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_CURSOR_ERROR;
@@ -111,8 +114,11 @@ import static io.trino.plugin.iceberg.IcebergSessionProperties.getParquetMaxRead
 import static io.trino.plugin.iceberg.IcebergSessionProperties.isOrcBloomFiltersEnabled;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.isOrcNestedLazy;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.isUseFileSizeFromMetadata;
+import static io.trino.plugin.iceberg.TypeConverter.ICEBERG_BINARY_TYPE;
 import static io.trino.plugin.iceberg.TypeConverter.ORC_ICEBERG_ID_KEY;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
+import static io.trino.spi.type.UuidType.UUID;
+import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static java.lang.String.format;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
@@ -192,7 +198,7 @@ public class IcebergPageSourceProvider
     {
         if (!isUseFileSizeFromMetadata(session)) {
             try {
-                FileStatus fileStatus = hdfsEnvironment.doAs(session.getUser(),
+                FileStatus fileStatus = hdfsEnvironment.doAs(session.getIdentity(),
                         () -> hdfsEnvironment.getFileSystem(hdfsContext, path).getFileStatus(path));
                 fileSize = fileStatus.getLen();
             }
@@ -205,7 +211,7 @@ public class IcebergPageSourceProvider
             case ORC:
                 return createOrcPageSource(
                         hdfsEnvironment,
-                        session.getUser(),
+                        session.getIdentity(),
                         hdfsEnvironment.getConfiguration(hdfsContext, path),
                         path,
                         start,
@@ -226,7 +232,7 @@ public class IcebergPageSourceProvider
             case PARQUET:
                 return createParquetPageSource(
                         hdfsEnvironment,
-                        session.getUser(),
+                        session.getIdentity(),
                         hdfsEnvironment.getConfiguration(hdfsContext, path),
                         path,
                         start,
@@ -244,7 +250,7 @@ public class IcebergPageSourceProvider
 
     private static ConnectorPageSource createOrcPageSource(
             HdfsEnvironment hdfsEnvironment,
-            String user,
+            ConnectorIdentity identity,
             Configuration configuration,
             Path path,
             long start,
@@ -257,8 +263,8 @@ public class IcebergPageSourceProvider
     {
         OrcDataSource orcDataSource = null;
         try {
-            FileSystem fileSystem = hdfsEnvironment.getFileSystem(user, path, configuration);
-            FSDataInputStream inputStream = hdfsEnvironment.doAs(user, () -> fileSystem.open(path));
+            FileSystem fileSystem = hdfsEnvironment.getFileSystem(identity, path, configuration);
+            FSDataInputStream inputStream = hdfsEnvironment.doAs(identity, () -> fileSystem.open(path));
             orcDataSource = new HdfsOrcDataSource(
                     new OrcDataSourceId(path.toString()),
                     fileSize,
@@ -294,8 +300,21 @@ public class IcebergPageSourceProvider
                 else {
                     orcColumn = fileColumnsByIcebergId.get(column.getId());
                 }
-                Type readType = column.getType();
+
                 if (orcColumn != null) {
+                    Type readType;
+                    if (column.getType() == UUID) {
+                        if (!"UUID".equals(orcColumn.getAttributes().get(ICEBERG_BINARY_TYPE))) {
+                            throw new TrinoException(ICEBERG_BAD_DATA, format("Expected ORC column for UUID data to be annotated with %s=UUID: %s", ICEBERG_BINARY_TYPE, orcColumn));
+                        }
+                        // ORC spec doesn't have UUID
+                        // TODO read into Int128ArrayBlock for better performance when operating on read values
+                        readType = VARBINARY;
+                    }
+                    else {
+                        readType = column.getType();
+                    }
+
                     int sourceIndex = fileReadColumns.size();
                     columnAdaptations.add(ColumnAdaptation.sourceColumn(sourceIndex));
                     fileReadColumns.add(orcColumn);
@@ -307,7 +326,7 @@ public class IcebergPageSourceProvider
                     }
                 }
                 else {
-                    columnAdaptations.add(ColumnAdaptation.nullColumn(readType));
+                    columnAdaptations.add(ColumnAdaptation.nullColumn(column.getType()));
                 }
             }
 
@@ -426,7 +445,7 @@ public class IcebergPageSourceProvider
 
     private static ConnectorPageSource createParquetPageSource(
             HdfsEnvironment hdfsEnvironment,
-            String user,
+            ConnectorIdentity identity,
             Configuration configuration,
             Path path,
             long start,
@@ -441,11 +460,11 @@ public class IcebergPageSourceProvider
 
         ParquetDataSource dataSource = null;
         try {
-            FileSystem fileSystem = hdfsEnvironment.getFileSystem(user, path, configuration);
-            FSDataInputStream inputStream = hdfsEnvironment.doAs(user, () -> fileSystem.open(path));
+            FileSystem fileSystem = hdfsEnvironment.getFileSystem(identity, path, configuration);
+            FSDataInputStream inputStream = hdfsEnvironment.doAs(identity, () -> fileSystem.open(path));
             dataSource = new HdfsParquetDataSource(new ParquetDataSourceId(path.toString()), fileSize, inputStream, fileFormatDataSourceStats, options);
             ParquetDataSource theDataSource = dataSource; // extra variable required for lambda below
-            ParquetMetadata parquetMetadata = hdfsEnvironment.doAs(user, () -> MetadataReader.readFooter(theDataSource));
+            ParquetMetadata parquetMetadata = hdfsEnvironment.doAs(identity, () -> MetadataReader.readFooter(theDataSource));
             FileMetaData fileMetaData = parquetMetadata.getFileMetaData();
             MessageType fileSchema = fileMetaData.getSchema();
 
@@ -454,10 +473,12 @@ public class IcebergPageSourceProvider
                     .filter(field -> field.getId() != null)
                     .collect(toImmutableMap(field -> field.getId().intValue(), Function.identity()));
 
+            // Map by name for a migrated table
+            boolean mapByName = parquetIdToField.isEmpty();
+
             List<org.apache.parquet.schema.Type> parquetFields = regularColumns.stream()
                     .map(column -> {
-                        if (parquetIdToField.isEmpty()) {
-                            // This is a migrated table
+                        if (mapByName) {
                             return getParquetTypeByName(column.getName(), fileSchema);
                         }
                         return parquetIdToField.get(column.getId());
@@ -503,7 +524,11 @@ public class IcebergPageSourceProvider
                     internalFields.add(Optional.empty());
                 }
                 else {
-                    internalFields.add(constructField(column.getType(), messageColumnIO.getChild(parquetField.getName())));
+                    // The top level columns are already mapped by name/id appropriately.
+                    ColumnIO columnIO = messageColumnIO.getChild(parquetField.getName());
+                    internalFields.add(mapByName
+                            ? HiveParquetColumnIOConverter.constructField(trinoType, columnIO)
+                            : IcebergParquetColumnIOConverter.constructField(new FieldContext(trinoType, column.getColumnIdentity()), columnIO));
                 }
             }
 

@@ -23,11 +23,11 @@ data warehouse. Hive is a combination of three components:
 * Data files in varying formats, that are typically stored in the
   Hadoop Distributed File System (HDFS) or in object storage systems
   such as Amazon S3.
-* Metadata about how the data files are mapped to schemas and tables.
-  This metadata is stored in a database, such as MySQL, and is accessed
-  via the Hive metastore service.
-* A query language called HiveQL. This query language is executed
-  on a distributed computing framework such as MapReduce or Tez.
+* Metadata about how the data files are mapped to schemas and tables. This
+  metadata is stored in a database, such as MySQL, and is accessed via the Hive
+  metastore service.
+* A query language called HiveQL. This query language is executed on a
+  distributed computing framework such as MapReduce or Tez.
 
 Trino only uses the first two components: the data and the metadata.
 It does not use HiveQL or any part of Hive's execution environment.
@@ -147,28 +147,34 @@ executed.
 
 **Experimental**
 
-The new behavior is better engineered, and has the potential to become a lot
+The new behavior is better engineered and has the potential to become a lot
 more powerful than the legacy implementation. It can analyze, process, and
 rewrite Hive views and contained expressions and statements.
 
-It is considered an experimental feature and continues to change with each
-release. However it is already suitable for many use cases, and usage is
-encouraged.
+It supports the following Hive view functionality:
+
+* ``UNION [DISTINCT]`` and ``UNION ALL`` against Hive views
+* Nested ``GROUP BY`` clauses
+* ``current_user()``
+* ``LATERAL VIEW OUTER EXPLODE``
+* ``LATERAL VIEW [OUTER] EXPLODE`` on array of struct
+* ``LATERAL VIEW json_tuple``
 
 You can enable the experimental behavior with
-``hive.translate-hive-views=true``.
+``hive.translate-hive-views=true``. Remove the
+``hive.legacy-hive-view-translation`` property or set it to ``false`` to make
+sure legacy is not enabled.
 
 Keep in mind that numerous features are not yet implemented when experimenting
 with this feature. The following is an incomplete list of **missing**
 functionality:
 
 * HiveQL ``current_date``, ``current_timestamp``, and others
-* Hive function calls including ``translate()``, window functions and others
+* Hive function calls including ``translate()``, window functions, and others
 * Common table expressions and simple case expressions
 * Honor timestamp precision setting
 * Support all Hive data types and correct mapping to Trino types
 * Ability to process custom UDFs
-
 
 Configuration
 -------------
@@ -227,7 +233,7 @@ When not using Kerberos with HDFS, Trino accesses HDFS using the
 OS user of the Trino process. For example, if Trino is running as
 ``nobody``, it accesses HDFS as ``nobody``. You can override this
 username by setting the ``HADOOP_USER_NAME`` system property in the
-Trino :ref:`trino_jvm_config`, replacing ``hdfs_user`` with the
+Trino :ref:`jvm_config`, replacing ``hdfs_user`` with the
 appropriate username:
 
 .. code-block:: text
@@ -304,6 +310,8 @@ Property Name                                      Description                  
                                                    * ``APPEND`` - appends data to existing partitions
                                                    * ``OVERWRITE`` - overwrites existing partitions
                                                    * ``ERROR`` - modifying existing partitions is not allowed
+
+``hive.target-max-file-size``                      Best effort maximum size of new files.                       ``1GB``
 
 ``hive.create-empty-bucket-files``                 Should empty files be created for buckets that have no data? ``false``
 
@@ -405,7 +413,7 @@ with ORC files performed by the Hive connector.
       - Sets the default time zone for legacy ORC files that did not declare a
         time zone.
       - JVM default
-    * - ``hive.orc.use-columns-names``
+    * - ``hive.orc.use-column-names``
       - Access ORC columns by name. By default, columns in ORC files are
         accessed by their ordinal position in the Hive table definition. The
         equivalent catalog session property is ``orc_use_column_names``.
@@ -574,10 +582,10 @@ Property Name                                        Description
                                                      defaults to ``20``.
 
 ``hive.metastore.glue.read-statistics-threads``      Number of threads for parallel statistic fetches from Glue,
-                                                     defaults to ``1``.
+                                                     defaults to ``5``.
 
 ``hive.metastore.glue.write-statistics-threads``     Number of threads for parallel statistic writes to Glue,
-                                                     defaults to ``1``.
+                                                     defaults to ``5``.
 ==================================================== ============================================================
 
 Google Cloud Storage configuration
@@ -643,6 +651,42 @@ connector.
         also have more overhead and increase load on the system.
       - ``64 MB``
 
+.. _hive-sql-support:
+
+SQL support
+-----------
+
+The connector provides read access and write access to data and metadata in the
+configured object storage system and metadata stores. In addition to the
+:ref:`globally available <sql-globally-available>` and :ref:`read operation
+<sql-read-operations>` statements, the connector supports the following
+features:
+
+* :ref:`sql-write-operations`:
+
+  * :ref:`sql-data-management`, see also :ref:`hive-data-management`
+  * :ref:`sql-schema-table-management`
+  * :ref:`sql-views-management`
+
+* :ref:`sql-security-operations`, see also :ref:`hive-sql-standard-based-authorization`
+
+.. _hive-data-management:
+
+Data management
+^^^^^^^^^^^^^^^
+
+The :ref:`sql-data-management` functionality includes support for ``INSERT``,
+``UPDATE``, and ``DELETE`` statements, with the exact support depending on the
+storage system, file format, and metastore:
+
+:doc:`/sql/delete` applied to non-transactional tables is only supported if the
+table is partitioned and the ``WHERE`` clause matches entire partitions.
+Transactional Hive tables with ORC format support "row-by-row" deletion, in
+which the ``WHERE`` clause may match arbitrary sets of rows.
+
+:doc:`/sql/update` is only supported for transactional Hive tables with format
+ORC. ``UPDATE`` of partition or bucket columns is not supported.
+
 Table statistics
 ----------------
 
@@ -707,11 +751,14 @@ with keys ``p2_value1, p2_value2``.
 Note that if statistics were previously collected for all columns, they need to be dropped
 before re-analyzing just a subset::
 
-    CALL system.drop_stats(schema_name, table_name)
+    CALL system.drop_stats('schema_name', 'table_name')
 
 You can also drop statistics for selected partitions only::
 
-    CALL system.drop_stats(schema_name, table_name, ARRAY[ARRAY['p2_value1', 'p2_value2']])
+    CALL system.drop_stats(
+        schema_name => 'schema',
+        table_name => 'table',
+        partition_values => ARRAY[ARRAY['p2_value1', 'p2_value2']])
 
 .. _hive_dynamic_filtering:
 
@@ -819,7 +866,7 @@ Limitations
 The following operations are not supported when ``avro_schema_url`` is set:
 
 * ``CREATE TABLE AS`` is not supported.
-* Using partitioning(``partitioned_by``) or bucketing(``bucketed_by``) columns are not supported in ``CREATE TABLE``.
+* Bucketing(``bucketed_by``) columns are not supported in ``CREATE TABLE``.
 * ``ALTER TABLE`` commands modifying columns are not supported.
 
 .. _hive-procedures:
@@ -996,19 +1043,8 @@ Drop a schema::
 
     DROP SCHEMA hive.web
 
-Hive connector limitations
---------------------------
-
-* :doc:`/sql/alter-schema` usage fails, since the Hive metastore does not support renaming schemas.
-* :doc:`/sql/delete` applied to non-transactional tables is only supported if the ``WHERE`` clause matches entire partitions.
-  Transactional Hive tables with format ORC support "row-by-row" deletion, in which the ``WHERE`` clause may match arbitrary
-  sets of rows.
-* :doc:`/sql/update` is only supported for transactional Hive tables with format ORC.  ``UPDATE`` of partition or bucket
-  columns is not supported.
-
-
 Hive 3 related limitations
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+--------------------------
 
 * For security reasons, the ``sys`` system catalog is not accessible.
 

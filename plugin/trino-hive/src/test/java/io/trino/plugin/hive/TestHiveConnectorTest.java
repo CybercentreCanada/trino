@@ -20,8 +20,11 @@ import com.google.common.io.Files;
 import io.airlift.json.JsonCodec;
 import io.airlift.json.JsonCodecFactory;
 import io.airlift.json.ObjectMapperProvider;
+import io.airlift.units.DataSize;
+import io.airlift.units.DataSize.Unit;
 import io.airlift.units.Duration;
 import io.trino.Session;
+import io.trino.connector.CatalogName;
 import io.trino.cost.StatsAndCosts;
 import io.trino.execution.QueryInfo;
 import io.trino.metadata.InsertTableHandle;
@@ -41,7 +44,6 @@ import io.trino.spi.type.Type;
 import io.trino.spi.type.VarcharType;
 import io.trino.sql.planner.Plan;
 import io.trino.sql.planner.plan.ExchangeNode;
-import io.trino.sql.planner.plan.LimitNode;
 import io.trino.sql.planner.planprinter.IoPlanPrinter.ColumnConstraint;
 import io.trino.sql.planner.planprinter.IoPlanPrinter.EstimatedStatsAndCost;
 import io.trino.sql.planner.planprinter.IoPlanPrinter.FormattedDomain;
@@ -57,6 +59,7 @@ import io.trino.testing.QueryRunner;
 import io.trino.testing.ResultWithQueryId;
 import io.trino.testing.TestingConnectorBehavior;
 import io.trino.testing.sql.TestTable;
+import io.trino.testing.sql.TrinoSqlExecutor;
 import io.trino.type.TypeDeserializer;
 import org.apache.hadoop.fs.Path;
 import org.intellij.lang.annotations.Language;
@@ -85,6 +88,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.LongStream;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
@@ -134,6 +138,7 @@ import static io.trino.sql.planner.planprinter.IoPlanPrinter.FormattedMarker.Bou
 import static io.trino.sql.planner.planprinter.IoPlanPrinter.FormattedMarker.Bound.EXACTLY;
 import static io.trino.sql.planner.planprinter.PlanPrinter.textLogicalPlan;
 import static io.trino.sql.tree.ExplainType.Type.DISTRIBUTED;
+import static io.trino.testing.DataProviders.toDataProvider;
 import static io.trino.testing.MaterializedResult.resultBuilder;
 import static io.trino.testing.QueryAssertions.assertEqualsIgnoreOrder;
 import static io.trino.testing.TestingAccessControlManager.TestingPrivilegeType.DELETE_TABLE;
@@ -143,7 +148,6 @@ import static io.trino.testing.TestingAccessControlManager.TestingPrivilegeType.
 import static io.trino.testing.TestingAccessControlManager.privilege;
 import static io.trino.testing.TestingSession.testSessionBuilder;
 import static io.trino.testing.assertions.Assert.assertEquals;
-import static io.trino.testing.assertions.Assert.assertEventually;
 import static io.trino.testing.sql.TestTable.randomTableSuffix;
 import static io.trino.transaction.TransactionBuilder.transaction;
 import static java.lang.String.format;
@@ -210,6 +214,9 @@ public class TestHiveConnectorTest
             case SUPPORTS_DELETE:
                 return true;
 
+            case SUPPORTS_MULTI_STATEMENT_WRITES:
+                return true;
+
             default:
                 return super.hasBehavior(connectorBehavior);
         }
@@ -222,14 +229,50 @@ public class TestHiveConnectorTest
                 .hasStackTraceContaining("Deletes must match whole partitions for non-transactional tables");
     }
 
-    @Test
-    public void testRequiredPartitionFilter()
+    @Override
+    public void testDeleteWithComplexPredicate()
+    {
+        assertThatThrownBy(super::testDeleteWithComplexPredicate)
+                .hasStackTraceContaining("Deletes must match whole partitions for non-transactional tables");
+    }
+
+    @Override
+    public void testDeleteWithSemiJoin()
+    {
+        assertThatThrownBy(super::testDeleteWithSemiJoin)
+                .hasStackTraceContaining("Deletes must match whole partitions for non-transactional tables");
+    }
+
+    @Override
+    public void testDeleteWithSubquery()
+    {
+        assertThatThrownBy(super::testDeleteWithSubquery)
+                .hasStackTraceContaining("Deletes must match whole partitions for non-transactional tables");
+    }
+
+    @Override
+    public void testDeleteWithVarcharPredicate()
+    {
+        assertThatThrownBy(super::testDeleteWithVarcharPredicate)
+                .hasStackTraceContaining("Deletes must match whole partitions for non-transactional tables");
+    }
+
+    @Override
+    public void testRowLevelDelete()
+    {
+        assertThatThrownBy(super::testRowLevelDelete)
+                .hasStackTraceContaining("Deletes must match whole partitions for non-transactional tables");
+    }
+
+    @Test(dataProvider = "queryPartitionFilterRequiredSchemasDataProvider")
+    public void testRequiredPartitionFilter(String queryPartitionFilterRequiredSchemas)
     {
         Session session = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
+                .setCatalogSessionProperty("hive", "query_partition_filter_required_schemas", queryPartitionFilterRequiredSchemas)
                 .build();
 
         assertUpdate(session, "CREATE TABLE test_required_partition_filter(id integer, a varchar, b varchar, ds varchar) WITH (partitioned_by = ARRAY['ds'])");
@@ -268,14 +311,15 @@ public class TestHiveConnectorTest
         assertUpdate(session, "DROP TABLE test_required_partition_filter");
     }
 
-    @Test
-    public void testRequiredPartitionFilterInferred()
+    @Test(dataProvider = "queryPartitionFilterRequiredSchemasDataProvider")
+    public void testRequiredPartitionFilterInferred(String queryPartitionFilterRequiredSchemas)
     {
         Session session = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
+                .setCatalogSessionProperty("hive", "query_partition_filter_required_schemas", queryPartitionFilterRequiredSchemas)
                 .build();
 
         assertUpdate(session, "CREATE TABLE test_partition_filter_inferred_left(id integer, a varchar, b varchar, ds varchar) WITH (partitioned_by = ARRAY['ds'])");
@@ -298,6 +342,71 @@ public class TestHiveConnectorTest
 
         assertUpdate(session, "DROP TABLE test_partition_filter_inferred_left");
         assertUpdate(session, "DROP TABLE test_partition_filter_inferred_right");
+    }
+
+    @DataProvider
+    public Object[][] queryPartitionFilterRequiredSchemasDataProvider()
+    {
+        return new Object[][]{
+                {"[]"},
+                {"[\"tpch\"]"}
+        };
+    }
+
+    @Test
+    public void testRequiredPartitionFilterAppliedOnDifferentSchema()
+    {
+        String schemaName = "schema_" + randomTableSuffix();
+        Session session = Session.builder(getSession())
+                .setIdentity(Identity.forUser("hive")
+                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .build())
+                .setCatalogSessionProperty("hive", "query_partition_filter_required", "true")
+                .setCatalogSessionProperty("hive", "query_partition_filter_required_schemas", format("[\"%s\"]", schemaName))
+                .build();
+
+        getQueryRunner().execute("CREATE SCHEMA " + schemaName);
+
+        try (TestTable table = new TestTable(
+                new TrinoSqlExecutor(getQueryRunner(), session),
+                "test_required_partition_filter_",
+                "(id integer, a varchar, b varchar) WITH (partitioned_by = ARRAY['b'])",
+                ImmutableList.of("1, '1', 'b'"))) {
+            // no partition filter
+            assertQuery(session, format("SELECT id FROM %s WHERE a = '1'", table.getName()), "SELECT 1");
+            computeActual(session, format("EXPLAIN SELECT id FROM %s WHERE a = '1'", table.getName()));
+            computeActual(session, format("EXPLAIN ANALYZE SELECT id FROM %s WHERE a = '1'", table.getName()));
+
+            // partition filter that gets removed by planner
+            assertQuery(session, format("SELECT id FROM %s WHERE b IS NOT NULL OR true", table.getName()), "SELECT 1");
+
+            // Join on non-partition column
+            assertUpdate(session, format("CREATE TABLE %s.%s_right (id integer, a varchar, b varchar, ds varchar) WITH (partitioned_by = ARRAY['ds'])", schemaName, table.getName()));
+
+            assertUpdate(session, format("INSERT INTO %s.%s_right (id, a, ds) VALUES (1, 'a', '1')", schemaName, table.getName()), 1);
+
+            assertQueryFails(
+                    session,
+                    format("SELECT count(*) FROM %2$s l JOIN %s.%2$s_right r ON l.id = r.id WHERE r.a = 'a'", schemaName, table.getName()),
+                    format("Filter required on %s\\.%s_right for at least one partition column: ds", schemaName, table.getName()));
+
+            assertQuery(session, format("SELECT count(*) FROM %2$s l JOIN %s.%2$s_right r ON l.id = r.id WHERE r.ds = '1'", schemaName, table.getName()), "SELECT 1");
+
+            assertUpdate(session, format("DROP TABLE %s.%s_right", schemaName, table.getName()));
+        }
+        getQueryRunner().execute("DROP SCHEMA " + schemaName);
+    }
+
+    @Test
+    public void testInvalidValueForQueryPartitionFilterRequiredSchemas()
+    {
+        assertQueryFails(
+                "SET SESSION hive.query_partition_filter_required_schemas = ARRAY['tpch', null]",
+                "line 1:1: Invalid null or empty value in query_partition_filter_required_schemas property");
+
+        assertQueryFails(
+                "SET SESSION hive.query_partition_filter_required_schemas = ARRAY['tpch', '']",
+                "line 1:1: Invalid null or empty value in query_partition_filter_required_schemas property");
     }
 
     @Test
@@ -350,7 +459,7 @@ public class TestHiveConnectorTest
     {
         Session admin = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .setCatalogSessionProperty(catalog, "parquet_use_column_names", "true")
                 .build();
@@ -368,7 +477,7 @@ public class TestHiveConnectorTest
     {
         Session session = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .build();
 
@@ -376,7 +485,7 @@ public class TestHiveConnectorTest
 
         assertUpdate(session, "CREATE TABLE new_schema.test (x bigint)");
 
-        assertQueryFails(session, "DROP SCHEMA new_schema", "Schema not empty: new_schema");
+        assertQueryFails(session, "DROP SCHEMA new_schema", ".*Cannot drop non-empty schema 'new_schema'");
 
         assertUpdate(session, "DROP TABLE new_schema.test");
 
@@ -388,14 +497,14 @@ public class TestHiveConnectorTest
     {
         Session admin = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .build();
 
         assertUpdate(admin, "CREATE SCHEMA test_schema_authorization_user");
 
         Session user = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_schema_authorization_user")
                 .setIdentity(Identity.forUser("user")
                         .withPrincipal(getSession().getIdentity().getPrincipal())
@@ -403,7 +512,7 @@ public class TestHiveConnectorTest
                 .build();
 
         Session anotherUser = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_schema_authorization_user")
                 .setIdentity(Identity.forUser("anotheruser")
                         .withPrincipal(getSession().getIdentity().getPrincipal())
@@ -436,22 +545,22 @@ public class TestHiveConnectorTest
     {
         Session admin = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .build();
 
         assertUpdate(admin, "CREATE SCHEMA test_schema_authorization_role");
 
         // make sure role-grants only work on existing roles
-        assertQueryFails(admin, "ALTER SCHEMA test_schema_authorization_role SET AUTHORIZATION ROLE nonexisting_role", ".*?Role 'nonexisting_role' does not exist");
+        assertQueryFails(admin, "ALTER SCHEMA test_schema_authorization_role SET AUTHORIZATION ROLE nonexisting_role", ".*?Role 'nonexisting_role' does not exist in catalog 'hive'");
 
-        assertUpdate(admin, "CREATE ROLE authorized_users");
-        assertUpdate(admin, "GRANT authorized_users TO user");
+        assertUpdate(admin, "CREATE ROLE authorized_users IN hive");
+        assertUpdate(admin, "GRANT authorized_users TO user IN hive");
 
         assertUpdate(admin, "ALTER SCHEMA test_schema_authorization_role SET AUTHORIZATION ROLE authorized_users");
 
         Session user = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_schema_authorization_role")
                 .setIdentity(Identity.forUser("user")
                         .withPrincipal(getSession().getIdentity().getPrincipal())
@@ -459,7 +568,7 @@ public class TestHiveConnectorTest
                 .build();
 
         Session anotherUser = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_schema_authorization_role")
                 .setIdentity(Identity.forUser("anotheruser")
                         .withPrincipal(getSession().getIdentity().getPrincipal())
@@ -476,7 +585,7 @@ public class TestHiveConnectorTest
         assertUpdate(user, "DROP TABLE test_schema_authorization_role.test");
         assertUpdate(user, "DROP SCHEMA test_schema_authorization_role");
 
-        assertUpdate(admin, "DROP ROLE authorized_users");
+        assertUpdate(admin, "DROP ROLE authorized_users IN hive");
     }
 
     @Test
@@ -484,12 +593,12 @@ public class TestHiveConnectorTest
     {
         Session admin = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .build();
 
         Session user = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_createschema_authorization_user")
                 .setIdentity(Identity.forUser("user")
                         .withPrincipal(getSession().getIdentity().getPrincipal())
@@ -497,7 +606,7 @@ public class TestHiveConnectorTest
                 .build();
 
         Session anotherUser = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_createschema_authorization_user")
                 .setIdentity(Identity.forUser("anotheruser")
                         .withPrincipal(getSession().getIdentity().getPrincipal())
@@ -521,12 +630,12 @@ public class TestHiveConnectorTest
     {
         Session admin = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .build();
 
         Session user = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_createschema_authorization_role")
                 .setIdentity(Identity.forUser("user")
                         .withPrincipal(getSession().getIdentity().getPrincipal())
@@ -534,25 +643,25 @@ public class TestHiveConnectorTest
                 .build();
 
         Session userWithoutRole = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_createschema_authorization_role")
                 .setIdentity(Identity.forUser("user")
-                        .withRoles(Collections.emptyMap())
+                        .withConnectorRoles(Collections.emptyMap())
                         .build())
                 .build();
 
         Session anotherUser = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_createschema_authorization_role")
                 .setIdentity(Identity.forUser("anotheruser")
                         .withPrincipal(getSession().getIdentity().getPrincipal())
                         .build())
                 .build();
 
-        assertUpdate(admin, "CREATE ROLE authorized_users");
-        assertUpdate(admin, "GRANT authorized_users TO user");
+        assertUpdate(admin, "CREATE ROLE authorized_users IN hive");
+        assertUpdate(admin, "GRANT authorized_users TO user IN hive");
 
-        assertQueryFails(admin, "CREATE SCHEMA test_createschema_authorization_role AUTHORIZATION ROLE nonexisting_role", ".*?Role 'nonexisting_role' does not exist");
+        assertQueryFails(admin, "CREATE SCHEMA test_createschema_authorization_role AUTHORIZATION ROLE nonexisting_role", ".*?Role 'nonexisting_role' does not exist in catalog 'hive'");
         assertUpdate(admin, "CREATE SCHEMA test_createschema_authorization_role AUTHORIZATION ROLE authorized_users");
         assertUpdate(user, "CREATE TABLE test_createschema_authorization_role.test (x bigint)");
 
@@ -567,7 +676,7 @@ public class TestHiveConnectorTest
         assertUpdate(user, "DROP TABLE test_createschema_authorization_role.test");
         assertUpdate(user, "DROP SCHEMA test_createschema_authorization_role");
 
-        assertUpdate(admin, "DROP ROLE authorized_users");
+        assertUpdate(admin, "DROP ROLE authorized_users IN hive");
     }
 
     @Test
@@ -575,37 +684,43 @@ public class TestHiveConnectorTest
     {
         Session admin = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .build();
 
         Session user = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_schema_authorization")
                 .setIdentity(Identity.forUser("user").withPrincipal(getSession().getIdentity().getPrincipal()).build())
                 .build();
 
         assertUpdate(admin, "CREATE SCHEMA test_schema_authorization");
-        assertUpdate(admin, "CREATE ROLE admin");
 
         assertUpdate(admin, "ALTER SCHEMA test_schema_authorization SET AUTHORIZATION user");
         assertUpdate(user, "ALTER SCHEMA test_schema_authorization SET AUTHORIZATION ROLE admin");
         assertQueryFails(user, "ALTER SCHEMA test_schema_authorization SET AUTHORIZATION ROLE admin", "Access Denied: Cannot set authorization for schema test_schema_authorization to ROLE admin");
 
+        // switch owner back to user, and then change the owner to ROLE admin from a different catalog to verify roles are relative to the catalog of the schema
+        assertUpdate(admin, "ALTER SCHEMA test_schema_authorization SET AUTHORIZATION user");
+        Session userSessionInDifferentCatalog = testSessionBuilder()
+                .setIdentity(Identity.forUser("user").withPrincipal(getSession().getIdentity().getPrincipal()).build())
+                .build();
+        assertUpdate(userSessionInDifferentCatalog, "ALTER SCHEMA hive.test_schema_authorization SET AUTHORIZATION ROLE admin");
+        assertUpdate(admin, "ALTER SCHEMA test_schema_authorization SET AUTHORIZATION user");
+
         assertUpdate(admin, "DROP SCHEMA test_schema_authorization");
-        assertUpdate(admin, "DROP ROLE admin");
     }
 
     @Test
     public void testTableAuthorization()
     {
         Session admin = Session.builder(getSession())
-                .setCatalog(getSession().getCatalog().get())
-                .setIdentity(Identity.forUser("hive").withRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
+                .setCatalog(getSession().getCatalog())
+                .setIdentity(Identity.forUser("hive").withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
                 .build();
 
         Session alice = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setIdentity(Identity.forUser("alice").build())
                 .build();
 
@@ -627,18 +742,17 @@ public class TestHiveConnectorTest
     public void testTableAuthorizationForRole()
     {
         Session admin = Session.builder(getSession())
-                .setCatalog(getSession().getCatalog().get())
-                .setIdentity(Identity.forUser("hive").withRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
+                .setCatalog(getSession().getCatalog())
+                .setIdentity(Identity.forUser("hive").withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
                 .build();
 
         Session alice = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setIdentity(Identity.forUser("alice").build())
                 .build();
 
         assertUpdate(admin, "CREATE SCHEMA test_table_authorization");
         assertUpdate(admin, "CREATE TABLE test_table_authorization.foo (col int)");
-        assertUpdate(admin, "CREATE ROLE admin");
 
         // TODO Change assertions once https://github.com/trinodb/trino/issues/5706 is done
         assertAccessDenied(
@@ -653,19 +767,18 @@ public class TestHiveConnectorTest
 
         assertUpdate(admin, "DROP TABLE test_table_authorization.foo");
         assertUpdate(admin, "DROP SCHEMA test_table_authorization");
-        assertUpdate(admin, "DROP ROLE admin");
     }
 
     @Test
     public void testViewAuthorization()
     {
         Session admin = Session.builder(getSession())
-                .setCatalog(getSession().getCatalog().get())
-                .setIdentity(Identity.forUser("hive").withRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
+                .setCatalog(getSession().getCatalog())
+                .setIdentity(Identity.forUser("hive").withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
                 .build();
 
         Session alice = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setIdentity(Identity.forUser("alice").build())
                 .build();
 
@@ -689,12 +802,12 @@ public class TestHiveConnectorTest
     public void testViewAuthorizationSecurityDefiner()
     {
         Session admin = Session.builder(getSession())
-                .setCatalog(getSession().getCatalog().get())
-                .setIdentity(Identity.forUser("hive").withRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
+                .setCatalog(getSession().getCatalog())
+                .setIdentity(Identity.forUser("hive").withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
                 .build();
 
         Session alice = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setIdentity(Identity.forUser("alice").build())
                 .build();
 
@@ -720,12 +833,12 @@ public class TestHiveConnectorTest
     public void testViewAuthorizationSecurityInvoker()
     {
         Session admin = Session.builder(getSession())
-                .setCatalog(getSession().getCatalog().get())
-                .setIdentity(Identity.forUser("hive").withRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
+                .setCatalog(getSession().getCatalog())
+                .setIdentity(Identity.forUser("hive").withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
                 .build();
 
         Session alice = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setIdentity(Identity.forUser("alice").build())
                 .build();
 
@@ -751,12 +864,12 @@ public class TestHiveConnectorTest
     public void testViewAuthorizationForRole()
     {
         Session admin = Session.builder(getSession())
-                .setCatalog(getSession().getCatalog().get())
-                .setIdentity(Identity.forUser("hive").withRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
+                .setCatalog(getSession().getCatalog())
+                .setIdentity(Identity.forUser("hive").withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin"))).build())
                 .build();
 
         Session alice = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setIdentity(Identity.forUser("alice").build())
                 .build();
 
@@ -765,7 +878,6 @@ public class TestHiveConnectorTest
         assertUpdate(admin, "CREATE SCHEMA " + schema);
         assertUpdate(admin, "CREATE TABLE " + schema + ".test_table (col int)");
         assertUpdate(admin, "CREATE VIEW " + schema + ".test_view AS SELECT * FROM " + schema + ".test_table");
-        assertUpdate(admin, "CREATE ROLE admin");
 
         // TODO Change assertions once https://github.com/trinodb/trino/issues/5706 is done
         assertAccessDenied(
@@ -778,29 +890,29 @@ public class TestHiveConnectorTest
                 "ALTER VIEW " + schema + ".test_view SET AUTHORIZATION ROLE admin",
                 "Setting table owner type as a role is not supported");
 
-        assertUpdate(admin, "DROP ROLE admin");
         assertUpdate(admin, "DROP VIEW " + schema + ".test_view");
         assertUpdate(admin, "DROP TABLE " + schema + ".test_table");
         assertUpdate(admin, "DROP SCHEMA " + schema);
     }
 
     @Test
+    @Override
     public void testShowCreateSchema()
     {
         Session admin = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .build();
 
         Session user = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setSchema("test_show_create_schema")
                 .setIdentity(Identity.forUser("user").withPrincipal(getSession().getIdentity().getPrincipal()).build())
                 .build();
 
-        assertUpdate(admin, "CREATE ROLE test_show_create_schema_role");
-        assertUpdate(admin, "GRANT test_show_create_schema_role TO user");
+        assertUpdate(admin, "CREATE ROLE test_show_create_schema_role IN hive");
+        assertUpdate(admin, "GRANT test_show_create_schema_role TO user IN hive");
 
         assertUpdate(admin, "CREATE SCHEMA test_show_create_schema");
 
@@ -831,7 +943,7 @@ public class TestHiveConnectorTest
         assertThat(actualResult).matches(createSchemaSql);
 
         assertUpdate(user, "DROP SCHEMA test_show_create_schema");
-        assertUpdate(admin, "DROP ROLE test_show_create_schema_role");
+        assertUpdate(admin, "DROP ROLE test_show_create_schema_role IN hive");
     }
 
     @Test
@@ -1088,7 +1200,7 @@ public class TestHiveConnectorTest
     {
         Session admin = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .build();
 
@@ -1133,7 +1245,7 @@ public class TestHiveConnectorTest
     {
         Session admin = Session.builder(getSession())
                 .setIdentity(Identity.forUser("hive")
-                        .withRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
+                        .withConnectorRole("hive", new SelectedRole(ROLE, Optional.of("admin")))
                         .build())
                 .build();
 
@@ -1616,6 +1728,41 @@ public class TestHiveConnectorTest
     {
         assertQueryFails("CREATE TABLE test_create_table_with_unsupported_type(x time)", "\\QUnsupported Hive type: time(3)\\E");
         assertQueryFails("CREATE TABLE test_create_table_with_unsupported_type AS SELECT TIME '00:00:00' x", "\\QUnsupported Hive type: time(0)\\E");
+    }
+
+    @Test
+    public void testTargetMaxFileSize()
+    {
+        @Language("SQL") String createTableSql = "CREATE TABLE test_max_file_size AS SELECT * FROM tpch.sf1.lineitem LIMIT 1000000";
+        @Language("SQL") String selectFileInfo = "SELECT distinct \"$path\", \"$file_size\" FROM test_max_file_size";
+
+        // verify the default behavior is one file per node
+        Session session = Session.builder(getSession())
+                .setSystemProperty("task_writer_count", "1")
+                .build();
+        assertUpdate(session, createTableSql, 1000000);
+        assertThat(computeActual(selectFileInfo).getRowCount()).isEqualTo(3);
+        assertUpdate("DROP TABLE test_max_file_size");
+
+        // Write table with small limit and verify we get multiple files per node near the expected size
+        // Writer writes chunks of rows that are about 40k
+        // We use TEXTFILE in this test because is has a very consistent and predictable size
+        DataSize maxSize = DataSize.of(40, Unit.KILOBYTE);
+        session = Session.builder(getSession())
+                .setSystemProperty("task_writer_count", "1")
+                .setCatalogSessionProperty("hive", "target_max_file_size", maxSize.toString())
+                .setCatalogSessionProperty("hive", "hive_storage_format", "TEXTFILE")
+                .build();
+
+        assertUpdate(session, createTableSql, 1000000);
+        MaterializedResult result = computeActual(selectFileInfo);
+        assertThat(result.getRowCount()).isGreaterThan(3);
+        for (MaterializedRow row : result) {
+            // allow up to a larger delta due to the very small max size and the relatively large writer chunk size
+            assertThat((Long) row.getField(1)).isLessThan(maxSize.toBytes() * 3);
+        }
+
+        assertUpdate("DROP TABLE test_max_file_size");
     }
 
     @Test
@@ -2573,7 +2720,7 @@ public class TestHiveConnectorTest
 
         assertUpdate(session, "INSERT INTO test_insert_format_table (_double, _bigint) SELECT 2.72E0, 3", 1);
 
-        assertQuery(session, "SELECT * FROM test_insert_format_table WHERE _bigint = 3", "SELECT null, null, null, 3, null, null, null, null, 2.72, null, null, null");
+        assertQuery(session, "SELECT * FROM test_insert_format_table WHERE _double = CAST(2.72E0 as DOUBLE)", "SELECT null, null, null, 3, null, null, null, null, 2.72, null, null, null");
 
         assertUpdate(session, "INSERT INTO test_insert_format_table (_decimal_short, _decimal_long) SELECT DECIMAL '2.72', DECIMAL '98765432101234567890.0123456789'", 1);
 
@@ -4349,13 +4496,15 @@ public class TestHiveConnectorTest
         // TODO: replace this with a simple query stats check once we find a way to wait until all pending updates to query stats have been applied
         // (might be fixed by https://github.com/trinodb/trino/issues/5172)
         ExponentialSleeper sleeper = new ExponentialSleeper();
-        assertEventually(new Duration(30, SECONDS), () -> {
-            ResultWithQueryId<MaterializedResult> result = queryRunner.executeWithQueryId(
-                    session,
-                    format("SELECT * FROM test_parquet_timestamp_predicate_pushdown WHERE t = %s", formatTimestamp(value)));
-            sleeper.sleep();
-            assertThat(getQueryInfo(queryRunner, result).getQueryStats().getProcessedInputDataSize().toBytes()).isGreaterThan(0);
-        });
+        assertQueryStats(
+                session,
+                format("SELECT * FROM test_parquet_timestamp_predicate_pushdown WHERE t = %s", formatTimestamp(value)),
+                queryStats -> {
+                    sleeper.sleep();
+                    assertThat(queryStats.getProcessedInputDataSize().toBytes()).isGreaterThan(0);
+                },
+                results -> {},
+                new Duration(30, SECONDS));
     }
 
     @Test(dataProvider = "timestampPrecisionAndValues")
@@ -4385,18 +4534,60 @@ public class TestHiveConnectorTest
         // TODO: replace this with a simple query stats check once we find a way to wait until all pending updates to query stats have been applied
         // (might be fixed by https://github.com/trinodb/trino/issues/5172)
         ExponentialSleeper sleeper = new ExponentialSleeper();
-        assertEventually(new Duration(30, SECONDS), () -> {
-            ResultWithQueryId<MaterializedResult> result = queryRunner.executeWithQueryId(
-                    session,
-                    format("SELECT * FROM test_orc_timestamp_predicate_pushdown WHERE t = %s", formatTimestamp(value)));
-            sleeper.sleep();
-            assertThat(getQueryInfo(queryRunner, result).getQueryStats().getProcessedInputDataSize().toBytes()).isGreaterThan(0);
-        });
+        assertQueryStats(
+                session,
+                format("SELECT * FROM test_orc_timestamp_predicate_pushdown WHERE t = %s", formatTimestamp(value)),
+                queryStats -> {
+                    sleeper.sleep();
+                    assertThat(queryStats.getProcessedInputDataSize().toBytes()).isGreaterThan(0);
+                },
+                results -> {},
+                new Duration(30, SECONDS));
     }
 
     private static String formatTimestamp(LocalDateTime timestamp)
     {
         return format("TIMESTAMP '%s'", TIMESTAMP_FORMATTER.format(timestamp));
+    }
+
+    @Test
+    public void testParquetShortDecimalPredicatePushdown()
+    {
+        assertUpdate("DROP TABLE IF EXISTS test_parquet_decimal_predicate_pushdown");
+        assertUpdate("CREATE TABLE test_parquet_decimal_predicate_pushdown (decimal_t DECIMAL(5, 3)) WITH (format = 'PARQUET')");
+        assertUpdate("INSERT INTO test_parquet_decimal_predicate_pushdown VALUES DECIMAL '12.345'", 1);
+
+        assertQuery("SELECT * FROM test_parquet_decimal_predicate_pushdown", "VALUES 12.345");
+        assertQuery("SELECT count(*) FROM test_parquet_decimal_predicate_pushdown WHERE decimal_t = DECIMAL '12.345'", "VALUES 1");
+
+        assertNoDataRead("SELECT * FROM test_parquet_decimal_predicate_pushdown WHERE decimal_t < DECIMAL '12.345'");
+        assertNoDataRead("SELECT * FROM test_parquet_decimal_predicate_pushdown WHERE decimal_t > DECIMAL '12.345'");
+        assertNoDataRead("SELECT * FROM test_parquet_decimal_predicate_pushdown WHERE decimal_t != DECIMAL '12.345'");
+    }
+
+    @Test
+    public void testParquetLongDecimalPredicatePushdown()
+    {
+        assertUpdate("DROP TABLE IF EXISTS test_parquet_long_decimal_predicate_pushdown");
+        assertUpdate("CREATE TABLE test_parquet_long_decimal_predicate_pushdown (decimal_t DECIMAL(20, 3)) WITH (format = 'PARQUET')");
+        assertUpdate("INSERT INTO test_parquet_long_decimal_predicate_pushdown VALUES DECIMAL '12345678900000000.345'", 1);
+
+        assertQuery("SELECT * FROM test_parquet_long_decimal_predicate_pushdown", "VALUES 12345678900000000.345");
+        assertQuery("SELECT count(*) FROM test_parquet_long_decimal_predicate_pushdown WHERE decimal_t = DECIMAL '12345678900000000.345'", "VALUES 1");
+
+        assertNoDataRead("SELECT * FROM test_parquet_long_decimal_predicate_pushdown WHERE decimal_t < DECIMAL '12345678900000000.345'");
+        assertNoDataRead("SELECT * FROM test_parquet_long_decimal_predicate_pushdown WHERE decimal_t > DECIMAL '12345678900000000.345'");
+        assertNoDataRead("SELECT * FROM test_parquet_long_decimal_predicate_pushdown WHERE decimal_t != DECIMAL '12345678900000000.345'");
+    }
+
+    private void assertNoDataRead(@Language("SQL") String sql)
+    {
+        assertQueryStats(
+                getSession(),
+                sql,
+                queryStats -> assertThat(queryStats.getProcessedInputDataSize().toBytes()).isEqualTo(0),
+                results -> assertThat(results.getRowCount()).isEqualTo(0),
+                new Duration(5, SECONDS));
     }
 
     private QueryInfo getQueryInfo(DistributedQueryRunner queryRunner, ResultWithQueryId<MaterializedResult> queryResult)
@@ -5548,8 +5739,8 @@ public class TestHiveConnectorTest
 
         Session testSession = testSessionBuilder()
                 .setIdentity(ofUser("test_access_owner"))
-                .setCatalog(getSession().getCatalog().get())
-                .setSchema(getSession().getSchema().get())
+                .setCatalog(getSession().getCatalog())
+                .setSchema(getSession().getSchema())
                 .build();
 
         assertUpdate(createTable);
@@ -5585,13 +5776,13 @@ public class TestHiveConnectorTest
     public void testRoleAuthorizationDescriptors()
     {
         Session user = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
+                .setCatalog(getSession().getCatalog())
                 .setIdentity(Identity.forUser("user").withPrincipal(getSession().getIdentity().getPrincipal()).build())
                 .build();
 
-        assertUpdate("CREATE ROLE test_r_a_d1");
-        assertUpdate("CREATE ROLE test_r_a_d2");
-        assertUpdate("CREATE ROLE test_r_a_d3");
+        assertUpdate("CREATE ROLE test_r_a_d1 IN hive");
+        assertUpdate("CREATE ROLE test_r_a_d2 IN hive");
+        assertUpdate("CREATE ROLE test_r_a_d3 IN hive");
 
         // nothing showing because no roles have been granted
         assertQueryReturnsEmptyResult("SELECT * FROM information_schema.role_authorization_descriptors");
@@ -5600,12 +5791,12 @@ public class TestHiveConnectorTest
         assertQueryFails(user, "SELECT * FROM information_schema.role_authorization_descriptors",
                 "Access Denied: Cannot select from table information_schema.role_authorization_descriptors");
 
-        assertUpdate("GRANT test_r_a_d1 TO USER user");
+        assertUpdate("GRANT test_r_a_d1 TO USER user IN hive");
         // user with same name as a role
-        assertUpdate("GRANT test_r_a_d2 TO USER test_r_a_d1");
-        assertUpdate("GRANT test_r_a_d2 TO USER user1 WITH ADMIN OPTION");
-        assertUpdate("GRANT test_r_a_d2 TO USER user2");
-        assertUpdate("GRANT test_r_a_d2 TO ROLE test_r_a_d1");
+        assertUpdate("GRANT test_r_a_d2 TO USER test_r_a_d1 IN hive");
+        assertUpdate("GRANT test_r_a_d2 TO USER user1 WITH ADMIN OPTION IN hive");
+        assertUpdate("GRANT test_r_a_d2 TO USER user2 IN hive");
+        assertUpdate("GRANT test_r_a_d2 TO ROLE test_r_a_d1 IN hive");
 
         // role_authorization_descriptors is not accessible for a non-admin user
         assertQueryFails(user, "SELECT * FROM information_schema.role_authorization_descriptors",
@@ -5683,9 +5874,9 @@ public class TestHiveConnectorTest
                 "SELECT * FROM information_schema.role_authorization_descriptors WHERE grantee_type = 'ROLE'",
                 "VALUES ('test_r_a_d2', null, null, 'test_r_a_d1', 'ROLE', 'NO')");
 
-        assertUpdate("DROP ROLE test_r_a_d1");
-        assertUpdate("DROP ROLE test_r_a_d2");
-        assertUpdate("DROP ROLE test_r_a_d3");
+        assertUpdate("DROP ROLE test_r_a_d1 IN hive");
+        assertUpdate("DROP ROLE test_r_a_d2 IN hive");
+        assertUpdate("DROP ROLE test_r_a_d3 IN hive");
     }
 
     @Test
@@ -5695,8 +5886,8 @@ public class TestHiveConnectorTest
 
         Session testSession = testSessionBuilder()
                 .setIdentity(ofUser("test_view_access_owner"))
-                .setCatalog(getSession().getCatalog().get())
-                .setSchema(getSession().getSchema().get())
+                .setCatalog(getSession().getCatalog())
+                .setSchema(getSession().getSchema())
                 .build();
 
         assertUpdate("CREATE VIEW " + viewName + " AS SELECT abs(1) as whatever");
@@ -5792,14 +5983,14 @@ public class TestHiveConnectorTest
         assertUpdate(format("GRANT SELECT ON %s TO user2", testAccountsViewFullyQualifiedName));
 
         Session user1 = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
-                .setSchema(getSession().getSchema().get())
+                .setCatalog(getSession().getCatalog())
+                .setSchema(getSession().getSchema())
                 .setIdentity(Identity.forUser("user1").withPrincipal(getSession().getIdentity().getPrincipal()).build())
                 .build();
 
         Session user2 = testSessionBuilder()
-                .setCatalog(getSession().getCatalog().get())
-                .setSchema(getSession().getSchema().get())
+                .setCatalog(getSession().getCatalog())
+                .setSchema(getSession().getSchema())
                 .setIdentity(Identity.forUser("user2").withPrincipal(getSession().getIdentity().getPrincipal()).build())
                 .build();
 
@@ -7198,17 +7389,7 @@ public class TestHiveConnectorTest
                 "WITH (avro_schema_url = 'dummy_schema',\n" +
                 "      bucket_count = 2, bucketed_by=ARRAY['dummy'])";
 
-        assertQueryFails(createSql, "Bucketing/Partitioning columns not supported when Avro schema url is set");
-    }
-
-    @Test
-    public void testPartitionedTablesFailWithAvroSchemaUrl()
-    {
-        @Language("SQL") String createSql = "CREATE TABLE create_avro (dummy VARCHAR)\n" +
-                "WITH (avro_schema_url = 'dummy_schema',\n" +
-                "      partitioned_by=ARRAY['dummy'])";
-
-        assertQueryFails(createSql, "Bucketing/Partitioning columns not supported when Avro schema url is set");
+        assertQueryFails(createSql, "Bucketing columns not supported when Avro schema url is set");
     }
 
     @Test
@@ -7320,23 +7501,37 @@ public class TestHiveConnectorTest
         assertUpdate("DROP TABLE " + tableName);
     }
 
-    private Consumer<Plan> assertPartialLimitWithPreSortedInputsCount(Session session, int expectedCount)
+    @Test(dataProvider = "testCreateTableWithCompressionCodecDataProvider")
+    public void testCreateTableWithCompressionCodec(HiveCompressionCodec compressionCodec)
     {
-        return plan -> {
-            int actualCount = searchFrom(plan.getRoot())
-                    .where(node -> node instanceof LimitNode && ((LimitNode) node).isPartial() && ((LimitNode) node).requiresPreSortedInputs())
-                    .findAll()
-                    .size();
-            if (actualCount != expectedCount) {
-                Metadata metadata = getDistributedQueryRunner().getCoordinator().getMetadata();
-                String formattedPlan = textLogicalPlan(plan.getRoot(), plan.getTypes(), metadata, StatsAndCosts.empty(), session, 0, false);
-                throw new AssertionError(format(
-                        "Expected [\n%s\n] partial limit but found [\n%s\n] partial limit. Actual plan is [\n\n%s\n]",
-                        expectedCount,
-                        actualCount,
-                        formattedPlan));
+        testWithAllStorageFormats((session, hiveStorageFormat) -> {
+            if (isNativeParquetWriter(session, hiveStorageFormat) && compressionCodec == HiveCompressionCodec.LZ4) {
+                // TODO (https://github.com/trinodb/trino/issues/9142) Support LZ4 compression with native Parquet writer
+                assertThatThrownBy(() -> testCreateTableWithCompressionCodec(session, hiveStorageFormat, compressionCodec))
+                        .hasMessage("Unsupported codec: LZ4");
+                return;
             }
-        };
+            testCreateTableWithCompressionCodec(session, hiveStorageFormat, compressionCodec);
+        });
+    }
+
+    @DataProvider
+    public Object[][] testCreateTableWithCompressionCodecDataProvider()
+    {
+        return Stream.of(HiveCompressionCodec.values())
+                .collect(toDataProvider());
+    }
+
+    private void testCreateTableWithCompressionCodec(Session session, HiveStorageFormat storageFormat, HiveCompressionCodec compressionCodec)
+    {
+        session = Session.builder(session)
+                .setCatalogSessionProperty(session.getCatalog().orElseThrow(), "compression_codec", compressionCodec.name())
+                .build();
+        String tableName = "test_table_with_compression_" + compressionCodec;
+        assertUpdate(session, format("CREATE TABLE %s WITH (format = '%s') AS TABLE tpch.tiny.nation", tableName, storageFormat), 25);
+        assertQuery("SELECT * FROM " + tableName, "SELECT * FROM nation");
+        assertQuery("SELECT count(*) FROM " + tableName, "VALUES 25");
+        assertUpdate("DROP TABLE " + tableName);
     }
 
     @Test
@@ -7374,22 +7569,17 @@ public class TestHiveConnectorTest
     }
 
     @Override
-    public void testColumnName(String columnName)
+    protected boolean isColumnNameRejected(Exception exception, String columnName, boolean delimited)
     {
-        if (columnName.equals("atrailingspace ") || columnName.equals(" aleadingspace")) {
-            // TODO (https://github.com/trinodb/trino/issues/3461)
-            assertThatThrownBy(() -> super.testColumnName(columnName))
-                    .hasMessageMatching("Table '.*' does not have columns \\[" + columnName + "]");
-            throw new SkipException("works incorrectly, column name is trimmed");
+        switch (columnName) {
+            case " aleadingspace":
+                return "Hive column names must not start with a space: ' aleadingspace'".equals(exception.getMessage());
+            case "atrailingspace ":
+                return "Hive column names must not end with a space: 'atrailingspace '".equals(exception.getMessage());
+            case "a,comma":
+                return "Hive column names must not contain commas: 'a,comma'".equals(exception.getMessage());
         }
-        if (columnName.equals("a,comma")) {
-            // TODO (https://github.com/trinodb/trino/issues/3537)
-            assertThatThrownBy(() -> super.testColumnName(columnName))
-                    .hasMessageMatching("Table '.*' does not have columns \\[a,comma]");
-            throw new SkipException("works incorrectly");
-        }
-
-        super.testColumnName(columnName);
+        return false;
     }
 
     private void testColumnPruning(Session session, HiveStorageFormat storageFormat)
@@ -7518,7 +7708,7 @@ public class TestHiveConnectorTest
     @Test
     public void testTimestampPrecisionCtas()
     {
-        testWithAllStorageFormats(this::testTimestampPrecisionCtas);
+        testWithAllStorageFormats((session, storageFormat) -> testTimestampPrecisionCtas(session, storageFormat));
     }
 
     private void testTimestampPrecisionCtas(Session session, HiveStorageFormat storageFormat)
@@ -7578,8 +7768,8 @@ public class TestHiveConnectorTest
         assertQuery("SELECT count(*) FROM " + viewName, "VALUES 1");
         assertQuery("SELECT count(*) FROM hive.tpch." + viewName, "VALUES 1");
         Session sessionNoCatalog = Session.builder(getSession())
-                .setCatalog(null)
-                .setSchema(null)
+                .setCatalog(Optional.empty())
+                .setSchema(Optional.empty())
                 .build();
         assertQueryFails(sessionNoCatalog, "SELECT count(*) FROM " + viewName, ".*Schema must be specified when session schema is not set.*");
         assertQuery(sessionNoCatalog, "SELECT count(*) FROM hive.tpch." + viewName, "VALUES 1");
@@ -7836,17 +8026,38 @@ public class TestHiveConnectorTest
             test.accept(session, storageFormat.getFormat());
         }
         catch (Exception | AssertionError e) {
-            fail(format("Failure for format %s with properties %s", storageFormat.getFormat(), session.getConnectorProperties()), e);
+            fail(format("Failure for format %s with properties %s / %s", storageFormat.getFormat(), session.getConnectorProperties(), session.getUnprocessedCatalogProperties()), e);
         }
+    }
+
+    private boolean isNativeParquetWriter(Session session, HiveStorageFormat storageFormat)
+    {
+        return storageFormat == HiveStorageFormat.PARQUET &&
+                ("true".equals(session.getConnectorProperties(new CatalogName("hive")).get("experimental_parquet_optimized_writer_enabled")) ||
+                        "true".equals(session.getUnprocessedCatalogProperties().getOrDefault("hive", Map.of()).get("experimental_parquet_optimized_writer_enabled")));
     }
 
     private List<TestingHiveStorageFormat> getAllTestingHiveStorageFormat()
     {
         Session session = getSession();
+        String catalog = session.getCatalog().orElseThrow();
         ImmutableList.Builder<TestingHiveStorageFormat> formats = ImmutableList.builder();
         for (HiveStorageFormat hiveStorageFormat : HiveStorageFormat.values()) {
             if (hiveStorageFormat == HiveStorageFormat.CSV) {
                 // CSV supports only unbounded VARCHAR type
+                continue;
+            }
+            if (hiveStorageFormat == HiveStorageFormat.PARQUET) {
+                formats.add(new TestingHiveStorageFormat(
+                        Session.builder(session)
+                                .setCatalogSessionProperty(catalog, "experimental_parquet_optimized_writer_enabled", "false")
+                                .build(),
+                        hiveStorageFormat));
+                formats.add(new TestingHiveStorageFormat(
+                        Session.builder(session)
+                                .setCatalogSessionProperty(catalog, "experimental_parquet_optimized_writer_enabled", "true")
+                                .build(),
+                        hiveStorageFormat));
                 continue;
             }
             formats.add(new TestingHiveStorageFormat(session, hiveStorageFormat));
