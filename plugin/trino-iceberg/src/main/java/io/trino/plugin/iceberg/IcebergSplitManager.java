@@ -38,7 +38,7 @@ public class IcebergSplitManager
     private final IcebergTransactionManager transactionManager;
 
     @Inject
-    public IcebergSplitManager(IcebergTransactionManager transactionManager)
+    public IcebergSplitManager(IcebergTransactionManager transactionManager, HiveTableOperationsProvider tableOperationsProvider)
     {
         this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
     }
