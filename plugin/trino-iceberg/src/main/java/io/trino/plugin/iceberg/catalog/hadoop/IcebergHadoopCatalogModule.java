@@ -16,9 +16,10 @@ package io.trino.plugin.iceberg.catalog.hadoop;
 import com.google.inject.Binder;
 import com.google.inject.Scopes;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
-import io.trino.plugin.hive.metastore.glue.GlueMetastoreModule;
+import io.trino.plugin.hive.metastore.file.FileMetastoreModule;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
+import io.trino.plugin.iceberg.catalog.file.FileMetastoreTableOperationsProvider;
 
 public class IcebergHadoopCatalogModule
         extends AbstractConfigurationAwareModule
@@ -26,8 +27,8 @@ public class IcebergHadoopCatalogModule
     @Override
     protected void setup(Binder binder)
     {
-        install(new GlueMetastoreModule());
+        install(new FileMetastoreModule());
         binder.bind(TrinoCatalogFactory.class).to(TrinoHadoopCatalogFactory.class).in(Scopes.SINGLETON);
-        binder.bind(IcebergTableOperationsProvider.class).to(HadoopTableOperationsProvider.class).in(Scopes.SINGLETON);
+        binder.bind(IcebergTableOperationsProvider.class).to(FileMetastoreTableOperationsProvider.class).in(Scopes.SINGLETON);
     }
 }

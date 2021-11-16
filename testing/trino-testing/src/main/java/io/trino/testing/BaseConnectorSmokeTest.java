@@ -267,7 +267,7 @@ public abstract class BaseConnectorSmokeTest
     public void testRenameTable()
     {
         if (!hasBehavior(SUPPORTS_RENAME_TABLE)) {
-            assertQueryFails("ALTER TABLE nation RENAME TO yyyy", "This connector does not support renaming tables");
+            assertQueryFails("ALTER TABLE nation RENAME TO yyyy", "Cannot rename Hadoop tables");
             return;
         }
 
@@ -378,7 +378,7 @@ public abstract class BaseConnectorSmokeTest
     public void testView()
     {
         if (!hasBehavior(SUPPORTS_CREATE_VIEW)) {
-            assertQueryFails("CREATE VIEW nation_v AS SELECT * FROM nation", "This connector does not support creating views");
+            assertQueryFails("CREATE VIEW nation_v AS SELECT * FROM nation", "createView is not supported by iceberg");
             return;
         }
 
@@ -406,7 +406,7 @@ public abstract class BaseConnectorSmokeTest
     public void testMaterializedView()
     {
         if (!hasBehavior(SUPPORTS_CREATE_MATERIALIZED_VIEW)) {
-            assertQueryFails("CREATE MATERIALIZED VIEW nation_mv AS SELECT * FROM nation", "This connector does not support creating materialized views");
+            assertQueryFails("CREATE MATERIALIZED VIEW nation_mv AS SELECT * FROM nation", "createMaterializedView is not supported by iceberg");
             return;
         }
 

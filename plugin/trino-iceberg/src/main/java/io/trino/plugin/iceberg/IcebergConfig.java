@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.iceberg;
 
+import com.google.common.collect.ImmutableMap;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.units.Duration;
@@ -23,10 +24,13 @@ import org.apache.iceberg.FileFormat;
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
 
+import java.util.Map;
+
 import static io.trino.plugin.hive.HiveCompressionCodec.GZIP;
 import static io.trino.plugin.iceberg.CatalogType.HIVE_METASTORE;
 import static io.trino.plugin.iceberg.IcebergFileFormat.ORC;
 import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.apache.iceberg.CatalogProperties.WAREHOUSE_LOCATION;
 
 public class IcebergConfig
 {
@@ -150,5 +154,10 @@ public class IcebergConfig
     {
         this.dynamicFilteringWaitTimeout = dynamicFilteringWaitTimeout;
         return this;
+    }
+
+    public static Map<String, String> convertToCatalogProperties(IcebergConfig config)
+    {
+        return ImmutableMap.of(WAREHOUSE_LOCATION, config.getCatalogWarehouse());
     }
 }

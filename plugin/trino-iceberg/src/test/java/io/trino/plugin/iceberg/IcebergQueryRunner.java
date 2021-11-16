@@ -69,6 +69,16 @@ public final class IcebergQueryRunner
             Optional<File> metastoreDirectory)
             throws Exception
     {
+        return createIcebergQueryRunner(extraProperties, CatalogType.HIVE_METASTORE, connectorProperties, tables, metastoreDirectory);
+    }
+
+    public static DistributedQueryRunner createIcebergQueryRunner(Map<String, String> extraProperties,
+            CatalogType catalogType,
+            Map<String, String> connectorProperties,
+            Iterable<TpchTable<?>> tables,
+            Optional<File> metastoreDirectory)
+            throws Exception
+    {
         Session session = testSessionBuilder()
                 .setCatalog(ICEBERG_CATALOG)
                 .setSchema("tpch")
@@ -86,6 +96,7 @@ public final class IcebergQueryRunner
         queryRunner.installPlugin(new IcebergPlugin());
         connectorProperties = new HashMap<>(ImmutableMap.copyOf(connectorProperties));
         connectorProperties.putIfAbsent("iceberg.catalog.type", "TESTING_FILE_METASTORE");
+        connectorProperties.putIfAbsent("iceberg.catalog.warehouse", queryRunner.getCoordinator().getBaseDataDir().toString());
         connectorProperties.putIfAbsent("hive.metastore.catalog.dir", dataDir.toString());
         queryRunner.createCatalog(ICEBERG_CATALOG, "iceberg", connectorProperties);
 

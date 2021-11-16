@@ -40,6 +40,7 @@ public class TestIcebergConfig
                 .setCompressionCodec(GZIP)
                 .setUseFileSizeFromMetadata(true)
                 .setMaxPartitionsPerWriter(100)
+                .setCatalogWarehouse(null)
                 .setUniqueTableLocation(false)
                 .setCatalogType(HIVE_METASTORE)
                 .setDynamicFilteringWaitTimeout(new Duration(0, MINUTES))

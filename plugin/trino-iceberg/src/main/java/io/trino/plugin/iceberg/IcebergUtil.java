@@ -44,6 +44,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.Transaction;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.types.Type.PrimitiveType;
 import org.apache.iceberg.types.TypeUtil;
@@ -118,6 +119,21 @@ public final class IcebergUtil
     public static boolean isIcebergTable(io.trino.plugin.hive.metastore.Table table)
     {
         return ICEBERG_TABLE_TYPE_VALUE.equalsIgnoreCase(table.getParameters().get(TABLE_TYPE_PROP));
+    }
+
+    public static String schemaFromTableId(TableIdentifier tableIdentifier)
+    {
+        return tableIdentifier.namespace().toString();
+    }
+
+    public static TableIdentifier toTableId(SchemaTableName schemaTableName)
+    {
+        return TableIdentifier.of(schemaTableName.getSchemaName(), schemaTableName.getTableName());
+    }
+
+    public static SchemaTableName fromTableId(TableIdentifier tableId)
+    {
+        return new SchemaTableName(schemaFromTableId(tableId), tableId.name());
     }
 
     public static Table loadIcebergTable(IcebergTableOperationsProvider tableOperationsProvider, ConnectorSession session, SchemaTableName table)
