@@ -30,6 +30,7 @@ import io.trino.execution.warnings.WarningCollector;
 import io.trino.memory.MemoryManagerConfig;
 import io.trino.memory.NodeMemoryConfig;
 import io.trino.metadata.Catalog;
+import io.trino.metadata.Catalog.SecurityManagement;
 import io.trino.metadata.CatalogManager;
 import io.trino.metadata.InMemoryNodeManager;
 import io.trino.metadata.InternalNodeManager;
@@ -38,6 +39,7 @@ import io.trino.metadata.QualifiedObjectName;
 import io.trino.metadata.SessionPropertyManager;
 import io.trino.metadata.TableHandle;
 import io.trino.plugin.base.security.AllowAllSystemAccessControl;
+import io.trino.plugin.base.security.DefaultSystemAccessControl;
 import io.trino.security.AccessControl;
 import io.trino.security.AccessControlConfig;
 import io.trino.security.AccessControlManager;
@@ -55,6 +57,7 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.session.PropertyMetadata;
 import io.trino.spi.transaction.IsolationLevel;
 import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.sql.parser.ParsingOptions;
 import io.trino.sql.parser.SqlParser;
@@ -3452,8 +3455,8 @@ public class TestAnalyzer
                 .hasErrorCode(SYNTAX_ERROR);
 
         Session session = testSessionBuilder()
-                .setCatalog(null)
-                .setSchema(null)
+                .setCatalog(Optional.empty())
+                .setSchema(Optional.empty())
                 .build();
         assertFails(session, "SHOW TABLES")
                 .hasErrorCode(MISSING_CATALOG_NAME);
@@ -3464,7 +3467,7 @@ public class TestAnalyzer
 
         session = testSessionBuilder()
                 .setCatalog(SECOND_CATALOG)
-                .setSchema(null)
+                .setSchema(Optional.empty())
                 .build();
         assertFails(session, "SHOW TABLES")
                 .hasErrorCode(MISSING_SCHEMA_NAME);
@@ -4438,6 +4441,112 @@ public class TestAnalyzer
     }
 
     @Test
+    public void testInPredicateWithSubquery()
+    {
+        // value can use plain column references
+        analyze(("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS 5 + x in (SELECT 1)" +
+                "                 ) "));
+
+        // value must not use pattern variables
+        assertFails("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS A.x in (SELECT 1)" +
+                "                 ) ")
+                .hasErrorCode(NOT_SUPPORTED)
+                .hasMessage("line 1:176: IN-PREDICATE with labeled column reference is not yet supported");
+
+        // value must not use navigations
+        assertFails("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS LAST(x) in (SELECT 1)" +
+                "                 ) ")
+                .hasErrorCode(NOT_SUPPORTED)
+                .hasMessage("line 1:176: IN-PREDICATE with last function is not yet supported");
+
+        // value must not use CLASSIFIER()
+        assertFails("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS CLASSIFIER() in (SELECT 1)" +
+                "                 ) ")
+                .hasErrorCode(NOT_SUPPORTED)
+                .hasMessage("line 1:176: IN-PREDICATE with classifier function is not yet supported");
+
+        // value must not use MATCH_NUMBER()
+        assertFails("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS MATCH_NUMBER() in (SELECT 1)" +
+                "                 ) ")
+                .hasErrorCode(NOT_SUPPORTED)
+                .hasMessage("line 1:176: IN-PREDICATE with match_number function is not yet supported");
+    }
+
+    @Test
+    public void testInPredicateWithoutSubquery()
+    {
+        // value and value list can use plain column references
+        analyze(("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS 5 + x in (1, 2, x)" +
+                "                 ) "));
+
+        // value and value list can use pattern variables
+        analyze("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS A.x in (1, 2, B.x)" +
+                "                 ) ");
+
+        // value and value list can use navigations
+        analyze("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS LAST(x) in (1, 2, FIRST(x))" +
+                "                 ) ");
+
+        // value and value list can use CLASSIFIER()
+        analyze("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS CLASSIFIER(A) in ('A', 'B', CLASSIFIER(B))" +
+                "                 ) ");
+
+        // valu and value liste can use MATCH_NUMBER()
+        analyze("SELECT * " +
+                "          FROM (VALUES 1) t(x) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES 1 AS c " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS MATCH_NUMBER() in (1, 2, MATCH_NUMBER())" +
+                "                 ) ");
+    }
+
+    @Test
     public void testPatternRecognitionConcatenation()
     {
         analyze("SELECT * " +
@@ -4466,6 +4575,25 @@ public class TestAnalyzer
                 "                 ) ")
                 .hasErrorCode(TABLE_HAS_NO_COLUMNS)
                 .hasMessage("line 1:25: pattern recognition output table has no columns");
+    }
+
+    @Test
+    public void testLambdaInPatternRecognition()
+    {
+        String query = "SELECT M.Measure " +
+                "          FROM (VALUES (ARRAY[1]), (ARRAY[2])) Ticker(Value) " +
+                "                 MATCH_RECOGNIZE ( " +
+                "                   MEASURES %s AS Measure " +
+                "                   PATTERN (A B+) " +
+                "                   DEFINE B AS %s " +
+                "                ) AS M";
+
+        assertFails(format(query, "transform(A.Value, x -> x + 100)", "true"))
+                .hasErrorCode(NOT_SUPPORTED)
+                .hasMessage("line 1:161: Lambda expression in pattern recognition context is not yet supported");
+        assertFails(format(query, "true", "transform(A.Value, x -> x + 100) = ARRAY[50]"))
+                .hasErrorCode(NOT_SUPPORTED)
+                .hasMessage("line 1:242: Lambda expression in pattern recognition context is not yet supported");
     }
 
     @Test
@@ -4759,7 +4887,7 @@ public class TestAnalyzer
                 .hasMessage("line 1:15: column [b] of type bigint projected from storage table at position 1 has a different name from column [c] of type bigint stored in materialized view definition");
         assertFails("SELECT * FROM fresh_materialized_view_mismatched_column_type")
                 .hasErrorCode(INVALID_VIEW)
-                .hasMessage("line 1:15: column [b] of type bigint projected from storage table at position 1 has a different type from column [b] of type tinyint stored in view definition");
+                .hasMessage("line 1:15: cannot cast column [b] of type bigint projected from storage table at position 1 into column [b] of type row(tinyint) stored in view definition");
     }
 
     @Test
@@ -4792,7 +4920,8 @@ public class TestAnalyzer
         AccessControlManager accessControlManager = new AccessControlManager(
                 transactionManager,
                 emptyEventListenerManager(),
-                new AccessControlConfig());
+                new AccessControlConfig(),
+                DefaultSystemAccessControl.NAME);
         accessControlManager.setSystemAccessControls(List.of(AllowAllSystemAccessControl.INSTANCE));
         this.accessControl = accessControlManager;
 
@@ -5104,11 +5233,11 @@ public class TestAnalyzer
                 session,
                 freshMaterializedMismatchedColumnType,
                 new ConnectorMaterializedViewDefinition(
-                        "SELECT a, CAST(b as tinyint) b FROM t1",
+                        "SELECT a, null b FROM t1",
                         Optional.of(new CatalogSchemaTableName(TPCH_CATALOG, "s1", "t2")),
                         Optional.of(TPCH_CATALOG),
                         Optional.of("s1"),
-                        ImmutableList.of(new Column("a", BIGINT.getTypeId()), new Column("b", TINYINT.getTypeId())),
+                        ImmutableList.of(new Column("a", BIGINT.getTypeId()), new Column("b", RowType.anonymousRow(TINYINT).getTypeId())),
                         Optional.empty(),
                         "some user",
                         ImmutableMap.of()),
@@ -5186,7 +5315,9 @@ public class TestAnalyzer
         return new Catalog(
                 catalogName,
                 catalog,
+                "test",
                 connector,
+                SecurityManagement.CONNECTOR,
                 createInformationSchemaCatalogName(catalog),
                 new InformationSchemaConnector(catalogName, nodeManager, metadata, accessControl),
                 systemId,

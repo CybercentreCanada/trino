@@ -13,11 +13,14 @@
  */
 package io.trino.operator;
 
+import com.google.common.collect.ImmutableMap;
 import io.airlift.json.JsonCodec;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.trino.connector.CatalogName;
-import io.trino.operator.PartitionedOutputOperator.PartitionedOutputInfo;
+import io.trino.operator.output.PartitionedOutputOperator.PartitionedOutputInfo;
+import io.trino.plugin.base.metrics.LongCount;
+import io.trino.spi.metrics.Metrics;
 import io.trino.sql.planner.plan.PlanNodeId;
 import org.testng.annotations.Test;
 
@@ -59,6 +62,8 @@ public class TestOperatorStats
             DataSize.ofBytes(12),
             13,
             533,
+            new Metrics(ImmutableMap.of("metrics", new LongCount(42))),
+            new Metrics(ImmutableMap.of("connectorMetrics", new LongCount(43))),
 
             DataSize.ofBytes(14),
 
@@ -106,6 +111,8 @@ public class TestOperatorStats
             DataSize.ofBytes(12),
             13,
             533,
+            new Metrics(ImmutableMap.of("metrics", new LongCount(42))),
+            new Metrics(ImmutableMap.of("connectorMetrics", new LongCount(43))),
 
             DataSize.ofBytes(14),
 
@@ -163,6 +170,8 @@ public class TestOperatorStats
         assertEquals(actual.getOutputPositions(), 13);
 
         assertEquals(actual.getDynamicFilterSplitsProcessed(), 533);
+        assertEquals(actual.getMetrics().getMetrics(), ImmutableMap.of("metrics", new LongCount(42)));
+        assertEquals(actual.getConnectorMetrics().getMetrics(), ImmutableMap.of("connectorMetrics", new LongCount(43)));
 
         assertEquals(actual.getPhysicalWrittenDataSize(), DataSize.ofBytes(14));
 
@@ -213,6 +222,8 @@ public class TestOperatorStats
         assertEquals(actual.getOutputPositions(), 3 * 13);
 
         assertEquals(actual.getDynamicFilterSplitsProcessed(), 3 * 533);
+        assertEquals(actual.getMetrics().getMetrics(), ImmutableMap.of("metrics", new LongCount(3 * 42)));
+        assertEquals(actual.getConnectorMetrics().getMetrics(), ImmutableMap.of("connectorMetrics", new LongCount(3 * 43)));
 
         assertEquals(actual.getPhysicalWrittenDataSize(), DataSize.ofBytes(3 * 14));
 
@@ -261,6 +272,8 @@ public class TestOperatorStats
         assertEquals(actual.getOutputPositions(), 3 * 13);
 
         assertEquals(actual.getDynamicFilterSplitsProcessed(), 3 * 533);
+        assertEquals(actual.getMetrics().getMetrics(), ImmutableMap.of("metrics", new LongCount(3 * 42)));
+        assertEquals(actual.getConnectorMetrics().getMetrics(), ImmutableMap.of("connectorMetrics", new LongCount(3 * 43)));
 
         assertEquals(actual.getPhysicalWrittenDataSize(), DataSize.ofBytes(3 * 14));
 

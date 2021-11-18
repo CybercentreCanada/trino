@@ -15,6 +15,9 @@ package io.trino.plugin.bigquery;
 
 import com.google.cloud.bigquery.Field;
 import com.google.cloud.bigquery.FieldList;
+import com.google.cloud.bigquery.LegacySQLTypeName;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Enums;
 import com.google.common.collect.ImmutableMap;
 import io.trino.spi.connector.ColumnMetadata;
 
@@ -26,28 +29,32 @@ import java.util.stream.Collectors;
 import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 
-final class Conversions
+public final class Conversions
 {
     private Conversions() {}
 
-    static BigQueryColumnHandle toColumnHandle(Field field)
+    public static BigQueryColumnHandle toColumnHandle(Field field)
     {
         FieldList subFields = field.getSubFields();
         List<BigQueryColumnHandle> subColumns = subFields == null ?
                 Collections.emptyList() :
                 subFields.stream()
+                        .filter(subField -> isSupportedType(subField.getType()))
                         .map(Conversions::toColumnHandle)
                         .collect(Collectors.toList());
         return new BigQueryColumnHandle(
                 field.getName(),
                 BigQueryType.valueOf(field.getType().name()),
                 getMode(field),
+                field.getPrecision(),
+                field.getScale(),
                 subColumns,
                 field.getDescription(),
                 false);
     }
 
-    static ColumnMetadata toColumnMetadata(Field field)
+    @VisibleForTesting
+    public static ColumnMetadata toColumnMetadata(Field field)
     {
         return ColumnMetadata.builder()
                 .setName(field.getName())
@@ -55,6 +62,11 @@ final class Conversions
                 .setComment(Optional.ofNullable(field.getDescription()))
                 .setNullable(getMode(field) == Field.Mode.NULLABLE)
                 .build();
+    }
+
+    public static boolean isSupportedType(LegacySQLTypeName type)
+    {
+        return Enums.getIfPresent(BigQueryType.class, type.name()).isPresent();
     }
 
     static BigQueryType.Adaptor adapt(Field field)
@@ -65,6 +77,18 @@ final class Conversions
             public BigQueryType getBigQueryType()
             {
                 return BigQueryType.valueOf(field.getType().name());
+            }
+
+            @Override
+            public Long getPrecision()
+            {
+                return field.getPrecision();
+            }
+
+            @Override
+            public Long getScale()
+            {
+                return field.getScale();
             }
 
             @Override

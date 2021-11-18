@@ -56,6 +56,7 @@ public class TestJdbcConnectorTest
                 return false;
 
             case SUPPORTS_RENAME_TABLE_ACROSS_SCHEMAS:
+            case SUPPORTS_RENAME_SCHEMA:
                 return false;
 
             case SUPPORTS_COMMENT_ON_TABLE:
@@ -106,23 +107,10 @@ public class TestJdbcConnectorTest
         switch (typeBaseName) {
             case "boolean":
             case "decimal":
-            case "char":
             case "varbinary":
             case "time":
             case "timestamp":
             case "timestamp with time zone":
-                return Optional.of(dataMappingTestSetup.asUnsupported());
-        }
-
-        return Optional.of(dataMappingTestSetup);
-    }
-
-    @Override
-    protected Optional<DataMappingTestSetup> filterCaseSensitiveDataMappingTestData(DataMappingTestSetup dataMappingTestSetup)
-    {
-        String typeBaseName = dataMappingTestSetup.getTrinoTypeName().replaceAll("\\([^()]*\\)", "");
-        switch (typeBaseName) {
-            case "char":
                 return Optional.of(dataMappingTestSetup.asUnsupported());
         }
 

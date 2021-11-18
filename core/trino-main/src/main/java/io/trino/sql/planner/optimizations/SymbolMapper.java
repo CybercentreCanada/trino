@@ -32,6 +32,7 @@ import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.sql.planner.plan.RowNumberNode;
 import io.trino.sql.planner.plan.StatisticAggregations;
 import io.trino.sql.planner.plan.StatisticsWriterNode;
+import io.trino.sql.planner.plan.TableExecuteNode;
 import io.trino.sql.planner.plan.TableFinishNode;
 import io.trino.sql.planner.plan.TableWriterNode;
 import io.trino.sql.planner.plan.TopNNode;
@@ -63,7 +64,7 @@ public class SymbolMapper
 {
     private final Function<Symbol, Symbol> mappingFunction;
 
-    private SymbolMapper(Function<Symbol, Symbol> mappingFunction)
+    public SymbolMapper(Function<Symbol, Symbol> mappingFunction)
     {
         this.mappingFunction = requireNonNull(mappingFunction, "mappingFunction is null");
     }
@@ -380,6 +381,26 @@ public class SymbolMapper
                 node.getPreferredPartitioningScheme().map(partitioningScheme -> map(partitioningScheme, source.getOutputSymbols())),
                 node.getStatisticsAggregation().map(this::map),
                 node.getStatisticsAggregationDescriptor().map(descriptor -> descriptor.map(this::map)));
+    }
+
+    public TableExecuteNode map(TableExecuteNode node, PlanNode source)
+    {
+        return map(node, source, node.getId());
+    }
+
+    public TableExecuteNode map(TableExecuteNode node, PlanNode source, PlanNodeId newId)
+    {
+        // Intentionally does not use mapAndDistinct on columns as that would remove columns
+        return new TableExecuteNode(
+                newId,
+                source,
+                node.getTarget(),
+                map(node.getRowCountSymbol()),
+                map(node.getFragmentSymbol()),
+                map(node.getColumns()),
+                node.getColumnNames(),
+                node.getPartitioningScheme().map(partitioningScheme -> map(partitioningScheme, source.getOutputSymbols())),
+                node.getPreferredPartitioningScheme().map(partitioningScheme -> map(partitioningScheme, source.getOutputSymbols())));
     }
 
     public PartitioningScheme map(PartitioningScheme scheme, List<Symbol> sourceLayout)

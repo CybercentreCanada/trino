@@ -53,7 +53,7 @@ public class TestMemSqlConnectorTest
             throws Exception
     {
         memSqlServer = new TestingMemSqlServer();
-        return createMemSqlQueryRunner(memSqlServer, ImmutableMap.of(), REQUIRED_TPCH_TABLES);
+        return createMemSqlQueryRunner(memSqlServer, ImmutableMap.of(), ImmutableMap.of(), REQUIRED_TPCH_TABLES);
     }
 
     @AfterClass(alwaysRun = true)
@@ -87,6 +87,7 @@ public class TestMemSqlConnectorTest
             case SUPPORTS_ARRAY:
                 return false;
 
+            case SUPPORTS_RENAME_SCHEMA:
             case SUPPORTS_RENAME_TABLE_ACROSS_SCHEMAS:
                 return false;
 
@@ -155,6 +156,13 @@ public class TestMemSqlConnectorTest
 
     @Override
     public void testInsertUnicode()
+    {
+        // MemSQL's utf8 encoding is 3 bytes and truncates strings upon encountering a 4 byte sequence
+        throw new SkipException("MemSQL doesn't support utf8mb4");
+    }
+
+    @Override
+    public void testInsertHighestUnicodeCharacter()
     {
         // MemSQL's utf8 encoding is 3 bytes and truncates strings upon encountering a 4 byte sequence
         throw new SkipException("MemSQL doesn't support utf8mb4");

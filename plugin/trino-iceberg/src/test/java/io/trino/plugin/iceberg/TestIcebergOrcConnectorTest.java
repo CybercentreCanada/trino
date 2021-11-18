@@ -13,13 +13,37 @@
  */
 package io.trino.plugin.iceberg;
 
+import io.trino.Session;
+
 import static org.apache.iceberg.FileFormat.ORC;
 
 public class TestIcebergOrcConnectorTest
-        extends AbstractTestIcebergConnectorTest
+        extends BaseIcebergConnectorTest
 {
     public TestIcebergOrcConnectorTest()
     {
         super(ORC);
+    }
+
+    @Override
+    protected boolean supportsIcebergFileStatistics(String typeName)
+    {
+        return !(typeName.equalsIgnoreCase("boolean") ||
+                typeName.equalsIgnoreCase("varbinary") ||
+                typeName.contains("timestamp"));
+    }
+
+    @Override
+    protected boolean supportsRowGroupStatistics(String typeName)
+    {
+        return !typeName.equalsIgnoreCase("varbinary");
+    }
+
+    @Override
+    protected Session withSmallRowGroups(Session session)
+    {
+        return Session.builder(session)
+                .setCatalogSessionProperty("iceberg", "orc_writer_max_stripe_rows", "10")
+                .build();
     }
 }

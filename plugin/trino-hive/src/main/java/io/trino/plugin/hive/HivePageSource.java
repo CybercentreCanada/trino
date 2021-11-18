@@ -37,6 +37,7 @@ import io.trino.spi.block.RowBlock;
 import io.trino.spi.block.RunLengthEncodedBlock;
 import io.trino.spi.connector.ConnectorPageSource;
 import io.trino.spi.connector.RecordCursor;
+import io.trino.spi.metrics.Metrics;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.MapType;
@@ -58,6 +59,7 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -258,6 +260,12 @@ public class HivePageSource
     }
 
     @Override
+    public OptionalLong getCompletedPositions()
+    {
+        return delegate.getCompletedPositions();
+    }
+
+    @Override
     public long getReadTimeNanos()
     {
         return delegate.getReadTimeNanos();
@@ -355,6 +363,12 @@ public class HivePageSource
     public long getSystemMemoryUsage()
     {
         return delegate.getSystemMemoryUsage();
+    }
+
+    @Override
+    public Metrics getMetrics()
+    {
+        return delegate.getMetrics();
     }
 
     protected void closeWithSuppression(Throwable throwable)

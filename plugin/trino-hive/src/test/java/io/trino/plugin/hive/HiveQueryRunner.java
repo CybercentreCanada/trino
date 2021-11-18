@@ -184,9 +184,7 @@ public final class HiveQueryRunner
                 queryRunner.createCatalog(HIVE_CATALOG, "hive", hiveProperties);
                 queryRunner.createCatalog(HIVE_BUCKETED_CATALOG, "hive", hiveBucketedProperties);
 
-                if (!initialTables.isEmpty()) {
-                    populateData(queryRunner, metastore);
-                }
+                populateData(queryRunner, metastore);
 
                 return queryRunner;
             }
@@ -230,7 +228,7 @@ public final class HiveQueryRunner
     {
         return testSessionBuilder()
                 .setIdentity(Identity.forUser("hive")
-                        .withRoles(role.map(selectedRole -> ImmutableMap.of(
+                        .withConnectorRoles(role.map(selectedRole -> ImmutableMap.of(
                                 HIVE_CATALOG, selectedRole,
                                 HIVE_BUCKETED_CATALOG, selectedRole))
                                 .orElse(ImmutableMap.of()))
@@ -244,7 +242,7 @@ public final class HiveQueryRunner
     {
         return testSessionBuilder()
                 .setIdentity(Identity.forUser("hive")
-                        .withRoles(role.map(selectedRole -> ImmutableMap.of(
+                        .withConnectorRoles(role.map(selectedRole -> ImmutableMap.of(
                                 HIVE_CATALOG, selectedRole,
                                 HIVE_BUCKETED_CATALOG, selectedRole))
                                 .orElse(ImmutableMap.of()))
@@ -301,7 +299,7 @@ public final class HiveQueryRunner
     public static void main(String[] args)
             throws Exception
     {
-        // You need to add "--user admin" to your CLI and execute "SET ROLE admin" for queries to work
+        // You need to add "--user admin" to your CLI and execute "SET ROLE admin IN hive" for queries to work
         Optional<Path> baseDataDir = Optional.empty();
         if (args.length > 0) {
             if (args.length != 1) {

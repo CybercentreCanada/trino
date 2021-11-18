@@ -65,6 +65,9 @@ public abstract class BaseMySqlConnectorTest
             case SUPPORTS_ARRAY:
                 return false;
 
+            case SUPPORTS_RENAME_SCHEMA:
+                return false;
+
             default:
                 return super.hasBehavior(connectorBehavior);
         }
@@ -122,8 +125,7 @@ public abstract class BaseMySqlConnectorTest
     protected Optional<DataMappingTestSetup> filterDataMappingSmokeTestData(DataMappingTestSetup dataMappingTestSetup)
     {
         String typeName = dataMappingTestSetup.getTrinoTypeName();
-        if (typeName.equals("time")
-                || typeName.equals("timestamp(3) with time zone")) {
+        if (typeName.equals("timestamp(3) with time zone")) {
             return Optional.of(dataMappingTestSetup.asUnsupported());
         }
 
@@ -196,22 +198,12 @@ public abstract class BaseMySqlConnectorTest
         onRemoteDatabase().execute("DROP VIEW IF EXISTS tpch.test_view");
     }
 
-    @Override
-    @Test
-    public void testInsert()
-    {
-        onRemoteDatabase().execute("CREATE TABLE tpch.test_insert (x bigint, y varchar(100))");
-        assertUpdate("INSERT INTO test_insert VALUES (123, 'test')", 1);
-        assertQuery("SELECT * FROM test_insert", "SELECT 123 x, 'test' y");
-        assertUpdate("DROP TABLE test_insert");
-    }
-
     @Test
     public void testNameEscaping()
     {
         Session session = testSessionBuilder()
                 .setCatalog("mysql")
-                .setSchema(getSession().getSchema().get())
+                .setSchema(getSession().getSchema())
                 .build();
 
         assertFalse(getQueryRunner().tableExists(session, "test_table"));

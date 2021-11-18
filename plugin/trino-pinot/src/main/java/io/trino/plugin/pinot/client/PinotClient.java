@@ -49,6 +49,8 @@ import org.apache.pinot.spi.data.Schema;
 
 import javax.inject.Inject;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -68,6 +70,8 @@ import java.util.stream.IntStream;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.Iterables.getOnlyElement;
+import static io.airlift.http.client.HttpUriBuilder.uriBuilderFrom;
 import static io.airlift.http.client.JsonResponseHandler.createJsonResponseHandler;
 import static io.airlift.json.JsonCodec.listJsonCodec;
 import static io.airlift.json.JsonCodec.mapJsonCodec;
@@ -87,16 +91,16 @@ public class PinotClient
     private static final Pattern BROKER_PATTERN = Pattern.compile("Broker_(.*)_(\\d+)");
     private static final String TIME_BOUNDARY_NOT_FOUND_ERROR_CODE = "404";
     private static final JsonCodec<Map<String, Map<String, List<String>>>> ROUTING_TABLE_CODEC = mapJsonCodec(String.class, mapJsonCodec(String.class, listJsonCodec(String.class)));
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private static final String GET_ALL_TABLES_API_TEMPLATE = "tables";
     private static final String TABLE_INSTANCES_API_TEMPLATE = "tables/%s/instances";
     private static final String TABLE_SCHEMA_API_TEMPLATE = "tables/%s/schema";
     private static final String ROUTING_TABLE_API_TEMPLATE = "debug/routingTable/%s";
     private static final String TIME_BOUNDARY_API_TEMPLATE = "debug/timeBoundary/%s";
-    private static final String REQUEST_PAYLOAD_TEMPLATE = "{\"sql\" : \"%s\" }";
     private static final String QUERY_URL_TEMPLATE = "http://%s/query/sql";
 
-    private final List<String> controllerUrls;
+    private final List<URI> controllerUrls;
     private final HttpClient httpClient;
     private final PinotHostMapper pinotHostMapper;
 
@@ -178,7 +182,7 @@ public class PinotClient
     private <T> T sendHttpGetToControllerJson(String path, JsonCodec<T> codec)
     {
         return doHttpActionWithHeadersJson(
-                Request.Builder.prepareGet().setUri(URI.create(format("http://%s/%s", getControllerUrl(), path))),
+                Request.Builder.prepareGet().setUri(uriBuilderFrom(getControllerUrl()).appendPath(path).build()),
                 Optional.empty(),
                 codec);
     }
@@ -191,7 +195,7 @@ public class PinotClient
                 codec);
     }
 
-    private String getControllerUrl()
+    private URI getControllerUrl()
     {
         return controllerUrls.get(ThreadLocalRandom.current().nextInt(controllerUrls.size()));
     }
@@ -404,10 +408,9 @@ public class PinotClient
         private final int[] indices;
         private int rowIndex;
 
-        public ResultsIterator(ResultTable resultTable, int[] indices)
+        private ResultsIterator(List<Object[]> rows, int[] indices)
         {
-            requireNonNull(resultTable, "resultTable is null");
-            this.rows = resultTable.getRows();
+            this.rows = requireNonNull(rows, "rows is null");
             this.indices = requireNonNull(indices, "indices is null");
         }
 
@@ -428,7 +431,7 @@ public class PinotClient
             LOG.info("Query '%s' on broker host '%s'", queryHost, query.getQuery());
             Request.Builder builder = Request.Builder.preparePost()
                     .setUri(URI.create(format(QUERY_URL_TEMPLATE, queryHost)));
-            BrokerResponseNative response = doHttpActionWithHeadersJson(builder, Optional.of(format(REQUEST_PAYLOAD_TEMPLATE, query.getQuery())), brokerResponseCodec);
+            BrokerResponseNative response = doHttpActionWithHeadersJson(builder, Optional.of(buildRequest(query.getQuery())), brokerResponseCodec);
 
             if (response.getExceptionsSize() > 0 && response.getProcessingExceptions() != null && !response.getProcessingExceptions().isEmpty()) {
                 // Pinot is known to return exceptions with benign errorcodes like 200
@@ -444,6 +447,16 @@ public class PinotClient
 
             return response;
         });
+    }
+
+    private static String buildRequest(String sql)
+    {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(ImmutableMap.of("sql", sql));
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     /**
@@ -462,24 +475,39 @@ public class PinotClient
     public Iterator<BrokerResultRow> createResultIterator(ConnectorSession session, PinotQuery query, List<PinotColumnHandle> columnHandles)
     {
         BrokerResponseNative response = submitBrokerQueryJson(session, query);
-        return fromResultTable(response.getResultTable(), columnHandles);
+        return fromResultTable(response, columnHandles, query.getGroupByClauses());
     }
 
     @VisibleForTesting
-    public static ResultsIterator fromResultTable(ResultTable resultTable, List<PinotColumnHandle> columnHandles)
+    public static ResultsIterator fromResultTable(BrokerResponseNative brokerResponse, List<PinotColumnHandle> columnHandles, int groupByClauses)
     {
-        requireNonNull(resultTable, "resultTable is null");
+        requireNonNull(brokerResponse, "brokerResponse is null");
         requireNonNull(columnHandles, "columnHandles is null");
+        ResultTable resultTable = brokerResponse.getResultTable();
         String[] columnNames = resultTable.getDataSchema().getColumnNames();
         Map<String, Integer> columnIndices = IntStream.range(0, columnNames.length)
                 .boxed()
                 // Pinot lower cases column names which use aggregate functions, ex. min(my_Col) becomes min(my_col)
                 .collect(toImmutableMap(i -> columnNames[i].toLowerCase(ENGLISH), identity()));
         int[] indices = new int[columnNames.length];
+        int[] inverseIndices = new int[columnNames.length];
         for (int i = 0; i < columnHandles.size(); i++) {
             indices[i] = columnIndices.get(columnHandles.get(i).getColumnName().toLowerCase(ENGLISH));
+            inverseIndices[indices[i]] = i;
         }
-        return new ResultsIterator(resultTable, indices);
+        List<Object[]> rows = resultTable.getRows();
+        // If returning from a global aggregation (no grouping columns) over an empty table, NULL-out all aggregation function results except for `count()`
+        if (groupByClauses == 0 && brokerResponse.getNumDocsScanned() == 0 && resultTable.getRows().size() == 1) {
+            Object[] originalRow = getOnlyElement(resultTable.getRows());
+            Object[] newRow = new Object[originalRow.length];
+            for (int i = 0; i < originalRow.length; i++) {
+                if (!columnHandles.get(inverseIndices[i]).isReturnNullOnEmptyGroup()) {
+                    newRow[i] = originalRow[i];
+                }
+            }
+            rows = ImmutableList.of(newRow);
+        }
+        return new ResultsIterator(rows, indices);
     }
 
     public static <T> T doWithRetries(int retries, Function<Integer, T> caller)
@@ -494,7 +522,7 @@ public class PinotClient
                 if (firstError == null) {
                     firstError = e;
                 }
-                if (!e.isRetriable()) {
+                if (!e.isRetryable()) {
                     throw e;
                 }
             }

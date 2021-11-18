@@ -36,6 +36,7 @@ import io.trino.sql.planner.TypeProvider;
 import io.trino.sql.planner.assertions.BasePlanTest;
 import io.trino.sql.planner.iterative.rule.test.PlanBuilder;
 import io.trino.sql.planner.plan.PlanNode;
+import io.trino.sql.tree.LongLiteral;
 import io.trino.testing.LocalQueryRunner;
 import io.trino.testing.TestingTransactionHandle;
 import org.testng.annotations.Test;
@@ -44,8 +45,11 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import static io.trino.spi.connector.SortOrder.ASC_NULLS_FIRST;
+import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
+import static io.trino.sql.planner.iterative.rule.test.PlanBuilder.expression;
 import static io.trino.testing.TestingSession.testSessionBuilder;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class TestValidateLimitWithPresortedInput
         extends BasePlanTest
@@ -136,10 +140,28 @@ public class TestValidateLimitWithPresortedInput
                                         p.symbol(COLUMN_NAME_C, VARCHAR), COLUMN_HANDLE_C))));
     }
 
-    @Test(expectedExceptions = VerifyException.class, expectedExceptionsMessageRegExp = "Expected Limit input to be sorted by: \\[col_b], but was \\[col_a]")
-    public void testValidateFailed()
+    @Test
+    public void testValidateConstantProperty()
     {
         validatePlan(
+                p -> p.limit(
+                        10,
+                        ImmutableList.of(),
+                        true,
+                        ImmutableList.of(p.symbol("a", BIGINT)),
+                        p.filter(
+                                expression("a = 1"),
+                                p.values(
+                                        ImmutableList.of(p.symbol("a", BIGINT)),
+                                        ImmutableList.of(
+                                                ImmutableList.of(new LongLiteral("1")),
+                                                ImmutableList.of(new LongLiteral("1")))))));
+    }
+
+    @Test
+    public void testValidateFailed()
+    {
+        assertThatThrownBy(() -> validatePlan(
                 p -> p.limit(
                         10,
                         ImmutableList.of(),
@@ -150,14 +172,16 @@ public class TestValidateLimitWithPresortedInput
                                 ImmutableList.of(p.symbol(COLUMN_NAME_A, VARCHAR), p.symbol(COLUMN_NAME_B, VARCHAR)),
                                 ImmutableMap.of(
                                         p.symbol(COLUMN_NAME_A, VARCHAR), COLUMN_HANDLE_A,
-                                        p.symbol(COLUMN_NAME_B, VARCHAR), COLUMN_HANDLE_B))));
+                                        p.symbol(COLUMN_NAME_B, VARCHAR), COLUMN_HANDLE_B)))))
+                .isInstanceOf(VerifyException.class)
+                .hasMessageMatching("\\QExpected Limit input to be sorted by: [col_b], but was [S↑←(col_a)]\\E");
     }
 
     private void validatePlan(Function<PlanBuilder, PlanNode> planProvider)
     {
         LocalQueryRunner queryRunner = getQueryRunner();
         Metadata metadata = queryRunner.getMetadata();
-        PlanBuilder builder = new PlanBuilder(idAllocator, metadata);
+        PlanBuilder builder = new PlanBuilder(idAllocator, metadata, queryRunner.getDefaultSession());
         PlanNode planNode = planProvider.apply(builder);
         TypeProvider types = builder.getTypes();
 

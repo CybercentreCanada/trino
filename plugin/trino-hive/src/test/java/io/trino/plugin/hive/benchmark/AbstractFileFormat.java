@@ -31,6 +31,7 @@ import io.trino.plugin.hive.HiveType;
 import io.trino.plugin.hive.HiveTypeName;
 import io.trino.plugin.hive.ReaderPageSource;
 import io.trino.plugin.hive.TableToPartitionMapping;
+import io.trino.spi.SplitWeight;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorPageSource;
 import io.trino.spi.connector.ConnectorSession;
@@ -152,7 +153,9 @@ public abstract class AbstractFileFormat
                 Optional.empty(),
                 Optional.empty(),
                 false,
-                Optional.empty());
+                Optional.empty(),
+                0,
+                SplitWeight.standard());
 
         return factory.createPageSource(
                 TestingConnectorTransactionHandle.INSTANCE,

@@ -97,7 +97,7 @@ import io.trino.sql.tree.IsNullPredicate;
 import io.trino.sql.tree.LambdaArgumentDeclaration;
 import io.trino.sql.tree.LambdaExpression;
 import io.trino.sql.tree.LikePredicate;
-import io.trino.sql.tree.LogicalBinaryExpression;
+import io.trino.sql.tree.LogicalExpression;
 import io.trino.sql.tree.LongLiteral;
 import io.trino.sql.tree.MeasureDefinition;
 import io.trino.sql.tree.Node;
@@ -681,10 +681,11 @@ public class ExpressionAnalyzer
         }
 
         @Override
-        protected Type visitLogicalBinaryExpression(LogicalBinaryExpression node, StackableAstVisitorContext<Context> context)
+        protected Type visitLogicalExpression(LogicalExpression node, StackableAstVisitorContext<Context> context)
         {
-            coerceType(context, node.getLeft(), BOOLEAN, "Left side of logical expression");
-            coerceType(context, node.getRight(), BOOLEAN, "Right side of logical expression");
+            for (Expression term : node.getTerms()) {
+                coerceType(context, term, BOOLEAN, "Logical expression term");
+            }
 
             return setExpressionType(node, BOOLEAN);
         }
@@ -1000,7 +1001,7 @@ public class ExpressionAnalyzer
 
             if (!JSON.equals(type)) {
                 try {
-                    metadata.getCoercion(VARCHAR, type);
+                    metadata.getCoercion(session, VARCHAR, type);
                 }
                 catch (IllegalArgumentException e) {
                     throw semanticException(INVALID_LITERAL, node, "No literal form for type %s", type);
@@ -1120,9 +1121,21 @@ public class ExpressionAnalyzer
 
             List<TypeSignatureProvider> argumentTypes = getCallArgumentTypes(node.getArguments(), context);
 
+            if (QualifiedName.of("LISTAGG").equals(node.getName())) {
+                // Due to fact that the LISTAGG function is transformed out of pragmatic reasons
+                // in a synthetic function call, the type expression of this function call is evaluated
+                // explicitly here in order to make sure that it is a varchar.
+                List<Expression> arguments = node.getArguments();
+                Expression expression = arguments.get(0);
+                Type expressionType = process(expression, context);
+                if (!(expressionType instanceof VarcharType)) {
+                    throw semanticException(TYPE_MISMATCH, node, format("Expected expression of varchar, but '%s' has %s type", expression, expressionType.getDisplayName()));
+                }
+            }
+
             ResolvedFunction function;
             try {
-                function = metadata.resolveFunction(node.getName(), argumentTypes);
+                function = metadata.resolveFunction(session, node.getName(), argumentTypes);
             }
             catch (TrinoException e) {
                 if (e.getLocation().isPresent()) {
@@ -1409,7 +1422,7 @@ public class ExpressionAnalyzer
                 operatorType = ADD;
             }
             try {
-                function = metadata.resolveOperator(operatorType, ImmutableList.of(sortKeyType, offsetValueType));
+                function = metadata.resolveOperator(session, operatorType, ImmutableList.of(sortKeyType, offsetValueType));
             }
             catch (TrinoException e) {
                 ErrorCode errorCode = e.getErrorCode();
@@ -1773,7 +1786,7 @@ public class ExpressionAnalyzer
 
             for (int i = 1; i < arguments.size(); i++) {
                 try {
-                    metadata.resolveFunction(QualifiedName.of(FormatFunction.NAME), fromTypes(arguments.get(0), RowType.anonymous(arguments.subList(1, arguments.size()))));
+                    metadata.resolveFunction(session, QualifiedName.of(FormatFunction.NAME), fromTypes(arguments.get(0), RowType.anonymous(arguments.subList(1, arguments.size()))));
                 }
                 catch (TrinoException e) {
                     ErrorCode errorCode = e.getErrorCode();
@@ -1938,7 +1951,7 @@ public class ExpressionAnalyzer
             Type value = process(node.getExpression(), context);
             if (!value.equals(UNKNOWN) && !node.isTypeOnly()) {
                 try {
-                    metadata.getCoercion(value, type);
+                    metadata.getCoercion(session, value, type);
                 }
                 catch (OperatorNotFoundException e) {
                     throw semanticException(TYPE_MISMATCH, node, "Cannot cast %s to %s", value, type);
@@ -1952,9 +1965,40 @@ public class ExpressionAnalyzer
         protected Type visitInPredicate(InPredicate node, StackableAstVisitorContext<Context> context)
         {
             Expression value = node.getValue();
+            Expression valueList = node.getValueList();
+
+            // When an IN-predicate containing a subquery: `x IN (SELECT ...)` is planned, both `value` and `valueList` are pre-planned.
+            // In the row pattern matching context, expressions can contain labeled column references, navigations, CALSSIFIER(), and MATCH_NUMBER() calls.
+            // None of these can be pre-planned. Instead, the query fails:
+            // - if such elements are in the `value list` (subquery), the analysis of the subquery fails as it is done in a non-pattern-matching context.
+            // - if such elements are in `value`, they are captured by the below check.
+            //
+            // NOTE: Theoretically, if the IN-predicate does not contain CLASSIFIER() or MATCH_NUMBER() calls, it could be pre-planned
+            // on the condition that all column references of the `value` are consistently navigated (i.e., the expression is effectively evaluated within a single row),
+            // and that the same navigation should be applied to the resulting symbol.
+            // Currently, we only support the case when there are no explicit labels or navigations. This is a special case of such
+            // consistent navigating, as the column reference `x` defaults to `RUNNING LAST(universal_pattern_variable.x)`.
+            if (context.getContext().isPatternRecognition() && valueList instanceof SubqueryExpression) {
+                extractExpressions(ImmutableList.of(value), FunctionCall.class).stream()
+                        .filter(ExpressionAnalyzer::isPatternRecognitionFunction)
+                        .findFirst()
+                        .ifPresent(function -> {
+                            throw semanticException(NOT_SUPPORTED, function, "IN-PREDICATE with %s function is not yet supported", function.getName().getSuffix());
+                        });
+                extractExpressions(ImmutableList.of(value), DereferenceExpression.class).stream()
+                        .forEach(dereference -> {
+                            QualifiedName qualifiedName = DereferenceExpression.getQualifiedName(dereference);
+                            if (qualifiedName != null) {
+                                String label = label(qualifiedName.getOriginalParts().get(0));
+                                if (context.getContext().getLabels().contains(label)) {
+                                    throw semanticException(NOT_SUPPORTED, dereference, "IN-PREDICATE with labeled column reference is not yet supported");
+                                }
+                            }
+                        });
+            }
+
             Type declaredValueType = process(value, context);
 
-            Expression valueList = node.getValueList();
             if (valueList instanceof InListExpression) {
                 process(valueList, context);
                 InListExpression inListExpression = (InListExpression) valueList;
@@ -2128,6 +2172,10 @@ public class ExpressionAnalyzer
         @Override
         protected Type visitLambdaExpression(LambdaExpression node, StackableAstVisitorContext<Context> context)
         {
+            if (context.getContext().isPatternRecognition()) {
+                throw semanticException(NOT_SUPPORTED, node, "Lambda expression in pattern recognition context is not yet supported");
+            }
+
             verifyNoAggregateWindowOrGroupingFunctions(metadata, node.getBody(), "Lambda expression");
             if (!context.getContext().isExpectingLambda()) {
                 throw semanticException(TYPE_MISMATCH, node, "Lambda expression should always be used inside a function");
@@ -2234,7 +2282,7 @@ public class ExpressionAnalyzer
 
             BoundSignature operatorSignature;
             try {
-                operatorSignature = metadata.resolveOperator(operatorType, argumentTypes.build()).getSignature();
+                operatorSignature = metadata.resolveOperator(session, operatorType, argumentTypes.build()).getSignature();
             }
             catch (OperatorNotFoundException e) {
                 throw semanticException(TYPE_MISMATCH, node, e, "%s", e.getMessage());
@@ -2504,9 +2552,9 @@ public class ExpressionAnalyzer
             Iterable<Expression> expressions,
             Map<NodeRef<Parameter>, Expression> parameters,
             WarningCollector warningCollector,
-            boolean isDescribe)
+            QueryType queryType)
     {
-        Analysis analysis = new Analysis(null, parameters, isDescribe);
+        Analysis analysis = new Analysis(null, parameters, queryType);
         ExpressionAnalyzer analyzer = create(analysis, session, metadata, sqlParser, groupProvider, accessControl, types, warningCollector);
         for (Expression expression : expressions) {
             analyzer.analyze(

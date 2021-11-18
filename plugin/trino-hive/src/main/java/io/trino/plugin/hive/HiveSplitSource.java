@@ -23,6 +23,7 @@ import io.airlift.units.DataSize;
 import io.trino.plugin.hive.InternalHiveSplit.InternalHiveBlock;
 import io.trino.plugin.hive.util.AsyncQueue;
 import io.trino.plugin.hive.util.AsyncQueue.BorrowResult;
+import io.trino.plugin.hive.util.SizeBasedSplitWeightProvider;
 import io.trino.plugin.hive.util.ThrottledAsyncQueue;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorPartitionHandle;
@@ -33,6 +34,7 @@ import io.trino.spi.connector.ConnectorSplitSource;
 import java.io.FileNotFoundException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -56,6 +58,8 @@ import static io.trino.plugin.hive.HiveErrorCode.HIVE_FILE_NOT_FOUND;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_UNKNOWN_ERROR;
 import static io.trino.plugin.hive.HiveSessionProperties.getMaxInitialSplitSize;
 import static io.trino.plugin.hive.HiveSessionProperties.getMaxSplitSize;
+import static io.trino.plugin.hive.HiveSessionProperties.getMinimumAssignedSplitWeight;
+import static io.trino.plugin.hive.HiveSessionProperties.isSizeBasedSplitWeightsEnabled;
 import static io.trino.plugin.hive.HiveSplitSource.StateKind.CLOSED;
 import static io.trino.plugin.hive.HiveSplitSource.StateKind.FAILED;
 import static io.trino.plugin.hive.HiveSplitSource.StateKind.INITIAL;
@@ -79,6 +83,7 @@ class HiveSplitSource
     private final DataSize maxSplitSize;
     private final DataSize maxInitialSplitSize;
     private final AtomicInteger remainingInitialSplits;
+    private final AtomicLong numberOfProcessedSplits;
 
     private final HiveSplitLoader splitLoader;
     private final AtomicReference<State> stateReference;
@@ -87,6 +92,10 @@ class HiveSplitSource
 
     private final CounterStat highMemorySplitSourceCounter;
     private final AtomicBoolean loggedHighMemoryWarning = new AtomicBoolean();
+    private final HiveSplitWeightProvider splitWeightProvider;
+
+    private final boolean recordScannedFiles;
+    private final ImmutableList.Builder<Object> scannedFilePaths = ImmutableList.builder();
 
     private HiveSplitSource(
             ConnectorSession session,
@@ -97,7 +106,8 @@ class HiveSplitSource
             DataSize maxOutstandingSplitsSize,
             HiveSplitLoader splitLoader,
             AtomicReference<State> stateReference,
-            CounterStat highMemorySplitSourceCounter)
+            CounterStat highMemorySplitSourceCounter,
+            boolean recordScannedFiles)
     {
         requireNonNull(session, "session is null");
         this.queryId = session.getQueryId();
@@ -112,6 +122,9 @@ class HiveSplitSource
         this.maxSplitSize = getMaxSplitSize(session);
         this.maxInitialSplitSize = getMaxInitialSplitSize(session);
         this.remainingInitialSplits = new AtomicInteger(maxInitialSplits);
+        this.numberOfProcessedSplits = new AtomicLong(0);
+        this.splitWeightProvider = isSizeBasedSplitWeightsEnabled(session) ? new SizeBasedSplitWeightProvider(getMinimumAssignedSplitWeight(session), maxSplitSize) : HiveSplitWeightProvider.uniformStandardWeightProvider();
+        this.recordScannedFiles = recordScannedFiles;
     }
 
     public static HiveSplitSource allAtOnce(
@@ -124,7 +137,8 @@ class HiveSplitSource
             int maxSplitsPerSecond,
             HiveSplitLoader splitLoader,
             Executor executor,
-            CounterStat highMemorySplitSourceCounter)
+            CounterStat highMemorySplitSourceCounter,
+            boolean recordScannedFiles)
     {
         AtomicReference<State> stateReference = new AtomicReference<>(State.initial());
         return new HiveSplitSource(
@@ -166,7 +180,8 @@ class HiveSplitSource
                 maxOutstandingSplitsSize,
                 splitLoader,
                 stateReference,
-                highMemorySplitSourceCounter);
+                highMemorySplitSourceCounter,
+                recordScannedFiles);
     }
 
     public static HiveSplitSource bucketed(
@@ -179,7 +194,8 @@ class HiveSplitSource
             int maxSplitsPerSecond,
             HiveSplitLoader splitLoader,
             Executor executor,
-            CounterStat highMemorySplitSourceCounter)
+            CounterStat highMemorySplitSourceCounter,
+            boolean recordScannedFiles)
     {
         AtomicReference<State> stateReference = new AtomicReference<>(State.initial());
         return new HiveSplitSource(
@@ -241,7 +257,8 @@ class HiveSplitSource
                 maxOutstandingSplitsSize,
                 splitLoader,
                 stateReference,
-                highMemorySplitSourceCounter);
+                highMemorySplitSourceCounter,
+                recordScannedFiles);
     }
 
     /**
@@ -381,7 +398,9 @@ class HiveSplitSource
                         internalSplit.getBucketConversion(),
                         internalSplit.getBucketValidation(),
                         internalSplit.isS3SelectPushdownEnabled(),
-                        internalSplit.getAcidInfo()));
+                        internalSplit.getAcidInfo(),
+                        numberOfProcessedSplits.getAndIncrement(),
+                        splitWeightProvider.weightForSplitSizeInBytes(splitBytes)));
 
                 internalSplit.increaseStart(splitBytes);
 
@@ -403,6 +422,9 @@ class HiveSplitSource
 
         ListenableFuture<ConnectorSplitBatch> transform = Futures.transform(future, splits -> {
             requireNonNull(splits, "splits is null");
+            if (recordScannedFiles) {
+                splits.forEach(split -> scannedFilePaths.add(((HiveSplit) split).getPath()));
+            }
             if (noMoreSplits) {
                 // Checking splits.isEmpty() here is required for thread safety.
                 // Let's say there are 10 splits left, and max number of splits per batch is 5.
@@ -441,6 +463,16 @@ class HiveSplitSource
             default:
                 throw new UnsupportedOperationException();
         }
+    }
+
+    @Override
+    public Optional<List<Object>> getTableExecuteSplitsInfo()
+    {
+        checkState(isFinished(), "HiveSplitSource must be finished before TableExecuteSplitsInfo is read");
+        if (!recordScannedFiles) {
+            return Optional.empty();
+        }
+        return Optional.of(scannedFilePaths.build());
     }
 
     @Override
