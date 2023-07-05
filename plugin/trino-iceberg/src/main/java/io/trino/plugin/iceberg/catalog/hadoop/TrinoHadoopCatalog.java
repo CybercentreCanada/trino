@@ -16,7 +16,13 @@ package io.trino.plugin.iceberg.catalog.hadoop;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import io.trino.collect.cache.SafeCaches;
+import io.trino.hadoop.HadoopNative;
+import io.trino.hdfs.DynamicHdfsConfiguration;
+import io.trino.hdfs.HdfsConfig;
+import io.trino.hdfs.HdfsConfiguration;
+import io.trino.hdfs.HdfsConfigurationInitializer;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.plugin.base.CatalogName;
@@ -32,10 +38,9 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.type.TypeManager;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
@@ -46,6 +51,8 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.util.PropertyUtil;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +69,10 @@ import static org.apache.iceberg.CatalogUtil.loadCatalog;
 public class TrinoHadoopCatalog
         extends AbstractTrinoCatalog
 {
+    static {
+        HadoopNative.requireHadoopNative();
+    }
+
     private static final Map<String, String> EMPTY_SESSION_MAP = ImmutableMap.of();
     private static final String CATALOG_IMPL = HadoopCatalog.class.getName();
 
@@ -85,6 +96,7 @@ public class TrinoHadoopCatalog
      * The default behavior is to use {@link ConnectorSession#getQueryId()} as the cache key,
      * which means catalog is not shared across queries.
      * Implementations can override this method to use for example the authZ user information of the session instead.
+     *
      * @param session session
      * @return session cache key
      */
@@ -98,6 +110,7 @@ public class TrinoHadoopCatalog
      * together with other catalog properties configured at connector level.
      * The default behavior is to return an empty map.
      * Implementations can override this method to pass session properties or session identity information to the catalog.
+     *
      * @param session session
      * @return catalog properties derived from session
      */
@@ -107,12 +120,14 @@ public class TrinoHadoopCatalog
     }
 
     private Catalog createNewCatalog(ConnectorSession session)
+            throws URISyntaxException
     {
         ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
         builder.putAll(catalogProperties);
         builder.putAll(getSessionProperties(session));
-        Configuration hadoopConf = hdfsEnvironment.getConfiguration(new HdfsContext(session), new Path(warehouse));
-        return loadCatalog(CATALOG_IMPL, catalogName.toString(), builder.buildOrThrow(), hadoopConf);
+        HdfsConfig hdfsConfig = new HdfsConfig();
+        HdfsConfiguration hdfsConfiguration = new DynamicHdfsConfiguration(new HdfsConfigurationInitializer(hdfsConfig), ImmutableSet.of());
+        return loadCatalog(CATALOG_IMPL, catalogName.toString(), builder.buildOrThrow(), hdfsConfiguration.getConfiguration(new HdfsContext(session), new URI(warehouse)));
     }
 
     public Catalog getCatalog(ConnectorSession session)
@@ -156,7 +171,7 @@ public class TrinoHadoopCatalog
             // Currently, Trino schemas are always lowercase, so this one cannot exist (https://github.com/trinodb/trino/issues/17)
             return false;
         }
-        if (listNamespaces(session).stream().filter(_namespace -> namespace.equals(_namespace.toString())).findAny().orElse(null) != null) {
+        if (listNamespaces(session).stream().filter(namespace::equals).findAny().orElse(null) != null) {
             return true;
         }
         else {
@@ -211,11 +226,25 @@ public class TrinoHadoopCatalog
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> namespace)
     {
-        return getCatalog(session).listTables(Namespace.of(namespace.orElseThrow())).stream().map(tableIdentifier -> schemaFromTableId(tableIdentifier)).collect(Collectors.toList());
+        return getCatalog(session).listTables(Namespace.of(namespace.orElseThrow())).stream().map(this::schemaFromTableId).collect(Collectors.toList());
     }
 
     @Override
-    public Transaction newCreateTableTransaction(ConnectorSession session, SchemaTableName schemaTableName, Schema schema, PartitionSpec partitionSpec, String location, Map<String, String> properties)
+    public Transaction newCreateTableTransaction(ConnectorSession session, SchemaTableName schemaTableName, Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String location, Map<String, String> properties)
+    {
+        return newCreateTableTransaction(
+                session,
+                schemaTableName,
+                schema,
+                partitionSpec,
+                sortOrder,
+                location,
+                properties,
+                Optional.of(session.getUser()));
+    }
+
+    @Override
+    public Transaction newCreateTableTransaction(ConnectorSession session, SchemaTableName schemaTableName, Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String location, Map<String, String> properties, Optional<String> owner)
     {
         // Location cannot be specified for hadoop tables.
         return getCatalog(session).newCreateTableTransaction(toTableId(schemaTableName), schema, partitionSpec, null, properties);
@@ -228,7 +257,19 @@ public class TrinoHadoopCatalog
     }
 
     @Override
+    public void unregisterTable(ConnectorSession session, SchemaTableName tableName)
+    {
+        dropTable(session, tableName);
+    }
+
+    @Override
     public void dropTable(ConnectorSession session, SchemaTableName schemaTableName)
+    {
+        getCatalog(session).dropTable(toTableId(schemaTableName), true);
+    }
+
+    @Override
+    public void dropCorruptedTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
         getCatalog(session).dropTable(toTableId(schemaTableName), true);
     }
