@@ -16,13 +16,8 @@ package io.trino.plugin.iceberg.catalog.hadoop;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import io.trino.collect.cache.SafeCaches;
 import io.trino.hadoop.HadoopNative;
-import io.trino.hdfs.DynamicHdfsConfiguration;
-import io.trino.hdfs.HdfsConfig;
-import io.trino.hdfs.HdfsConfiguration;
-import io.trino.hdfs.HdfsConfigurationInitializer;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.plugin.base.CatalogName;
@@ -38,6 +33,8 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.type.TypeManager;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -51,8 +48,6 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.util.PropertyUtil;
 
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -120,14 +115,12 @@ public class TrinoHadoopCatalog
     }
 
     private Catalog createNewCatalog(ConnectorSession session)
-            throws URISyntaxException
     {
         ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
         builder.putAll(catalogProperties);
         builder.putAll(getSessionProperties(session));
-        HdfsConfig hdfsConfig = new HdfsConfig();
-        HdfsConfiguration hdfsConfiguration = new DynamicHdfsConfiguration(new HdfsConfigurationInitializer(hdfsConfig), ImmutableSet.of());
-        return loadCatalog(CATALOG_IMPL, catalogName.toString(), builder.buildOrThrow(), hdfsConfiguration.getConfiguration(new HdfsContext(session), new URI(warehouse)));
+        Configuration hadoopConf = hdfsEnvironment.getConfiguration(new HdfsContext(session), new Path(warehouse));
+        return loadCatalog(CATALOG_IMPL, catalogName.toString(), builder.buildOrThrow(), hadoopConf);
     }
 
     public Catalog getCatalog(ConnectorSession session)
