@@ -1,8 +1,8 @@
 # See here for image contents: https://github.com/microsoft/vscode-dev-containers/tree/v0.177.0/containers/java/.devcontainer/base.Dockerfile
 
 # [Choice] Java version: 11, 15
-ARG VARIANT="17"
-FROM mcr.microsoft.com/vscode/devcontainers/java:0-${VARIANT}
+ARG VARIANT="20"
+FROM eclipse-temurin:${VARIANT}-jdk-jammy
 
 # [Option] Install zsh
 ARG INSTALL_ZSH="true"
@@ -17,6 +17,9 @@ ARG USE_MOBY="true"
 ARG USERNAME=vscode
 ARG USER_UID=1000
 ARG USER_GID=$USER_UID
+ARG USER_PASSWORD=random
+
+ARG SSH_PORT=2222
 
 # Copy custom CA certificates
 COPY .work/*.crt /usr/local/share/ca-certificates/
@@ -27,6 +30,8 @@ RUN update-ca-certificates \
     && /bin/bash /tmp/library-scripts/common-debian.sh "${INSTALL_ZSH}" "${USERNAME}" "${USER_UID}" "${USER_GID}" "${UPGRADE_PACKAGES}" "true" "true" \
     # Use Docker script from script library to set things up
     && /bin/bash /tmp/library-scripts/docker-in-docker-debian.sh "${ENABLE_NONROOT_DOCKER}" "${USERNAME}" "${USE_MOBY}" \
+    # Install the SSH daemon
+    && /bin/bash /tmp/library-scripts/sshd-debian.sh "${SSH_PORT}" "${USERNAME}" "false" "${USER_PASSWORD}" "true" \
     # Install the Azure CLI
     && bash /tmp/library-scripts/azcli-debian.sh \
     # Clean up
@@ -35,7 +40,9 @@ RUN update-ca-certificates \
     # This key was manually validated by running 'ssh-keygen -lf <key-file>' and comparing the fingerprint to the one found at:
     # https://docs.github.com/en/github/authenticating-to-github/githubs-ssh-key-fingerprints
     && mkdir -p /home/${USERNAME}/.ssh \
-    && echo "github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmdnm9tUDbO9IDSwBK6TbQa+PXYPCPy6rbTrTtw7PHkccKrpp0yVhp5HdEIcKr6pLlVDBfOLX9QUsyCOV0wzfjIJNlGEYsdlLJizHhbn2mUjvSAHQqZETYP81eFzLQNnPHt4EVVUh7VfDESU84KezmD5QlWpXLmvU31/yMf+Se8xhHTvKSCZIFImWwoG6mbUoWf9nzpIoaSjB+weqqUUmpaaasXVal72J+UX2B+2RPW3RcT0eOzQgqlJL3RKrTJvdsjE3JEAvGq3lGHSZXy28G3skua2SmVi/w4yCE6gbODqnTWlg7+wC604ydGXA8VJiS5ap43JXiUFFAaQ==" >> /home/${USERNAME}/.ssh/known_hosts \
+    && echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" >> /home/${USERNAME}/.ssh/known_hosts \
+    && echo "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=" >> /home/${USERNAME}/.ssh/known_hosts \
+    && echo "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=" >> /home/${USERNAME}/.ssh/known_hosts \
     && chown -R ${USERNAME} /home/${USERNAME}/.ssh \
     && touch /usr/local/share/bash_history \
     && chown ${USERNAME} /usr/local/share/bash_history
@@ -57,7 +64,7 @@ RUN true \
 # Setting the ENTRYPOINT to docker-init.sh will configure non-root access to
 # the Docker socket if "overrideCommand": false is set in devcontainer.json.
 # The script will also execute CMD if you need to alter startup behaviors.
-ENTRYPOINT [ "/usr/local/share/docker-init.sh" ]
+ENTRYPOINT [ "/usr/local/share/ssh-init.sh", "/usr/local/share/docker-init.sh" ]
 CMD [ "sleep", "infinity" ]
 
 # Use the Maven cache from the host and persist Bash history
@@ -66,7 +73,7 @@ RUN mkdir -p /usr/local/share/m2 \
     && ln -s /usr/local/share/m2 /home/${USERNAME}/.m2
 
 ARG MAVEN_VERSION=""
-ARG TRINO_VERSION="400"
+ARG TRINO_VERSION="426"
 
 # Install Maven
 RUN mkdir -p /tmp \

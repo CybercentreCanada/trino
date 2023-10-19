@@ -1,3 +1,7 @@
+
+# TO-DO: As part of this task to update the dev environement to get a devcontainer that can be used in both IntelliJ and VSCode
+# I should be updating the azure pipeline so that it uses the image that is produced by the devontainer instead of the projector docker image.
+# See this post:  https://bradyjoslin.com/blog/dev-pipeline-container/
 trigger:
   batch: true
   branches:
