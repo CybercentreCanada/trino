@@ -2059,6 +2059,13 @@
         </dependencies>
     </dependencyManagement>
 
+    <repositories>
+        <repository>
+            <id>cccs-stratus</id>
+            <url>https://pkgs.dev.azure.com/cccs-stratus/_packaging/cccs-stratus/maven/v1</url>
+        </repository>
+    </repositories>
+
     <build>
         <pluginManagement>
             <plugins>
