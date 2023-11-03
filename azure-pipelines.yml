@@ -37,7 +37,6 @@ jobs:
           script: |
             BRANCH_NAME=$(echo "$SYSTEM_PULLREQUEST_SOURCEBRANCH $BUILD_SOURCEBRANCH" | sed -r 's/^\s*(refs\/heads\/)?(\S*).*$/\2/' | sed 's/\//_/g')
             echo "##vso[task.setvariable variable=BRANCH_NAME;isOutput=true;]$BRANCH_NAME"
-            echo "BRANCH_NAME version: ${BRANCH_NAME}"
         displayName: Parse Source Control Branch Name
       - task: Bash@3
         name: setTrinoVersion
@@ -47,7 +46,6 @@ jobs:
             $(Build.SourcesDirectory)/mvnw clean install -e -DskipTests -pl '!:trino-docs' -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
             TRINO_VERSION=$(./mvnw --quiet help:evaluate -Dexpression=project.version -DforceStdout)
             echo "##vso[task.setvariable variable=TRINO_VERSION;isOutput=true;]$TRINO_VERSION"
-            echo "Trino version: ${TRINO_VERSION}"
         displayName: Maven build
   - job: DockerBuildnPush
     dependsOn: ContainerBuild
@@ -67,18 +65,18 @@ jobs:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
       endpoint: uchimera
     steps:
-      - bash: |
-          echo "Trino version: $(TRINO_VERSION)-${TRINO_VERSION}"
-          echo $(TRINO_VERSION)
-          echo "BRANCH_NAME version:"
-          echo $(BRANCH_NAME)
-          cd $(Build.SourcesDirectory)
-          DOCKERFILE="FROM trino:$(trinoVersion)-amd64
-          LABEL cccs.trino.upstream.version=$(trinoVersion)"
-          DOCKERFILE_PATH=$(mktemp -d)/Dockerfile
-          echo "${DOCKERFILE}" > "${DOCKERFILE_PATH}"
-          echo "##vso[task.setvariable variable=DOCKERFILE_PATH]$DOCKERFILE_PATH"
-        displayName: Create Docker File
+      - task: Bash@3
+        name: CreateTrinoDockerFile
+        inputs:
+          targetType: 'inline'
+          script: |
+            cd $(Build.SourcesDirectory)
+            DOCKERFILE="FROM trino:${trinoVersion}-amd64
+            LABEL cccs.trino.upstream.version=${trinoVersion}"
+            DOCKERFILE_PATH=$(mktemp -d)/Dockerfile
+            echo "${DOCKERFILE}" > "${DOCKERFILE_PATH}"
+            echo "##vso[task.setvariable variable=DOCKERFILE_PATH]$DOCKERFILE_PATH"
+        displayName: Create Trino Docker File
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
