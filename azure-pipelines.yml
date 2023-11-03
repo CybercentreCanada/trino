@@ -95,7 +95,7 @@ jobs:
       - task: Docker@2
         displayName: Finalize, tag and push image to ${{ variables.containerRegistry }}
         inputs:
-          command: push
+          command: buildAndPush
           containerRegistry: ${{ variables.containerRegistry }}
           repository: ${{ variables.imageRepository }}
           Dockerfile: $(DOCKERFILE_PATH)
