@@ -24,7 +24,7 @@ jobs:
       m2RepoContainerPath: /tmp/m2/repository
       JAVA_TOOL_OPTIONS: " -Xmx8g"
     container:
-      image: uchimera.azurecr.io/cccs/dev/projector-intellij-ce:feature_update-to-431-mmrouet_20231031183145_b8080
+      image: uchimera.azurecr.io/cccs/dev/projector-intellij-ce:feature_update-to-431-mmrouet_20231103154823_b8123
       options: --entrypoint="" --user=0
       volumes:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
@@ -59,7 +59,7 @@ jobs:
       BRANCH_NAME: $[ dependencies.ContainerBuild.outputs['setBranchName.BRANCH_NAME'] ]
       DOCKER_BUILDKIT: 1
     container:
-      image: uchimera.azurecr.io/cccs/dev/projector-intellij-ce:feature_update-to-431-mmrouet_20231031183145_b8080
+      image: uchimera.azurecr.io/cccs/dev/projector-intellij-ce:feature_update-to-431-mmrouet_20231103154823_b8123
       options: --entrypoint="" --user=0
       volumes:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
@@ -71,9 +71,8 @@ jobs:
           targetType: 'inline'
           script: |
             cd $(Build.SourcesDirectory)/core/docker
-            chmod +x ./build.sh
-            cat build.sh
-            whoami
+            chmod g+w ${HOME}
+            chmod ug+x ./build.sh
             ./build.sh -a amd64
             if [ $? -ne 0 ]; then
             echo "Docker build failed"
