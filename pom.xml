@@ -138,6 +138,19 @@
         <url>https://github.com/trinodb/trino</url>
     </scm>
 
+    <distributionManagement>
+        <repository>
+            <id>analytical-platform</id>
+            <url>https://pkgs.dev.azure.com/cccs-analytical-platform/99130e50-b4e3-4d7d-873e-2a947f564b87/_packaging/analytical-platform/maven/v1</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
+    </distributionManagement>
+
     <properties>
         <air.main.basedir>${project.basedir}</air.main.basedir>
 
@@ -2061,8 +2074,14 @@
 
     <repositories>
         <repository>
-            <id>cccs-stratus</id>
-            <url>https://pkgs.dev.azure.com/cccs-stratus/_packaging/cccs-stratus/maven/v1</url>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+            <id>analytical-platform</id>
+            <url>https://pkgs.dev.azure.com/cccs-analytical-platform/99130e50-b4e3-4d7d-873e-2a947f564b87/_packaging/analytical-platform/maven/v1</url>
         </repository>
     </repositories>
 
