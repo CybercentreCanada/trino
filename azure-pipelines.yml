@@ -32,7 +32,7 @@ jobs:
     steps:
       - task: MavenAuthenticate@0
         inputs:
-          mavenServiceConnections: cccs-maven
+          artifactsFeeds: analytical-platform
       - task: Bash@3
         name: setBranchName
         inputs:
