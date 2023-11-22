@@ -30,6 +30,11 @@ jobs:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
       endpoint: uchimera
     steps:
+      - # Maven Authenticate v0
+        # Provides credentials for Azure Artifacts feeds and external maven repositories.
+        - task: MavenAuthenticate@0
+          inputs:
+            mavenServiceConnections: cccs-maven
       - task: Bash@3
         name: setBranchName
         inputs:
