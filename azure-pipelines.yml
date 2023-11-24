@@ -31,16 +31,17 @@ jobs:
       endpoint: uchimera
     steps:
       - task: DownloadSecureFile@1
+        name: analytical-platform-m2-settings
         displayName: "Download settings.xml"
         inputs:
           secureFile: "settings.xml"
-      - task: PowerShell@2
+      - task: Bash@3
         displayName: "Move settings to .m2"
         inputs:
           targetType: "inline"
           script: |
-            New-Item -Type Directory -Force "${HOME}/.m2"
-            Copy-Item -Force "$(DownloadSecureFile.secureFilePath)" "${HOME}/.m2/settings.xml"
+            mkdir "${HOME}/.m2"
+            cp "$(analytical-platform-m2-settings)" "${HOME}/.m2/settings.xml"
       - task: MavenAuthenticate@0
         inputs:
           artifactsFeeds: analytical-platform
