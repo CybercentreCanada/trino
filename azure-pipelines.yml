@@ -31,20 +31,20 @@ jobs:
       endpoint: uchimera
     steps:
       - task: DownloadSecureFile@1
-        name: analytical_platform_m2_settings
+        name: cccs_stratus_m2_settings
         displayName: "Download settings.xml"
         inputs:
-          secureFile: "settings.xml"
+          secureFile: "cccs-stratus-m2-settings.xml"
       - task: Bash@3
         displayName: "Move settings to .m2"
         inputs:
           targetType: "inline"
           script: |
-            mkdir "${HOME}/.m2"
+            mkdir -p "${HOME}/.m2"
             cp "$(analytical_platform_m2_settings.secureFilePath)" "${HOME}/.m2/settings.xml"
       - task: MavenAuthenticate@0
         inputs:
-          artifactsFeeds: analytical-platform
+          artifactsFeeds: cccs-stratus
       - task: Bash@3
         name: setBranchName
         inputs:
@@ -58,11 +58,10 @@ jobs:
         inputs:
           targetType: 'inline'
           script: |
-            $(Build.SourcesDirectory)/mvnw clean install -e -DskipTests -pl '!:trino-docs' -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
-            TRINO_VERSION=$(./mvnw --quiet help:evaluate -Dexpression=project.version -DforceStdout)
             echo "##vso[task.setvariable variable=TRINO_VERSION;isOutput=true;]$TRINO_VERSION"
             echo "home directory listing"
-            echo ls -al
+            $(Build.SourcesDirectory)/mvnw clean install -e -DskipTests -pl '!:trino-docs' -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
+            TRINO_VERSION=$(./mvnw --quiet help:evaluate -Dexpression=project.version -DforceStdout)
         displayName: Maven build
   - job: DockerBuildnPush
     dependsOn: ContainerBuild
