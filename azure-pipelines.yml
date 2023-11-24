@@ -41,7 +41,7 @@ jobs:
           targetType: "inline"
           script: |
             mkdir "${HOME}/.m2"
-            cp "$(analytical_platform_m2_settings)" "${HOME}/.m2/settings.xml"
+            cp "$(analytical_platform_m2_settings.secureFilePath)" "${HOME}/.m2/settings.xml"
       - task: MavenAuthenticate@0
         inputs:
           artifactsFeeds: analytical-platform
