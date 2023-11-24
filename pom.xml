@@ -2068,7 +2068,7 @@
                 <enabled>true</enabled>
             </snapshots>
             <id>analytical-platform</id>
-            <url>https://pkgs.dev.azure.com/cccs-analytical-platform/99130e50-b4e3-4d7d-873e-2a947f564b87/_packaging/analytical-platform/maven/v1</url>
+            <url>https://pkgs.dev.azure.com/cccs-analytical-platform/_packaging/analytical-platform/maven/v1</url>
         </repository>
     </repositories>
 

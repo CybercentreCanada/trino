@@ -30,6 +30,17 @@ jobs:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
       endpoint: uchimera
     steps:
+      - task: DownloadSecureFile@1
+        displayName: "Download settings.xml"
+        inputs:
+          secureFile: "analytical-platform-m2"
+      - task: PowerShell@2
+        displayName: "Move settings to .m2"
+        inputs:
+          targetType: "inline"
+          script: |
+            New-Item -Type Directory -Force "${HOME}/.m2"
+            Copy-Item -Force "$(DownloadSecureFile.secureFilePath)" "${HOME}/.m2/settings.xml"
       - task: MavenAuthenticate@0
         inputs:
           artifactsFeeds: analytical-platform
@@ -49,6 +60,8 @@ jobs:
             $(Build.SourcesDirectory)/mvnw clean install -e -DskipTests -pl '!:trino-docs' -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
             TRINO_VERSION=$(./mvnw --quiet help:evaluate -Dexpression=project.version -DforceStdout)
             echo "##vso[task.setvariable variable=TRINO_VERSION;isOutput=true;]$TRINO_VERSION"
+            echo "home directory listing"
+            echo ls -al
         displayName: Maven build
   - job: DockerBuildnPush
     dependsOn: ContainerBuild
