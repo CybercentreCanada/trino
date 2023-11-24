@@ -41,7 +41,7 @@ jobs:
           targetType: "inline"
           script: |
             mkdir -p "${HOME}/.m2"
-            cp "$(cccs-stratus-m2-setting.secureFilePath)" "${HOME}/.m2/settings.xml"
+            cp "$(cccs-stratus-m2-settings.secureFilePath)" "${HOME}/.m2/settings.xml"
       - task: MavenAuthenticate@0
         inputs:
           artifactsFeeds: cccs-stratus
