@@ -33,7 +33,7 @@ jobs:
       - task: DownloadSecureFile@1
         displayName: "Download settings.xml"
         inputs:
-          secureFile: "analytical-platform-m2"
+          secureFile: "settings.xml"
       - task: PowerShell@2
         displayName: "Move settings to .m2"
         inputs:
