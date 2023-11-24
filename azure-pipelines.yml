@@ -31,7 +31,7 @@ jobs:
       endpoint: uchimera
     steps:
       - task: DownloadSecureFile@1
-        name: analytical-platform-m2-settings
+        name: analytical_platform_m2_settings
         displayName: "Download settings.xml"
         inputs:
           secureFile: "settings.xml"
@@ -41,7 +41,7 @@ jobs:
           targetType: "inline"
           script: |
             mkdir "${HOME}/.m2"
-            cp "$(analytical-platform-m2-settings)" "${HOME}/.m2/settings.xml"
+            cp "$(analytical_platform_m2_settings)" "${HOME}/.m2/settings.xml"
       - task: MavenAuthenticate@0
         inputs:
           artifactsFeeds: analytical-platform
