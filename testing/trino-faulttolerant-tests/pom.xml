@@ -205,16 +205,16 @@
         </dependency>
 
         <dependency>
-            <groupId>io.trino</groupId>
+            <groupId>cccs.ap.iceberg</groupId>
             <artifactId>trino-iceberg</artifactId>
-            <scope>test</scope>
+            <version>${dep.iceberg.version}</version>
         </dependency>
 
         <dependency>
-            <groupId>io.trino</groupId>
+            <groupId>cccs.ap.iceberg</groupId>
             <artifactId>trino-iceberg</artifactId>
+            <version>${dep.iceberg.version}</version>
             <type>test-jar</type>
-            <scope>test</scope>
         </dependency>
 
         <dependency>
