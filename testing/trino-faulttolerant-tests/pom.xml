@@ -26,6 +26,19 @@
     </properties>
 
     <dependencies>
+
+        <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>trino-iceberg</artifactId>
+            <version>${dep.iceberg.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>trino-iceberg</artifactId>
+            <version>${dep.iceberg.version}</version>
+            <type>test-jar</type>
+        </dependency>
         <dependency>
             <groupId>org.jetbrains</groupId>
             <artifactId>annotations</artifactId>
@@ -202,19 +215,6 @@
             <artifactId>trino-hive</artifactId>
             <type>test-jar</type>
             <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>trino-iceberg</artifactId>
-            <version>${dep.iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>trino-iceberg</artifactId>
-            <version>${dep.iceberg.version}</version>
-            <type>test-jar</type>
         </dependency>
 
         <dependency>
