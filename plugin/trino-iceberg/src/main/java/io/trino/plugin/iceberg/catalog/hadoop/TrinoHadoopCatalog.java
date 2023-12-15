@@ -89,7 +89,7 @@ public class TrinoHadoopCatalog
             HdfsEnvironment hdfsEnvironment,
             TypeManager typeManager,
             IcebergTableOperationsProvider tableOperationsProvider,
-            TrinoFileSystemFactory trinoFileSystemFactory
+            TrinoFileSystemFactory trinoFileSystemFactory,
             boolean useUniqueTableLocation,
             IcebergConfig config)
     {
