@@ -93,7 +93,7 @@ public class TrinoHadoopCatalog
             boolean useUniqueTableLocation,
             IcebergConfig config)
     {
-        super(catalogName, typeManager, tableOperationsProvider, useUniqueTableLocation);
+        super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.catalogProperties = convertToCatalogProperties(config);
         this.catalogCache = SafeCaches.buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(config.getCatalogCacheSize()));
