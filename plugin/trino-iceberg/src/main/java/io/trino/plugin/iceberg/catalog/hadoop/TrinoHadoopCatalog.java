@@ -84,7 +84,14 @@ public class TrinoHadoopCatalog
     private final Cache<String, Catalog> catalogCache;
     private final String warehouse;
 
-    public TrinoHadoopCatalog(CatalogName catalogName, HdfsEnvironment hdfsEnvironment, TypeManager typeManager, IcebergTableOperationsProvider tableOperationsProvider, boolean useUniqueTableLocation, IcebergConfig config)
+    public TrinoHadoopCatalog(
+            CatalogName catalogName,
+            HdfsEnvironment hdfsEnvironment,
+            TypeManager typeManager,
+            IcebergTableOperationsProvider tableOperationsProvider,
+            TrinoFileSystemFactory trinoFileSystemFactory
+            boolean useUniqueTableLocation,
+            IcebergConfig config)
     {
         super(catalogName, typeManager, tableOperationsProvider, useUniqueTableLocation);
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
@@ -345,6 +352,13 @@ public class TrinoHadoopCatalog
             return String.format("%s/%s/%s", warehouse, schemaFromTableId(tableIdentifier), tableIdentifier.name());
         }
     }
+
+    @Override
+    protected void invalidateTableCache(SchemaTableName schemaTableName)
+    {
+        tableMetadataCache.invalidate(schemaTableName);
+    }
+
 
     @Override
     public void setTablePrincipal(ConnectorSession session, SchemaTableName schemaTableName, TrinoPrincipal principal)

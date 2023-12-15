@@ -100,7 +100,12 @@ public class HadoopIcebergTableOperations
 
         this.catalog.getCatalog(session).createTable(TableIdentifier.of(database, tableName), metadata.schema(), metadata.spec(), metadata.location(), properties);
     }
+    @Override
+    protected void commitMaterializedViewRefresh(TableMetadata base, TableMetadata metadata)
+    {
+        throw new TrinoException(NOT_SUPPORTED, "commitMaterializedViewRefresh is not supported by " + getCatalog(session).name());
 
+    }
     private Table getTable()
     {
         return catalog.loadTable(session, getSchemaTableName());

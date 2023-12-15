@@ -40,17 +40,18 @@ public class TrinoHadoopCatalogFactory
     public TrinoHadoopCatalogFactory(
             IcebergConfig config,
             CatalogName catalogName,
+            TrinoFileSystemFactory fileSystemFactory,
             HdfsEnvironment hdfsEnvironment,
             TypeManager typeManager,
             IcebergTableOperationsProvider tableOperationsProvider,
             NodeVersion nodeVersion)
     {
+        this.config = requireNonNull(config, "config is null");
         this.catalogName = requireNonNull(catalogName, "catalogName is null");
+        this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.tableOperationsProvider = requireNonNull(tableOperationsProvider, "tableOperationProvider is null");
-        requireNonNull(config, "config is null");
-        this.config = config;
         this.isUniqueTableLocation = config.isUniqueTableLocation();
     }
 
@@ -62,6 +63,7 @@ public class TrinoHadoopCatalogFactory
                 hdfsEnvironment,
                 typeManager,
                 tableOperationsProvider,
+                trinoFileSystemFactory,
                 isUniqueTableLocation,
                 config);
     }
