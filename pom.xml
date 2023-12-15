@@ -2155,7 +2155,7 @@
             <url>https://pkgs.dev.azure.com/cccs-analytical-platform/_packaging/analytical-platform/maven/v1</url>
         </repository>
     </repositories>
-    
+
     <build>
         <pluginManagement>
             <plugins>
