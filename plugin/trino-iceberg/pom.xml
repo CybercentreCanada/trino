@@ -48,11 +48,6 @@
 
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>iceberg-orc</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-parquet</artifactId>
         </dependency>
         <dependency>
@@ -160,6 +155,11 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-filesystem-manager</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-hdfs</artifactId>
         </dependency>
 
         <dependency>
@@ -470,12 +470,6 @@
             <groupId>io.trino</groupId>
             <artifactId>trino-filesystem</artifactId>
             <type>test-jar</type>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-hdfs</artifactId>
             <scope>test</scope>
         </dependency>
 

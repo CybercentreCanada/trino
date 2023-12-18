@@ -32,6 +32,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static io.trino.plugin.hive.HiveMetadata.TABLE_COMMENT;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_INVALID_METADATA;
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static java.lang.String.format;
 import static org.apache.iceberg.BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE;
 import static org.apache.iceberg.BaseMetastoreTableOperations.METADATA_LOCATION_PROP;
@@ -100,12 +101,13 @@ public class HadoopIcebergTableOperations
 
         this.catalog.getCatalog(session).createTable(TableIdentifier.of(database, tableName), metadata.schema(), metadata.spec(), metadata.location(), properties);
     }
+
     @Override
     protected void commitMaterializedViewRefresh(TableMetadata base, TableMetadata metadata)
     {
-        throw new TrinoException(NOT_SUPPORTED, "commitMaterializedViewRefresh is not supported by " + getCatalog(session).name());
-
+        throw new TrinoException(NOT_SUPPORTED, "commitMaterializedViewRefresh is not supported by " + this.catalog.getCatalog(session).name());
     }
+
     private Table getTable()
     {
         return catalog.loadTable(session, getSchemaTableName());

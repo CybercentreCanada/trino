@@ -16,7 +16,9 @@ package io.trino.plugin.iceberg.catalog.hadoop;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableMap;
+import io.trino.cache.EvictableCacheBuilder;
 import io.trino.cache.SafeCaches;
+import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.hadoop.HadoopNative;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
@@ -32,12 +34,14 @@ import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorViewDefinition;
 import io.trino.spi.connector.RelationColumnsMetadata;
 import io.trino.spi.connector.RelationCommentMetadata;
+import io.trino.spi.connector.RelationType;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.type.TypeManager;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -63,9 +67,12 @@ import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
+import static com.google.common.base.Verify.verify;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
+import static java.util.function.Function.identity;
 import static org.apache.iceberg.CatalogProperties.WAREHOUSE_LOCATION;
 import static org.apache.iceberg.CatalogUtil.loadCatalog;
 
@@ -78,11 +85,15 @@ public class TrinoHadoopCatalog
 
     private static final Map<String, String> EMPTY_SESSION_MAP = ImmutableMap.of();
     private static final String CATALOG_IMPL = HadoopCatalog.class.getName();
+    private static final int PER_QUERY_CACHES_SIZE = 1000;
 
     private final HdfsEnvironment hdfsEnvironment;
     private final Map<String, String> catalogProperties;
     private final Cache<String, Catalog> catalogCache;
     private final String warehouse;
+    private final Cache<SchemaTableName, TableMetadata> tableMetadataCache = EvictableCacheBuilder.newBuilder()
+            .maximumSize(PER_QUERY_CACHES_SIZE)
+            .build();
 
     public TrinoHadoopCatalog(
             CatalogName catalogName,
@@ -93,7 +104,7 @@ public class TrinoHadoopCatalog
             boolean useUniqueTableLocation,
             IcebergConfig config)
     {
-        super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
+        super(catalogName, typeManager, tableOperationsProvider, trinoFileSystemFactory, useUniqueTableLocation);
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.catalogProperties = convertToCatalogProperties(config);
         this.catalogCache = SafeCaches.buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(config.getCatalogCacheSize()));
@@ -234,7 +245,18 @@ public class TrinoHadoopCatalog
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> namespace)
     {
-        return getCatalog(session).listTables(Namespace.of(namespace.orElseThrow())).stream().map(this::schemaFromTableId).collect(Collectors.toList());
+        return getCatalog(session).listTables(Namespace.of(namespace.orElseThrow())).stream()
+                .map(this::schemaFromTableId).collect(Collectors.toList());
+    }
+
+    @Override
+    public Map<SchemaTableName, RelationType> getRelationTypes(ConnectorSession session, Optional<String> namespace)
+    {
+        // views and materialized views are currently not supported
+        verify(listViews(session, namespace).isEmpty(), "Unexpected views support");
+        verify(listMaterializedViews(session, namespace).isEmpty(), "Unexpected views support");
+        return listTables(session, namespace).stream()
+                .collect(toImmutableMap(identity(), ignore -> RelationType.TABLE));
     }
 
     @Override
@@ -267,18 +289,16 @@ public class TrinoHadoopCatalog
     public Transaction newCreateTableTransaction(ConnectorSession session, SchemaTableName schemaTableName, Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String location, Map<String, String> properties, Optional<String> owner)
     {
         // Location cannot be specified for hadoop tables.
-        return getCatalog(session).newCreateTableTransaction(toTableId(schemaTableName), schema, partitionSpec, null, properties);
+        return getCatalog(session).newCreateTableTransaction(
+                toTableId(schemaTableName),
+                schema,
+                partitionSpec,
+                null,
+                properties);
     }
 
     @Override
-    public Transaction newCreateOrReplaceTableTransaction(
-            ConnectorSession session,
-            SchemaTableName schemaTableName,
-            Schema schema,
-            PartitionSpec partitionSpec,
-            SortOrder sortOrder,
-            String location,
-            Map<String, String> properties)
+    public Transaction newCreateOrReplaceTableTransaction(ConnectorSession session, SchemaTableName schemaTableName, Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String location, Map<String, String> properties)
     {
         return newCreateOrReplaceTableTransaction(
                 session,
@@ -359,7 +379,6 @@ public class TrinoHadoopCatalog
         tableMetadataCache.invalidate(schemaTableName);
     }
 
-
     @Override
     public void setTablePrincipal(ConnectorSession session, SchemaTableName schemaTableName, TrinoPrincipal principal)
     {
@@ -436,6 +455,12 @@ public class TrinoHadoopCatalog
     public void dropMaterializedView(ConnectorSession session, SchemaTableName viewName)
     {
         throw new TrinoException(NOT_SUPPORTED, "dropMaterializedView is not supported by " + getCatalog(session).name());
+    }
+
+    @Override
+    public Optional<BaseTable> getMaterializedViewStorageTable(ConnectorSession session, SchemaTableName viewName)
+    {
+        return Optional.empty();
     }
 
     @Override

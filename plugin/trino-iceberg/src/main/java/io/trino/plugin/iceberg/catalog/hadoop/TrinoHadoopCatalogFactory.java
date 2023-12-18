@@ -14,6 +14,7 @@
 package io.trino.plugin.iceberg.catalog.hadoop;
 
 import com.google.inject.Inject;
+import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.hive.NodeVersion;
@@ -31,6 +32,7 @@ public class TrinoHadoopCatalogFactory
 {
     private final IcebergConfig config;
     private final CatalogName catalogName;
+    private final TrinoFileSystemFactory trinoFileSystemFactory;
     private final HdfsEnvironment hdfsEnvironment;
     private final TypeManager typeManager;
     private final IcebergTableOperationsProvider tableOperationsProvider;
@@ -40,7 +42,7 @@ public class TrinoHadoopCatalogFactory
     public TrinoHadoopCatalogFactory(
             IcebergConfig config,
             CatalogName catalogName,
-            TrinoFileSystemFactory fileSystemFactory,
+            TrinoFileSystemFactory trinoFileSystemFactory,
             HdfsEnvironment hdfsEnvironment,
             TypeManager typeManager,
             IcebergTableOperationsProvider tableOperationsProvider,
@@ -48,7 +50,7 @@ public class TrinoHadoopCatalogFactory
     {
         this.config = requireNonNull(config, "config is null");
         this.catalogName = requireNonNull(catalogName, "catalogName is null");
-        this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
+        this.trinoFileSystemFactory = requireNonNull(trinoFileSystemFactory, "fileSystemFactory is null");
         this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.tableOperationsProvider = requireNonNull(tableOperationsProvider, "tableOperationProvider is null");
