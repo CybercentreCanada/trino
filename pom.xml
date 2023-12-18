@@ -375,19 +375,6 @@
             </dependency>
 
             <dependency>
-                <groupId>cccs.ap.iceberg</groupId>
-                <artifactId>trino-iceberg</artifactId>
-                <version>${dep.iceberg.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>cccs.ap.iceberg</groupId>
-                <artifactId>trino-iceberg</artifactId>
-                <version>${dep.iceberg.version}</version>
-                <type>test-jar</type>
-            </dependency>
-
-            <dependency>
                 <groupId>com.adobe.testing</groupId>
                 <artifactId>s3mock-testcontainers</artifactId>
                 <version>3.2.0</version>
@@ -1241,6 +1228,19 @@
                 <groupId>io.trino</groupId>
                 <artifactId>trino-hudi</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>trino-iceberg</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>io.trino</groupId>
+                <artifactId>trino-iceberg</artifactId>
+                <version>${project.version}</version>
+                <type>test-jar</type>
             </dependency>
 
             <dependency>
@@ -2153,6 +2153,17 @@
             </snapshots>
             <id>analytical-platform</id>
             <url>https://pkgs.dev.azure.com/cccs-analytical-platform/_packaging/analytical-platform/maven/v1</url>
+        </repository>
+
+        <repository>
+            <releases>
+                <enabled>true</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+            <id>cccs-stratus</id>
+            <url>https://pkgs.dev.azure.com/cccs-stratus/_packaging/cccs-stratus/maven/v1</url>
         </repository>
     </repositories>
 
