@@ -20,7 +20,7 @@ import io.trino.testing.QueryRunner;
 import io.trino.testing.TestingConnectorBehavior;
 import io.trino.tpch.TpchTable;
 import org.apache.iceberg.FileFormat;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
@@ -30,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 // Redundant over TestIcebergOrcConnectorTest, but exists to exercise BaseConnectorSmokeTest
 // Some features like materialized views may be supported by Iceberg only.
+
 public class TestIcebergHadoopConnectorSmokeTest
         extends BaseConnectorSmokeTest
 {
