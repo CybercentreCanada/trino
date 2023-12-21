@@ -11,8 +11,8 @@ ARG ENABLE_NONROOT_DOCKER="true"
 ARG USE_MOBY="true"
 
 # Install needed packages and setup non-root user.
-ARG USERNAME=vscode
-ARG USER_UID=1000
+ARG USERNAME=coder
+ARG USER_UID=1001
 ARG USER_GID=$USER_UID
 
 COPY library-scripts/*.sh /tmp/library-scripts/
@@ -32,8 +32,10 @@ RUN apt-get update \
     && echo "github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=" >> /home/${USERNAME}/.ssh/known_hosts \
     && echo "github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=" >> /home/${USERNAME}/.ssh/known_hosts \
     && chown -R ${USERNAME} /home/${USERNAME}/.ssh \
-    && touch /usr/local/share/bash_history \
-    && chown ${USERNAME} /usr/local/share/bash_history
+    # Set up USER with passwordless sudo
+    && usermod -a -G sudo ${USERNAME} \
+    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/${USERNAME} \
+    && chmod 0440 /etc/sudoers.d/${USERNAME}
 
 # Setting the ENTRYPOINT to docker-init.sh will configure non-root access to
 # the Docker socket if "overrideCommand": false is set in devcontainer.json.
@@ -56,6 +58,7 @@ RUN mkdir -p /tmp \
     && ln -s /usr/local/bin/trino-cli-${TRINO_VERSION}-executable.jar /usr/local/bin/trino
 
 USER ${USER_UID}
+WORKDIR /home/${USERNAME}
 
 ENV M2_HOME=/opt/maven
 ENV MAVEN_HOME=/opt/maven
