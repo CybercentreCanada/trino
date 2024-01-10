@@ -20,7 +20,6 @@ import io.trino.cache.EvictableCacheBuilder;
 import io.trino.cache.SafeCaches;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.hadoop.HadoopNative;
-import io.trino.hdfs.HdfsContext;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.catalog.AbstractTrinoCatalog;
@@ -38,8 +37,6 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.type.TypeManager;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -73,7 +70,6 @@ import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static org.apache.iceberg.CatalogProperties.WAREHOUSE_LOCATION;
-import static org.apache.iceberg.CatalogUtil.loadCatalog;
 
 public class TrinoHadoopCatalog
         extends AbstractTrinoCatalog
