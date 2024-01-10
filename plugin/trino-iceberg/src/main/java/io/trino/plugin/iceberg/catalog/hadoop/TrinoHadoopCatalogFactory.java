@@ -15,7 +15,6 @@ package io.trino.plugin.iceberg.catalog.hadoop;
 
 import com.google.inject.Inject;
 import io.trino.filesystem.TrinoFileSystemFactory;
-import io.trino.hdfs.HdfsEnvironment;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.hive.NodeVersion;
 import io.trino.plugin.iceberg.IcebergConfig;
@@ -32,8 +31,7 @@ public class TrinoHadoopCatalogFactory
 {
     private final IcebergConfig config;
     private final CatalogName catalogName;
-    private final TrinoFileSystemFactory trinoFileSystemFactory;
-    private final HdfsEnvironment hdfsEnvironment;
+    private final TrinoFileSystemFactory fileSystemFactory;
     private final TypeManager typeManager;
     private final IcebergTableOperationsProvider tableOperationsProvider;
     private final boolean isUniqueTableLocation;
@@ -42,16 +40,14 @@ public class TrinoHadoopCatalogFactory
     public TrinoHadoopCatalogFactory(
             IcebergConfig config,
             CatalogName catalogName,
-            TrinoFileSystemFactory trinoFileSystemFactory,
-            HdfsEnvironment hdfsEnvironment,
+            TrinoFileSystemFactory fileSystemFactory,
             TypeManager typeManager,
             IcebergTableOperationsProvider tableOperationsProvider,
             NodeVersion nodeVersion)
     {
         this.config = requireNonNull(config, "config is null");
         this.catalogName = requireNonNull(catalogName, "catalogName is null");
-        this.trinoFileSystemFactory = requireNonNull(trinoFileSystemFactory, "fileSystemFactory is null");
-        this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
+        this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.tableOperationsProvider = requireNonNull(tableOperationsProvider, "tableOperationProvider is null");
         this.isUniqueTableLocation = config.isUniqueTableLocation();
@@ -62,10 +58,9 @@ public class TrinoHadoopCatalogFactory
     {
         return new TrinoHadoopCatalog(
                 catalogName,
-                hdfsEnvironment,
                 typeManager,
                 tableOperationsProvider,
-                trinoFileSystemFactory,
+                fileSystemFactory,
                 isUniqueTableLocation,
                 config);
     }

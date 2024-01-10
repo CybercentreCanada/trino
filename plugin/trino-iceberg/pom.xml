@@ -151,11 +151,6 @@
 
         <dependency>
             <groupId>io.trino</groupId>
-            <artifactId>trino-hdfs</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>io.trino</groupId>
             <artifactId>trino-hive</artifactId>
             <exclusions>
                 <exclusion>
@@ -183,12 +178,6 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-plugin-toolkit</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>io.trino.hadoop</groupId>
-            <artifactId>hadoop-apache</artifactId>
-            <scope>compile</scope>
         </dependency>
 
         <dependency>
@@ -467,6 +456,12 @@
 
         <dependency>
             <groupId>io.trino</groupId>
+            <artifactId>trino-hdfs</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
             <artifactId>trino-hive</artifactId>
             <type>test-jar</type>
             <scope>test</scope>
@@ -519,6 +514,12 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-tpch</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino.hadoop</groupId>
+            <artifactId>hadoop-apache</artifactId>
             <scope>test</scope>
         </dependency>
 

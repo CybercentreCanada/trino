@@ -21,7 +21,6 @@ import io.trino.cache.SafeCaches;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.hadoop.HadoopNative;
 import io.trino.hdfs.HdfsContext;
-import io.trino.hdfs.HdfsEnvironment;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.catalog.AbstractTrinoCatalog;
@@ -87,7 +86,7 @@ public class TrinoHadoopCatalog
     private static final String CATALOG_IMPL = HadoopCatalog.class.getName();
     private static final int PER_QUERY_CACHES_SIZE = 1000;
 
-    private final HdfsEnvironment hdfsEnvironment;
+    private final TrinoFileSystemFactory fileSystemFactory;
     private final Map<String, String> catalogProperties;
     private final Cache<String, Catalog> catalogCache;
     private final String warehouse;
@@ -97,15 +96,14 @@ public class TrinoHadoopCatalog
 
     public TrinoHadoopCatalog(
             CatalogName catalogName,
-            HdfsEnvironment hdfsEnvironment,
             TypeManager typeManager,
             IcebergTableOperationsProvider tableOperationsProvider,
-            TrinoFileSystemFactory trinoFileSystemFactory,
+            TrinoFileSystemFactory fileSystemFactory,
             boolean useUniqueTableLocation,
             IcebergConfig config)
     {
-        super(catalogName, typeManager, tableOperationsProvider, trinoFileSystemFactory, useUniqueTableLocation);
-        this.hdfsEnvironment = requireNonNull(hdfsEnvironment, "hdfsEnvironment is null");
+        super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
+        this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.catalogProperties = convertToCatalogProperties(config);
         this.catalogCache = SafeCaches.buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(config.getCatalogCacheSize()));
         this.warehouse = requireNonNull(config.getCatalogWarehouse(), "warehouse is null");
@@ -126,27 +124,11 @@ public class TrinoHadoopCatalog
         return session.getQueryId();
     }
 
-    /**
-     * Convert a session to a properties map that is used to initialize a new catalog
-     * together with other catalog properties configured at connector level.
-     * The default behavior is to return an empty map.
-     * Implementations can override this method to pass session properties or session identity information to the catalog.
-     *
-     * @param session session
-     * @return catalog properties derived from session
-     */
-    public Map<String, String> getSessionProperties(ConnectorSession session)
-    {
-        return EMPTY_SESSION_MAP;
-    }
-
     private Catalog createNewCatalog(ConnectorSession session)
     {
-        ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-        builder.putAll(catalogProperties);
-        builder.putAll(getSessionProperties(session));
-        Configuration hadoopConf = hdfsEnvironment.getConfiguration(new HdfsContext(session), new Path(warehouse));
-        return loadCatalog(CATALOG_IMPL, catalogName.toString(), builder.buildOrThrow(), hadoopConf);
+        HadoopCatalog catalog = new HadoopCatalog();
+        catalog.initialize(catalogName.toString(), catalogProperties);
+        return catalog;
     }
 
     public Catalog getCatalog(ConnectorSession session)
