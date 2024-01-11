@@ -19,7 +19,6 @@ import com.google.common.collect.ImmutableMap;
 import io.trino.cache.EvictableCacheBuilder;
 import io.trino.cache.SafeCaches;
 import io.trino.filesystem.TrinoFileSystemFactory;
-import io.trino.hadoop.HadoopNative;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.catalog.AbstractTrinoCatalog;
@@ -70,19 +69,15 @@ import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static org.apache.iceberg.CatalogProperties.WAREHOUSE_LOCATION;
+import static org.apache.iceberg.CatalogUtil.loadCatalog;
 
 public class TrinoHadoopCatalog
         extends AbstractTrinoCatalog
 {
-    static {
-        HadoopNative.requireHadoopNative();
-    }
-
     private static final Map<String, String> EMPTY_SESSION_MAP = ImmutableMap.of();
     private static final String CATALOG_IMPL = HadoopCatalog.class.getName();
     private static final int PER_QUERY_CACHES_SIZE = 1000;
 
-    private final TrinoFileSystemFactory fileSystemFactory;
     private final Map<String, String> catalogProperties;
     private final Cache<String, Catalog> catalogCache;
     private final String warehouse;
@@ -99,7 +94,6 @@ public class TrinoHadoopCatalog
             IcebergConfig config)
     {
         super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
-        this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.catalogProperties = convertToCatalogProperties(config);
         this.catalogCache = SafeCaches.buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(config.getCatalogCacheSize()));
         this.warehouse = requireNonNull(config.getCatalogWarehouse(), "warehouse is null");
@@ -122,9 +116,9 @@ public class TrinoHadoopCatalog
 
     private Catalog createNewCatalog(ConnectorSession session)
     {
-        HadoopCatalog catalog = new HadoopCatalog();
-        catalog.initialize(catalogName.toString(), catalogProperties);
-        return catalog;
+        ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
+        builder.putAll(catalogProperties);
+        return loadCatalog(CATALOG_IMPL, catalogName.toString(), builder.buildOrThrow(), ConfigurationInstantiator.newEmptyConfiguration());
     }
 
     public Catalog getCatalog(ConnectorSession session)
