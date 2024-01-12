@@ -11,8 +11,6 @@ variables:
   containerRegistry: uchimera
   imageRepository: cccs/trino-base
   buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
-  TRINO_VERSION: $[ dependencies.ContainerBuild.outputs['setTrinoVersion.TRINO_VERSION'] ]
-  BRANCH_NAME: $[ dependencies.ContainerBuild.outputs['setBranchName.BRANCH_NAME'] ]
   JAVA_TOOL_OPTIONS: " -Xmx8g"
   DOCKER_BUILDKIT: 1
 container:
