@@ -4,30 +4,18 @@ trigger:
     include:
       - cccs-main
 
-variables:
-  m2RepoNodePath: /datadisks/disk1/.m2/repository
-
-pool: cauldron-vmss
+pool:
+  vmImage: ubuntu-latest
 
 jobs:
-  - job: PrepareNode
-    displayName: Prepare the node for the Container Build
-    steps:
-      - checkout: none
-      - bash: |
-          mkdir -p ${{ variables.m2RepoNodePath }}
-        displayName: Create required directories
   - job: ContainerBuild
     dependsOn: PrepareNode
     displayName: Maven Build (Container)
     variables:
-      m2RepoContainerPath: /tmp/m2/repository
       JAVA_TOOL_OPTIONS: " -Xmx8g"
     container:
       image: uchimera.azurecr.io/cccs/dev/projector-intellij-ce:feature_update-to-434-mmrouet_20231219230126_b8481
       options: --entrypoint="" --user=0
-      volumes:
-        - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
       endpoint: uchimera
     steps:
       - task: DownloadSecureFile@1
@@ -70,15 +58,12 @@ jobs:
       containerRegistry: uchimera
       imageRepository: cccs/trino-base
       buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
-      m2RepoContainerPath: /tmp/m2/repository
       TRINO_VERSION: $[ dependencies.ContainerBuild.outputs['setTrinoVersion.TRINO_VERSION'] ]
       BRANCH_NAME: $[ dependencies.ContainerBuild.outputs['setBranchName.BRANCH_NAME'] ]
       DOCKER_BUILDKIT: 1
     container:
       image: uchimera.azurecr.io/cccs/dev/projector-intellij-ce:feature_update-to-434-mmrouet_20231219230126_b8481
       options: --entrypoint="" --user=0
-      volumes:
-        - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
       endpoint: uchimera
     steps:
       - task: Bash@3
@@ -100,8 +85,6 @@ jobs:
             DOCKERFILE_PATH=$(mktemp -d)/Dockerfile
             echo "${DOCKERFILE}" > "${DOCKERFILE_PATH}"
             echo "##vso[task.setvariable variable=DOCKERFILE_PATH]$DOCKERFILE_PATH"
-            echo "DOCKERFILE:"
-            echo "${DOCKERFILE}"
         displayName: Docker build
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
