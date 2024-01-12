@@ -9,7 +9,6 @@ pool:
 
 jobs:
   - job: ContainerBuild
-    dependsOn: PrepareNode
     displayName: Maven Build (Container)
     variables:
       JAVA_TOOL_OPTIONS: " -Xmx8g"
