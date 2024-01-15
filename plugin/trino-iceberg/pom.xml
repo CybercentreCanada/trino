@@ -151,6 +151,11 @@
 
         <dependency>
             <groupId>io.trino</groupId>
+            <artifactId>trino-hdfs</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
             <artifactId>trino-hive</artifactId>
             <exclusions>
                 <exclusion>
@@ -456,12 +461,6 @@
             <groupId>io.trino</groupId>
             <artifactId>trino-filesystem</artifactId>
             <type>test-jar</type>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-hdfs</artifactId>
             <scope>test</scope>
         </dependency>
 
