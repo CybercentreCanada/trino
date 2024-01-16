@@ -31,8 +31,8 @@ public class TestIcebergHadoopCatalogFileSystemConfig
         assertRecordedDefaults(recordDefaults(FileSystemConfig.class)
                 .setHadoopEnabled(true)
                 .setNativeAzureEnabled(false)
-                .setNativeS3Enabled(true)
-                .setNativeGcsEnabled(true));
+                .setNativeS3Enabled(false)
+                .setNativeGcsEnabled(false));
     }
 
     @Test
@@ -41,15 +41,15 @@ public class TestIcebergHadoopCatalogFileSystemConfig
         Map<String, String> properties = ImmutableMap.<String, String>builder()
                 .put("fs.hadoop.enabled", "false")
                 .put("fs.native-azure.enabled", "true")
-                .put("fs.native-s3.enabled", "false")
-                .put("fs.native-gcs.enabled", "false")
+                .put("fs.native-s3.enabled", "true")
+                .put("fs.native-gcs.enabled", "true")
                 .buildOrThrow();
 
         FileSystemConfig expected = new FileSystemConfig()
                 .setHadoopEnabled(false)
                 .setNativeAzureEnabled(true)
-                .setNativeS3Enabled(false)
-                .setNativeGcsEnabled(false);
+                .setNativeS3Enabled(true)
+                .setNativeGcsEnabled(true);
 
         assertFullMapping(properties, expected);
     }

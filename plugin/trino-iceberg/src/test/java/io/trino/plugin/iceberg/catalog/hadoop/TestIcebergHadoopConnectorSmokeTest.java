@@ -38,7 +38,7 @@ public class TestIcebergHadoopConnectorSmokeTest
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        return IcebergQueryRunner.builder().setIcebergProperties(Map.of("iceberg.file-format", FileFormat.ORC.name(), "iceberg.catalog.type", "hadoop")).setInitialTables(ImmutableList.<TpchTable<?>>builder().addAll(REQUIRED_TPCH_TABLES).add(LINE_ITEM).build()).build();
+        return IcebergQueryRunner.builder().setIcebergProperties(Map.of("iceberg.file-format", FileFormat.ORC.name(), "iceberg.catalog.type", "hadoop", "azure.auth-type", "oauth", "azure.oauth.endpoint", "endpoint", "azure.oauth.client-id", "clientId", "azure.oauth.secret", "secret")).setInitialTables(ImmutableList.<TpchTable<?>>builder().addAll(REQUIRED_TPCH_TABLES).add(LINE_ITEM).build()).build();
     }
 
     @Override
