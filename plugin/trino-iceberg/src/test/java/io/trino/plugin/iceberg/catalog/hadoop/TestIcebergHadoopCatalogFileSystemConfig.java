@@ -14,28 +14,42 @@
 package io.trino.plugin.iceberg.catalog.hadoop;
 
 import com.google.common.collect.ImmutableMap;
-import io.trino.hdfs.azure.HiveAzureConfig;
+import io.trino.filesystem.manager.FileSystemConfig;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
 import static io.airlift.configuration.testing.ConfigAssertions.assertFullMapping;
+import static io.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
+import static io.airlift.configuration.testing.ConfigAssertions.recordDefaults;
 
-public class TestIcebergHadoopCatalogConfig
+public class TestIcebergHadoopCatalogFileSystemConfig
 {
+    @Test
+    public void testDefaults()
+    {
+        assertRecordedDefaults(recordDefaults(FileSystemConfig.class)
+                .setHadoopEnabled(true)
+                .setNativeAzureEnabled(false)
+                .setNativeS3Enabled(true)
+                .setNativeGcsEnabled(true));
+    }
+
     @Test
     public void testExplicitPropertyMappings()
     {
         Map<String, String> properties = ImmutableMap.<String, String>builder()
-                .put("hive.azure.abfs.oauth.client-id", "client-id")
-                .put("hive.azure.abfs.oauth.endpoint", "https://login.microsoftonline.com/tenantid/oauth2/token")
-                .put("hive.azure.abfs.oauth.secret", "foosecret")
+                .put("fs.hadoop.enabled", "false")
+                .put("fs.native-azure.enabled", "true")
+                .put("fs.native-s3.enabled", "false")
+                .put("fs.native-gcs.enabled", "false")
                 .buildOrThrow();
 
-        HiveAzureConfig expected = new HiveAzureConfig()
-                .setAbfsOAuthClientId("client-id")
-                .setAbfsOAuthClientEndpoint("https://login.microsoftonline.com/tenantid/oauth2/token")
-                .setAbfsOAuthClientSecret("foosecret");
+        FileSystemConfig expected = new FileSystemConfig()
+                .setHadoopEnabled(false)
+                .setNativeAzureEnabled(true)
+                .setNativeS3Enabled(false)
+                .setNativeGcsEnabled(false);
 
         assertFullMapping(properties, expected);
     }

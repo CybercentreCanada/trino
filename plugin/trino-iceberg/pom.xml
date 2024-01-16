@@ -146,12 +146,12 @@
 
         <dependency>
             <groupId>io.trino</groupId>
-            <artifactId>trino-filesystem-manager</artifactId>
+            <artifactId>trino-filesystem-azure</artifactId>
         </dependency>
 
         <dependency>
             <groupId>io.trino</groupId>
-            <artifactId>trino-hdfs</artifactId>
+            <artifactId>trino-filesystem-manager</artifactId>
         </dependency>
 
         <dependency>
@@ -461,6 +461,12 @@
             <groupId>io.trino</groupId>
             <artifactId>trino-filesystem</artifactId>
             <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-hdfs</artifactId>
             <scope>test</scope>
         </dependency>
 
