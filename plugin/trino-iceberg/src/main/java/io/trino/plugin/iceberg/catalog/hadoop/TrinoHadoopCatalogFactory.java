@@ -13,7 +13,9 @@
  */
 package io.trino.plugin.iceberg.catalog.hadoop;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
+import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.hive.NodeVersion;
@@ -25,6 +27,7 @@ import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.TypeManager;
 
 import static java.util.Objects.requireNonNull;
+import static org.apache.iceberg.CatalogProperties.WAREHOUSE_LOCATION;
 
 public class TrinoHadoopCatalogFactory
         implements TrinoCatalogFactory
@@ -56,10 +59,15 @@ public class TrinoHadoopCatalogFactory
     @Override
     public TrinoCatalog create(ConnectorIdentity identity)
     {
+        TrinoFileSystem fileSystem = fileSystemFactory.create(identity);
+        ImmutableMap.Builder<String, String> catalogProperties = ImmutableMap.builder();
+        catalogProperties.put(WAREHOUSE_LOCATION, config.getCatalogWarehouse());
+
         return new TrinoHadoopCatalog(
                 catalogName,
                 typeManager,
                 tableOperationsProvider,
+                HadoopCatalogInstantiator.newCatalog(catalogName.toString(), catalogProperties.buildOrThrow()),
                 fileSystemFactory,
                 isUniqueTableLocation,
                 config);

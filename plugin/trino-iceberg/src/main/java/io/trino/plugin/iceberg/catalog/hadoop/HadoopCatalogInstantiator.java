@@ -14,16 +14,21 @@
 package io.trino.plugin.iceberg.catalog.hadoop;
 
 import io.trino.spi.classloader.ThreadContextClassLoader;
-import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.hadoop.HadoopCatalog;
 
-public class ConfigurationInstantiator
+import java.util.Map;
+
+public class HadoopCatalogInstantiator
 {
-    private ConfigurationInstantiator() {}
+    private HadoopCatalogInstantiator() {}
 
-    public static Configuration newEmptyConfiguration()
+    public static Catalog newCatalog(String catalogName, Map<String, String> catalogProperties)
     {
-        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(ConfigurationInstantiator.class.getClassLoader())) {
-            return new Configuration(false);
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(HadoopCatalog.class.getClassLoader())) {
+            Catalog catalog = new HadoopCatalog();
+            catalog.initialize(catalogName, catalogProperties);
+            return catalog;
         }
     }
 }

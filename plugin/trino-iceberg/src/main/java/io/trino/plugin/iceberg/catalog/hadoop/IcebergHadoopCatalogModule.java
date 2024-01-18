@@ -16,8 +16,6 @@ package io.trino.plugin.iceberg.catalog.hadoop;
 import com.google.inject.Binder;
 import com.google.inject.Scopes;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
-import io.trino.filesystem.azure.AzureAuthOAuthConfig;
-import io.trino.filesystem.azure.AzureAuthOauth;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.catalog.TrinoCatalogFactory;
@@ -32,8 +30,6 @@ public class IcebergHadoopCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergConfig.class);
-        configBinder(binder).bindConfig(AzureAuthOAuthConfig.class);
-        configBinder(binder).bindConfig(AzureAuthOauth.class);
         binder.bind(IcebergTableOperationsProvider.class).to(HadoopIcebergTableOperationsProvider.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoHadoopCatalogFactory.class).in(Scopes.SINGLETON);
         newExporter(binder).export(TrinoCatalogFactory.class).withGeneratedName();

@@ -57,7 +57,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -69,7 +68,6 @@ import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static org.apache.iceberg.CatalogProperties.WAREHOUSE_LOCATION;
-import static org.apache.iceberg.CatalogUtil.loadCatalog;
 
 public class TrinoHadoopCatalog
         extends AbstractTrinoCatalog
@@ -78,6 +76,7 @@ public class TrinoHadoopCatalog
     private static final String CATALOG_IMPL = HadoopCatalog.class.getName();
     private static final int PER_QUERY_CACHES_SIZE = 1000;
 
+    private final Catalog catalog;
     private final Map<String, String> catalogProperties;
     private final Cache<String, Catalog> catalogCache;
     private final String warehouse;
@@ -89,52 +88,26 @@ public class TrinoHadoopCatalog
             CatalogName catalogName,
             TypeManager typeManager,
             IcebergTableOperationsProvider tableOperationsProvider,
+            Catalog catalog,
             TrinoFileSystemFactory fileSystemFactory,
             boolean useUniqueTableLocation,
             IcebergConfig config)
     {
         super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
+        this.catalog = catalog;
         this.catalogProperties = convertToCatalogProperties(config);
         this.catalogCache = SafeCaches.buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(config.getCatalogCacheSize()));
         this.warehouse = requireNonNull(config.getCatalogWarehouse(), "warehouse is null");
     }
 
-    /**
-     * generate a unique string that represents the session information.
-     * The string is used as the cache key, if the session key is the same, it means the same catalog can be reused.
-     * The default behavior is to use {@link ConnectorSession#getQueryId()} as the cache key,
-     * which means catalog is not shared across queries.
-     * Implementations can override this method to use for example the authZ user information of the session instead.
-     *
-     * @param session session
-     * @return session cache key
-     */
-    public String getSessionCacheKey(ConnectorSession session)
+    public Catalog getCatalog()
     {
-        return session.getQueryId();
+        return catalog;
     }
 
-    private Catalog createNewCatalog(ConnectorSession session)
+    private SupportsNamespaces getNamespaceCatalog()
     {
-        ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-        builder.putAll(catalogProperties);
-        return loadCatalog(CATALOG_IMPL, catalogName.toString(), builder.buildOrThrow(), ConfigurationInstantiator.newEmptyConfiguration());
-    }
-
-    public Catalog getCatalog(ConnectorSession session)
-    {
-        try {
-            return catalogCache.get(getSessionCacheKey(session), () -> createNewCatalog(session));
-        }
-        catch (ExecutionException e) {
-            throw new IllegalStateException("Fail to create catalog for " + session, e);
-        }
-    }
-
-    private SupportsNamespaces getNamespaceCatalog(ConnectorSession session)
-    {
-        Catalog catalog = getCatalog(session);
-        if (catalog instanceof SupportsNamespaces) {
+        if (this.catalog instanceof SupportsNamespaces) {
             return (SupportsNamespaces) catalog;
         }
         throw new TrinoException(NOT_SUPPORTED, "catalog " + CATALOG_IMPL + " does not support namespace operations");
@@ -173,13 +146,13 @@ public class TrinoHadoopCatalog
     @Override
     public List<String> listNamespaces(ConnectorSession session)
     {
-        return getNamespaceCatalog(session).listNamespaces().stream().map(Object::toString).collect(Collectors.toList());
+        return getNamespaceCatalog().listNamespaces().stream().map(Object::toString).collect(Collectors.toList());
     }
 
     @Override
     public void dropNamespace(ConnectorSession session, String namespace)
     {
-        SupportsNamespaces catalog = getNamespaceCatalog(session);
+        SupportsNamespaces catalog = getNamespaceCatalog();
         catalog.dropNamespace(catalog.listNamespaces().stream().filter(_namespace -> namespace.equals(_namespace.toString())).findAny().orElse(null));
     }
 
@@ -187,37 +160,37 @@ public class TrinoHadoopCatalog
     @Override
     public Map<String, Object> loadNamespaceMetadata(ConnectorSession session, String namespace)
     {
-        return (Map) getNamespaceCatalog(session).loadNamespaceMetadata(Namespace.of(namespace));
+        return (Map) getNamespaceCatalog().loadNamespaceMetadata(Namespace.of(namespace));
     }
 
     @Override
     public Optional<TrinoPrincipal> getNamespacePrincipal(ConnectorSession session, String namespace)
     {
-        throw new TrinoException(NOT_SUPPORTED, "getNamespacePrincipal is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "getNamespacePrincipal is not supported by " + this.catalog.name());
     }
 
     @Override
     public void createNamespace(ConnectorSession session, String namespace, Map<String, Object> properties, TrinoPrincipal owner)
     {
-        getNamespaceCatalog(session).createNamespace(Namespace.of(namespace), EMPTY_SESSION_MAP);
+        getNamespaceCatalog().createNamespace(Namespace.of(namespace), EMPTY_SESSION_MAP);
     }
 
     @Override
     public void setNamespacePrincipal(ConnectorSession session, String namespace, TrinoPrincipal principal)
     {
-        throw new TrinoException(NOT_SUPPORTED, "setNamespacePrincipal is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "setNamespacePrincipal is not supported by " + this.catalog.name());
     }
 
     @Override
     public void renameNamespace(ConnectorSession session, String source, String target)
     {
-        throw new TrinoException(NOT_SUPPORTED, "renameNamespace is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "renameNamespace is not supported by " + this.catalog.name());
     }
 
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> namespace)
     {
-        return getCatalog(session).listTables(Namespace.of(namespace.orElseThrow())).stream()
+        return this.catalog.listTables(Namespace.of(namespace.orElseThrow())).stream()
                 .map(this::schemaFromTableId).collect(Collectors.toList());
     }
 
@@ -261,7 +234,7 @@ public class TrinoHadoopCatalog
     public Transaction newCreateTableTransaction(ConnectorSession session, SchemaTableName schemaTableName, Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String location, Map<String, String> properties, Optional<String> owner)
     {
         // Location cannot be specified for hadoop tables.
-        return getCatalog(session).newCreateTableTransaction(
+        return this.catalog.newCreateTableTransaction(
                 toTableId(schemaTableName),
                 schema,
                 partitionSpec,
@@ -286,7 +259,7 @@ public class TrinoHadoopCatalog
     @Override
     public void registerTable(ConnectorSession session, SchemaTableName tableName, TableMetadata tableMetadata)
     {
-        getCatalog(session).registerTable(TableIdentifier.of(tableName.getSchemaName(), tableName.getTableName()), tableMetadata.metadataFileLocation());
+        this.catalog.registerTable(TableIdentifier.of(tableName.getSchemaName(), tableName.getTableName()), tableMetadata.metadataFileLocation());
     }
 
     @Override
@@ -298,26 +271,26 @@ public class TrinoHadoopCatalog
     @Override
     public void dropTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
-        getCatalog(session).dropTable(toTableId(schemaTableName), true);
+        this.catalog.dropTable(toTableId(schemaTableName), true);
     }
 
     @Override
     public void dropCorruptedTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
-        getCatalog(session).dropTable(toTableId(schemaTableName), true);
+        this.catalog.dropTable(toTableId(schemaTableName), true);
     }
 
     @Override
     public void renameTable(ConnectorSession session, SchemaTableName from, SchemaTableName to)
     {
-        getCatalog(session).renameTable(toTableId(from), toTableId(to));
+        this.catalog.renameTable(toTableId(from), toTableId(to));
     }
 
     @Override
     public Table loadTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
         try {
-            return getCatalog(session).loadTable(toTableId(schemaTableName));
+            return this.catalog.loadTable(toTableId(schemaTableName));
         }
         catch (NoSuchTableException e) {
             // Have to change exception types due to code relying on specific exception to be thrown.
@@ -335,7 +308,7 @@ public class TrinoHadoopCatalog
     public String defaultTableLocation(ConnectorSession session, SchemaTableName schemaTableName)
     {
         TableIdentifier tableIdentifier = toTableId(schemaTableName);
-        String dbLocationUri = PropertyUtil.propertyAsString(getNamespaceCatalog(session).loadNamespaceMetadata(tableIdentifier.namespace()), "locationUri", null);
+        String dbLocationUri = PropertyUtil.propertyAsString(getNamespaceCatalog().loadNamespaceMetadata(tableIdentifier.namespace()), "locationUri", null);
 
         if (dbLocationUri != null) {
             return String.format("%s/%s", dbLocationUri, tableIdentifier.name());
@@ -354,31 +327,31 @@ public class TrinoHadoopCatalog
     @Override
     public void setTablePrincipal(ConnectorSession session, SchemaTableName schemaTableName, TrinoPrincipal principal)
     {
-        throw new TrinoException(NOT_SUPPORTED, "setTablePrincipal is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "setTablePrincipal is not supported by " + this.catalog.name());
     }
 
     @Override
     public void createView(ConnectorSession session, SchemaTableName schemaViewName, ConnectorViewDefinition definition, boolean replace)
     {
-        throw new TrinoException(NOT_SUPPORTED, "createView is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "createView is not supported by " + this.catalog.name());
     }
 
     @Override
     public void renameView(ConnectorSession session, SchemaTableName source, SchemaTableName target)
     {
-        throw new TrinoException(NOT_SUPPORTED, "renameView is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "renameView is not supported by " + this.catalog.name());
     }
 
     @Override
     public void setViewPrincipal(ConnectorSession session, SchemaTableName schemaViewName, TrinoPrincipal principal)
     {
-        throw new TrinoException(NOT_SUPPORTED, "setViewPrincipal is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "setViewPrincipal is not supported by " + this.catalog.name());
     }
 
     @Override
     public void dropView(ConnectorSession session, SchemaTableName schemaViewName)
     {
-        throw new TrinoException(NOT_SUPPORTED, "dropView is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "dropView is not supported by " + this.catalog.name());
     }
 
     @Override
@@ -402,13 +375,13 @@ public class TrinoHadoopCatalog
     @Override
     public void updateViewComment(ConnectorSession session, SchemaTableName viewName, Optional<String> comment)
     {
-        throw new TrinoException(NOT_SUPPORTED, "updateViewComment is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "updateViewComment is not supported by " + this.catalog.name());
     }
 
     @Override
     public void updateViewColumnComment(ConnectorSession session, SchemaTableName schemaViewName, String columnName, Optional<String> comment)
     {
-        throw new TrinoException(NOT_SUPPORTED, "updateViewColumnComment is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "updateViewColumnComment is not supported by " + this.catalog.name());
     }
 
     @Override
@@ -420,19 +393,19 @@ public class TrinoHadoopCatalog
             boolean replace,
             boolean ignoreExisting)
     {
-        throw new TrinoException(NOT_SUPPORTED, "createMaterializedView is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "createMaterializedView is not supported by " + this.catalog.name());
     }
 
     @Override
     public void updateMaterializedViewColumnComment(ConnectorSession session, SchemaTableName schemaViewName, String columnName, Optional<String> comment)
     {
-        throw new TrinoException(NOT_SUPPORTED, "updateMaterializedViewColumnComment is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "updateMaterializedViewColumnComment is not supported by " + this.catalog.name());
     }
 
     @Override
     public void dropMaterializedView(ConnectorSession session, SchemaTableName viewName)
     {
-        throw new TrinoException(NOT_SUPPORTED, "dropMaterializedView is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "dropMaterializedView is not supported by " + this.catalog.name());
     }
 
     @Override
@@ -444,7 +417,7 @@ public class TrinoHadoopCatalog
     @Override
     public void renameMaterializedView(ConnectorSession session, SchemaTableName source, SchemaTableName target)
     {
-        throw new TrinoException(NOT_SUPPORTED, "renameMaterializedView is not supported by " + getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "renameMaterializedView is not supported by " + this.catalog.name());
     }
 
     @Override

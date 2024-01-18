@@ -82,7 +82,7 @@ public class HadoopIcebergTableOperations
             properties.put(TABLE_COMMENT, tableComment);
         }
 
-        this.catalog.getCatalog(this.session).createTable(TableIdentifier.of(database, tableName), metadata.schema(), metadata.spec(), metadata.location(), properties);
+        this.catalog.getCatalog().createTable(TableIdentifier.of(database, tableName), metadata.schema(), metadata.spec(), metadata.location(), properties);
     }
 
     @Override
@@ -99,13 +99,13 @@ public class HadoopIcebergTableOperations
         properties.put(METADATA_LOCATION_PROP, metadataLocation);
         properties.put(PREVIOUS_METADATA_LOCATION_PROP, currentMetadataLocation);
 
-        this.catalog.getCatalog(session).createTable(TableIdentifier.of(database, tableName), metadata.schema(), metadata.spec(), metadata.location(), properties);
+        this.catalog.getCatalog().createTable(TableIdentifier.of(database, tableName), metadata.schema(), metadata.spec(), metadata.location(), properties);
     }
 
     @Override
     protected void commitMaterializedViewRefresh(TableMetadata base, TableMetadata metadata)
     {
-        throw new TrinoException(NOT_SUPPORTED, "commitMaterializedViewRefresh is not supported by " + this.catalog.getCatalog(session).name());
+        throw new TrinoException(NOT_SUPPORTED, "commitMaterializedViewRefresh is not supported by " + this.catalog.getCatalog().name());
     }
 
     private Table getTable()
