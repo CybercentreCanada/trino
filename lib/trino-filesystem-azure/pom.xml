@@ -48,6 +48,10 @@
                     <artifactId>azure-core-http-netty</artifactId>
                 </exclusion>
                 <exclusion>
+                    <groupId>com.nimbusds</groupId>
+                    <artifactId>oauth2-oidc-sdk</artifactId>
+                </exclusion>
+                <exclusion>
                     <groupId>net.java.dev.jna</groupId>
                     <artifactId>jna-platform</artifactId>
                 </exclusion>
@@ -99,6 +103,12 @@
         <dependency>
             <groupId>com.google.inject</groupId>
             <artifactId>guice</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.nimbusds</groupId>
+            <artifactId>oauth2-oidc-sdk</artifactId>
+            <classifier>jdk11</classifier>
         </dependency>
 
         <dependency>
