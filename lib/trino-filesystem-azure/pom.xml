@@ -109,6 +109,7 @@
             <groupId>com.nimbusds</groupId>
             <artifactId>oauth2-oidc-sdk</artifactId>
             <classifier>jdk11</classifier>
+            <scope>runtime</scope>
         </dependency>
 
         <dependency>
