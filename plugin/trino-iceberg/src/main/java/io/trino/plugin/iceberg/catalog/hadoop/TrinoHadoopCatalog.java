@@ -48,7 +48,6 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
-import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.util.PropertyUtil;
 
 import java.util.ArrayList;
@@ -73,7 +72,6 @@ public class TrinoHadoopCatalog
         extends AbstractTrinoCatalog
 {
     private static final Map<String, String> EMPTY_SESSION_MAP = ImmutableMap.of();
-    private static final String CATALOG_IMPL = HadoopCatalog.class.getName();
     private static final int PER_QUERY_CACHES_SIZE = 1000;
 
     private final Catalog catalog;
@@ -110,7 +108,7 @@ public class TrinoHadoopCatalog
         if (this.catalog instanceof SupportsNamespaces) {
             return (SupportsNamespaces) catalog;
         }
-        throw new TrinoException(NOT_SUPPORTED, "catalog " + CATALOG_IMPL + " does not support namespace operations");
+        throw new TrinoException(NOT_SUPPORTED, "catalog " + catalog.name() + " does not support namespace operations");
     }
 
     private Map<String, String> convertToCatalogProperties(IcebergConfig config)
