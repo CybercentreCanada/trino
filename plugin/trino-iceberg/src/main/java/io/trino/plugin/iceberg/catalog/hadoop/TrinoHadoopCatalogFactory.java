@@ -59,7 +59,6 @@ public class TrinoHadoopCatalogFactory
     @Override
     public TrinoCatalog create(ConnectorIdentity identity)
     {
-        TrinoFileSystem fileSystem = fileSystemFactory.create(identity);
         ImmutableMap.Builder<String, String> catalogProperties = ImmutableMap.builder();
         catalogProperties.put(WAREHOUSE_LOCATION, config.getCatalogWarehouse());
 
@@ -67,9 +66,18 @@ public class TrinoHadoopCatalogFactory
                 catalogName,
                 typeManager,
                 tableOperationsProvider,
-                HadoopCatalogInstantiator.newCatalog(catalogName.toString(), catalogProperties.buildOrThrow()),
+                instantiateHadoopCatalog(catalogName.toString(), catalogProperties.buildOrThrow(), fileSystemFactory),
                 fileSystemFactory,
                 isUniqueTableLocation,
                 config);
+    }
+
+    private Catalog instantiateHadoopCatalog(String catalogName, Map<String, String> catalogProperties, TrinoFileSystemFactory fileSystemFactory)
+    {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(fileSystemFactory.create(identity).getClass().getClassLoader())) {
+            Catalog catalog = new HadoopCatalog();
+            catalog.initialize(catalogName, catalogProperties);
+            return catalog;
+        }
     }
 }
