@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.hadoop.HadoopNative;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.hive.NodeVersion;
 import io.trino.plugin.iceberg.IcebergConfig;
@@ -43,6 +44,11 @@ public class TrinoHadoopCatalogFactory
     private final TypeManager typeManager;
     private final IcebergTableOperationsProvider tableOperationsProvider;
     private final boolean isUniqueTableLocation;
+
+    static {
+        HadoopNative.requireHadoopNative();
+        FileSystemManager.registerCache(TrinoFileSystemCache.INSTANCE);
+    }
 
     @Inject
     public TrinoHadoopCatalogFactory(
