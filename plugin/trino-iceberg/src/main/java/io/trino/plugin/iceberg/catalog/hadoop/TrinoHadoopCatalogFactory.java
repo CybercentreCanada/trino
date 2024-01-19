@@ -45,11 +45,6 @@ public class TrinoHadoopCatalogFactory
     private final IcebergTableOperationsProvider tableOperationsProvider;
     private final boolean isUniqueTableLocation;
 
-    static {
-        HadoopNative.requireHadoopNative();
-        FileSystemManager.registerCache(TrinoFileSystemCache.INSTANCE);
-    }
-
     @Inject
     public TrinoHadoopCatalogFactory(
             IcebergConfig config,
@@ -83,9 +78,11 @@ public class TrinoHadoopCatalogFactory
                 config);
     }
 
-    private Catalog instantiateHadoopCatalog(String catalogName, Map<String, String> catalogProperties, TrinoFileSystem fileSystem)
+     static private Catalog instantiateHadoopCatalog(String catalogName, Map<String, String> catalogProperties, TrinoFileSystem fileSystem)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(fileSystem.getClass().getClassLoader())) {
+            HadoopNative.requireHadoopNative();
+            FileSystemManager.registerCache(TrinoFileSystemCache.INSTANCE);
             Catalog catalog = new HadoopCatalog();
             catalog.initialize(catalogName, catalogProperties);
             return catalog;
