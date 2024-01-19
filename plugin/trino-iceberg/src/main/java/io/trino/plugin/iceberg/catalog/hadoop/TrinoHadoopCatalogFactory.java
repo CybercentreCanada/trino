@@ -78,7 +78,7 @@ public class TrinoHadoopCatalogFactory
                 config);
     }
 
-     static private Catalog instantiateHadoopCatalog(String catalogName, Map<String, String> catalogProperties, TrinoFileSystem fileSystem)
+    private static Catalog instantiateHadoopCatalog(String catalogName, Map<String, String> catalogProperties, TrinoFileSystem fileSystem)
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(fileSystem.getClass().getClassLoader())) {
             HadoopNative.requireHadoopNative();
