@@ -15,7 +15,6 @@ package io.trino.plugin.iceberg.catalog.hadoop;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
-import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.hive.NodeVersion;
