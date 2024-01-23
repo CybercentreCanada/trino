@@ -82,7 +82,8 @@ public class TrinoHadoopCatalogFactory
     {
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(fileSystem.getClass().getClassLoader())) {
             HadoopNative.requireHadoopNative();
-            Catalog catalog = new HadoopCatalog();
+            HadoopCatalog catalog = new HadoopCatalog();
+            catalog.setConf(new Configuration());
             catalog.initialize(catalogName, catalogProperties);
             return catalog;
         }
