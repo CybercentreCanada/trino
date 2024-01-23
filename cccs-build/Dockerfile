@@ -15,6 +15,8 @@ ARG USERNAME=coder
 ARG USER_UID=1001
 ARG USER_GID=$USER_UID
 
+ARG INTELLIJ_DOWNLOAD_URL
+
 COPY library-scripts/*.sh /tmp/library-scripts/
 RUN apt-get update \
     && /bin/bash /tmp/library-scripts/common-debian.sh "${INSTALL_ZSH}" "${USERNAME}" "${USER_UID}" "${USER_GID}" "${UPGRADE_PACKAGES}" "true" "true" \
@@ -22,6 +24,11 @@ RUN apt-get update \
     && /bin/bash /tmp/library-scripts/docker-in-docker-debian.sh "${ENABLE_NONROOT_DOCKER}" "${USERNAME}" "${USE_MOBY}" \
     # Install the Azure CLI
     && bash /tmp/library-scripts/azcli-debian.sh \
+    # Install code-server
+    && curl -fsSL https://code-server.dev/install.sh | sh \
+    # Install IntelliJ
+    && mkdir -p /opt/intellij \
+    && curl -L ${INTELLIJ_DOWNLOAD_URL} | tar -C /opt/intellij --strip-components 1 -xvzf - \
     # Clean up
     && apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/* /tmp/library-scripts/ \
     # Trust the GitHub public SSH keys

@@ -12,6 +12,7 @@ variables:
   imageRepository: cccs/dev/trino-build
   buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
   baseImageTag: 21-jdk-jammy
+  intellijDownloadUrl: https://download.jetbrains.com/idea/ideaIU-2023.3.2.tar.gz
 
 pool:
   vmImage: ubuntu-latest
@@ -29,7 +30,7 @@ steps:
       command: build
       containerRegistry: ${{ variables.containerRegistry }}
       repository: ${{ variables.imageRepository }}
-      arguments: '--build-arg TRINO_VERSION=$(TRINO_VERSION) --build-arg BASE_IMAGE_TAG=$(baseImageTag)'
+      arguments: '--build-arg TRINO_VERSION=$(TRINO_VERSION) --build-arg BASE_IMAGE_TAG=$(baseImageTag) --build-arg INTELLIJ_DOWNLOAD_URL=$(intellijDownloadUrl)'
       tags: |
         $(TRINO_VERSION)_$(BRANCH_NAME)
         $(TRINO_VERSION)_$(BRANCH_NAME)_$(buildTimestamp)_b$(Build.BuildId)
