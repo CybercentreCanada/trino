@@ -84,7 +84,9 @@ public class TrinoHadoopCatalogFactory
         try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(fileSystem.getClass().getClassLoader())) {
             HadoopNative.requireHadoopNative();
             HadoopCatalog catalog = new HadoopCatalog();
-            catalog.setConf(new Configuration());
+            Configuration conf = new Configuration();
+            conf.set("fs.azure.account.auth.type", "OAuth");
+            catalog.setConf(conf);
             catalog.initialize(catalogName, catalogProperties);
             return catalog;
         }
