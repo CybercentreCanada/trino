@@ -28,6 +28,8 @@ import io.trino.spi.classloader.ThreadContextClassLoader;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.TypeManager;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.azurebfs.constants.ConfigurationKeys;
+import org.apache.hadoop.fs.azurebfs.services.AuthType;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.hadoop.HadoopCatalog;
 
@@ -85,7 +87,7 @@ public class TrinoHadoopCatalogFactory
             HadoopNative.requireHadoopNative();
             HadoopCatalog catalog = new HadoopCatalog();
             Configuration conf = new Configuration();
-            conf.set("fs.azure.account.auth.type", "OAuth");
+            conf.set(ConfigurationKeys.FS_AZURE_ACCOUNT_AUTH_TYPE_PROPERTY_NAME, AuthType.OAuth.name());
             catalog.setConf(conf);
             catalog.initialize(catalogName, catalogProperties);
             return catalog;
