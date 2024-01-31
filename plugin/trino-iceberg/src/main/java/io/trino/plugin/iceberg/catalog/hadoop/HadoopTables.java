@@ -54,6 +54,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import org.apache.iceberg.util.LockManagers;
 import org.apache.iceberg.util.Pair;
+import org.eclipse.jetty.http2.ISession;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,10 +71,18 @@ public class HadoopTables implements Tables {
     private static final String METADATA_JSON = "metadata.json";
 
     private static LockManager lockManager;
+    private final TrinoHadoopCatalog catalog;
+    private final String database;
+    private final Optional<String> owner;
+    private final ConnectorSession session;
     private final TrinoFileSystem trinoFileSystem;
     private final IcebergTableOperationsProvider icebergTableOperationsProvider;
 
-    public HadoopTables(TrinoFileSystem trinoFileSystem, IcebergTableOperationsProvider tableOps) {
+    public HadoopTables(TrinoHadoopCatalog catalog, String database, String owner, ConnectorSession session, TrinoFileSystem trinoFileSystem, IcebergTableOperationsProvider tableOps) {
+        this.catalog = requireNonNull(catalog);
+        this.database = requireNonNull(database);
+        this.owner = Optional.ofNullable(owner);
+        this.session = requireNonNull(session);
         this.trinoFileSystem = requireNonNull(trinoFileSystem);
         this.icebergTableOperationsProvider = requireNonNull(tableOps);
     }
@@ -91,10 +100,10 @@ public class HadoopTables implements Tables {
 
         if (parsedMetadataType != null) {
             // Load a metadata table
-            result = loadMetadataTable(parsedMetadataType.first(), location, parsedMetadataType.second());
+            result = loadMetadataTable(catalog, session, database, owner, parsedMetadataType.first(), location, parsedMetadataType.second());
         } else {
             // Load a normal table
-            TableOperations ops = newTableOps(location);
+            TableOperations ops =newTableOps(catalog, session, database, Location.of(location).fileName(), owner, location);
             if (ops.current() != null) {
                 result = new BaseTable(ops, location);
             } else {
@@ -108,7 +117,7 @@ public class HadoopTables implements Tables {
 
     @Override
     public boolean exists(String location) {
-        return newTableOps(location).current() != null;
+        return newTableOps(catalog, session, database, Location.of(location).fileName(), owner, location).current() != null;
     }
 
     /**
@@ -130,14 +139,14 @@ public class HadoopTables implements Tables {
         }
     }
 
-    private Table loadMetadataTable(
-            String location, String metadataTableName, MetadataTableType type) {
-        TableOperations ops = newTableOps(location);
+    private Table loadMetadataTable(TrinoCatalog catalog, ConnectorSession session, String database, Optional<String> owner, String location, String table, MetadataTableType type) {
+        TableOperations ops = newTableOps(catalog, session, database, table, owner, location);
+
         if (ops.current() == null) {
             throw new NoSuchTableException("Table does not exist at location: %s", location);
         }
 
-        return MetadataTableUtils.createMetadataTableInstance(ops, location, metadataTableName, type);
+        return MetadataTableUtils.createMetadataTableInstance(ops, location, table, type);
     }
 
     /**
@@ -183,7 +192,7 @@ public class HadoopTables implements Tables {
      * @return true if the table was dropped, false if it did not exist
      */
     public boolean dropTable(String location, boolean purge) {
-        TableOperations ops = newTableOps(location);
+        TableOperations ops = newTableOps(catalog, session, database, Location.of(location).fileName(), owner, location);
         TableMetadata lastMetadata = null;
         if (ops.current() != null) {
             if (purge) {
@@ -208,32 +217,12 @@ public class HadoopTables implements Tables {
     }
 
     @VisibleForTesting
-    TableOperations newTableOps(TrinoCatalog catalog, ConnectorSession session, String database, String table, Optional<String> owner, Optional<String> location) {
-        if (location.contains(METADATA_JSON)) {
-            return new StaticTableOperations(location, new ForwardingFileIo(trinoFileSystem));
+    TableOperations newTableOps(TrinoCatalog catalog, ConnectorSession session, String database, String table, Optional<String> owner, String location) {
+        if (String.valueOf(location).contains(METADATA_JSON)) {
+            return new StaticTableOperations(String.valueOf(location), new ForwardingFileIo(trinoFileSystem));
         } else {
-            return icebergTableOperationsProvider.createTableOperations(, location)
-                    new HadoopIcebergTableOperations((
-                    new Path(location), new HadoopFileIO(conf), conf, createOrGetLockManager(this));
+            return icebergTableOperationsProvider.createTableOperations(catalog, session, database, table, owner, Optional.ofNullable(location));
         }
-    }
-
-    private static synchronized LockManager createOrGetLockManager(HadoopTables table) {
-        if (lockManager == null) {
-            Map<String, String> properties = Maps.newHashMap();
-            Iterator<Map.Entry<String, String>> configEntries = table.conf.iterator();
-            while (configEntries.hasNext()) {
-                Map.Entry<String, String> entry = configEntries.next();
-                String key = entry.getKey();
-                if (key.startsWith(LOCK_PROPERTY_PREFIX)) {
-                    properties.put(key.substring(LOCK_PROPERTY_PREFIX.length()), entry.getValue());
-                }
-            }
-
-            lockManager = LockManagers.from(properties);
-        }
-
-        return lockManager;
     }
 
     private TableMetadata tableMetadata(
@@ -345,7 +334,7 @@ public class HadoopTables implements Tables {
 
         @Override
         public Table create() {
-            TableOperations ops = newTableOps(location);
+            TableOperations ops = newTableOps(catalog, session, database, Location.of(location).fileName(), owner, location);
             if (ops.current() != null) {
                 throw new AlreadyExistsException("Table already exists at location: %s", location);
             }
@@ -358,7 +347,7 @@ public class HadoopTables implements Tables {
 
         @Override
         public Transaction createTransaction() {
-            TableOperations ops = newTableOps(location);
+            TableOperations ops = newTableOps(catalog, session, database, Location.of(location).fileName(), owner, location);
             if (ops.current() != null) {
                 throw new AlreadyExistsException("Table already exists: %s", location);
             }
@@ -379,7 +368,7 @@ public class HadoopTables implements Tables {
         }
 
         private Transaction newReplaceTableTransaction(boolean orCreate) {
-            TableOperations ops = newTableOps(location);
+            TableOperations ops = newTableOps(catalog, session, database, Location.of(location).fileName(), owner, location);
             if (!orCreate && ops.current() == null) {
                 throw new NoSuchTableException("No such table: %s", location);
             }
