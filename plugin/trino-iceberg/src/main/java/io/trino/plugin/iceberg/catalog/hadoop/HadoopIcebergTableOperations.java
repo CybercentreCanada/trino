@@ -105,7 +105,7 @@ public class HadoopIcebergTableOperations
     @Override
     protected void commitMaterializedViewRefresh(TableMetadata base, TableMetadata metadata)
     {
-        throw new TrinoException(NOT_SUPPORTED, "commitMaterializedViewRefresh is not supported by " + this.catalog.getCatalog().name());
+        throw new TrinoException(NOT_SUPPORTED, "commitMaterializedViewRefresh is not supported by " + catalog.getCatalogName());
     }
 
     private Table getTable()

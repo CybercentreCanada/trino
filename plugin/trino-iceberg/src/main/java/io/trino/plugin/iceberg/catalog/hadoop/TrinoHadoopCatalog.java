@@ -13,11 +13,20 @@
  */
 package io.trino.plugin.iceberg.catalog.hadoop;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import io.trino.cache.EvictableCacheBuilder;
 import io.trino.cache.SafeCaches;
+import io.trino.filesystem.FileIterator;
+import io.trino.filesystem.Location;
+import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.iceberg.IcebergConfig;
@@ -34,6 +43,8 @@ import io.trino.spi.connector.RelationCommentMetadata;
 import io.trino.spi.connector.RelationType;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
+import io.trino.spi.security.ConnectorIdentity;
+import io.trino.spi.security.PrincipalType;
 import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.type.TypeManager;
 import org.apache.iceberg.BaseTable;
@@ -45,11 +56,12 @@ import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.util.PropertyUtil;
+import software.amazon.awssdk.services.s3.endpoints.internal.Value;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -60,9 +72,15 @@ import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static io.trino.spi.ErrorType.USER_ERROR;
+import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
+import static io.trino.spi.StandardErrorCode.SCHEMA_ALREADY_EXISTS;
+import static io.trino.spi.StandardErrorCode.SCHEMA_NOT_EMPTY;
+import static io.trino.spi.StandardErrorCode.SCHEMA_NOT_FOUND;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
@@ -72,12 +90,15 @@ public class TrinoHadoopCatalog
         extends AbstractTrinoCatalog
 {
     private static final Map<String, String> EMPTY_SESSION_MAP = ImmutableMap.of();
+    private static final Joiner SLASH = Joiner.on("/");
     private static final int PER_QUERY_CACHES_SIZE = 1000;
-
-    private final Catalog catalog;
+    private final TrinoFileSystemFactory fileSystemFactory;
     private final Map<String, String> catalogProperties;
     private final Cache<String, Catalog> catalogCache;
+    private final TrinoFileSystem trinoFileSystem;
+    private final CatalogName catalogName;
     private final String warehouse;
+    private final TrinoFileSystem trinoFileSystem;
     private final Cache<SchemaTableName, TableMetadata> tableMetadataCache = EvictableCacheBuilder.newBuilder()
             .maximumSize(PER_QUERY_CACHES_SIZE)
             .build();
@@ -85,45 +106,22 @@ public class TrinoHadoopCatalog
     public TrinoHadoopCatalog(
             CatalogName catalogName,
             TypeManager typeManager,
+            ConnectorIdentity identity,
             IcebergTableOperationsProvider tableOperationsProvider,
-            Catalog catalog,
             TrinoFileSystemFactory fileSystemFactory,
             boolean useUniqueTableLocation,
-            IcebergConfig config)
+            IcebergConfig icebergConfig)
     {
         super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
-        this.catalog = catalog;
-        this.catalogProperties = convertToCatalogProperties(config);
-        this.catalogCache = SafeCaches.buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(config.getCatalogCacheSize()));
-        this.warehouse = requireNonNull(config.getCatalogWarehouse(), "warehouse is null");
-    }
+        this.catalogCache = SafeCaches.buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(icebergConfig.getCatalogCacheSize()));
+        this.warehouse = requireNonNull(icebergConfig.getCatalogWarehouse(), "warehouse is null");
+        this.trinoFileSystem = fileSystemFactory.create(identity);
+        this.catalogName = catalogName;
 
-    public Catalog getCatalog()
-    {
-        return catalog;
-    }
+        Preconditions.checkArgument(
+                !Strings.isNullOrEmpty(icebergConfig.getCatalogWarehouse()),
+                "Cannot initialize HadoopCatalog because warehousePath must not be null or empty");
 
-    private SupportsNamespaces getNamespaceCatalog()
-    {
-        if (this.catalog instanceof SupportsNamespaces) {
-            return (SupportsNamespaces) catalog;
-        }
-        throw new TrinoException(NOT_SUPPORTED, "catalog " + catalog.name() + " does not support namespace operations");
-    }
-
-    private Map<String, String> convertToCatalogProperties(IcebergConfig config)
-    {
-        return ImmutableMap.of(WAREHOUSE_LOCATION, config.getCatalogWarehouse());
-    }
-
-    private TableIdentifier toTableId(SchemaTableName schemaTableName)
-    {
-        return TableIdentifier.of(schemaTableName.getSchemaName(), schemaTableName.getTableName());
-    }
-
-    private SchemaTableName schemaFromTableId(TableIdentifier tableIdentifier)
-    {
-        return new SchemaTableName(tableIdentifier.namespace().toString(), tableIdentifier.name());
     }
 
     @Override
@@ -133,63 +131,123 @@ public class TrinoHadoopCatalog
             // Currently, Trino schemas are always lowercase, so this one cannot exist (https://github.com/trinodb/trino/issues/17)
             return false;
         }
-        if (listNamespaces(session).stream().filter(namespace::equals).findAny().orElse(null) != null) {
-            return true;
+        return listNamespaces(session).stream().filter(namespace::equals).findAny().orElse(null) != null;
+    }
+
+    private List<String> listNamespaces(ConnectorSession session, Optional<String> namespace)
+    {
+        if (namespace.isPresent()) {
+            return ImmutableList.of(namespace.get());
         }
-        else {
-            return false;
-        }
+        return listNamespaces(session);
     }
 
     @Override
     public List<String> listNamespaces(ConnectorSession session)
     {
-        return getNamespaceCatalog().listNamespaces().stream().map(Object::toString).collect(Collectors.toList());
+        try {
+            return trinoFileSystem.listDirectories(Location.of(warehouse)).stream().filter(this::isNamespace).map(Location::fileName).toList();
+        } catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, "could not list namespaces", e);
+        }
     }
 
     @Override
     public void dropNamespace(ConnectorSession session, String namespace)
     {
-        SupportsNamespaces catalog = getNamespaceCatalog();
-        catalog.dropNamespace(catalog.listNamespaces().stream().filter(_namespace -> namespace.equals(_namespace.toString())).findAny().orElse(null));
+        Location nsLocation = Location.of(SLASH.join(warehouse, namespace));
+
+        if (!isNamespace(nsLocation) || namespace.isEmpty()) {
+            throw new TrinoException(SCHEMA_NOT_FOUND, "could not find namespace");
+        }
+
+        try {
+            if (!trinoFileSystem.listDirectories(nsLocation).isEmpty() || trinoFileSystem.listFiles(nsLocation).hasNext()) {
+                throw new TrinoException(SCHEMA_NOT_EMPTY,String.format("Namespace %s is not empty.", namespace));
+            }
+
+            trinoFileSystem.deleteDirectory(nsLocation);
+        } catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Namespace delete failed: %s", namespace), e);
+        }
     }
 
     @SuppressWarnings({"unchecked", "rawtypes"})
     @Override
     public Map<String, Object> loadNamespaceMetadata(ConnectorSession session, String namespace)
     {
-        return (Map) getNamespaceCatalog().loadNamespaceMetadata(Namespace.of(namespace));
-    }
+        Location nsLocation = Location.of(SLASH.join(warehouse, namespace));
 
-    @Override
-    public Optional<TrinoPrincipal> getNamespacePrincipal(ConnectorSession session, String namespace)
-    {
-        throw new TrinoException(NOT_SUPPORTED, "getNamespacePrincipal is not supported by " + this.catalog.name());
+        if (!isNamespace(nsLocation) || namespace.isEmpty()) {
+            throw new TrinoException(SCHEMA_NOT_FOUND, "could not find namespace");
+        }
+
+        return ImmutableMap.of("location", nsLocation.toString());
     }
 
     @Override
     public void createNamespace(ConnectorSession session, String namespace, Map<String, Object> properties, TrinoPrincipal owner)
     {
-        getNamespaceCatalog().createNamespace(Namespace.of(namespace), EMPTY_SESSION_MAP);
+        checkArgument(owner.getType() == PrincipalType.USER, "Owner type must be USER");
+        checkArgument(owner.getName().equals(session.getUser().toLowerCase(ENGLISH)), "Explicit schema owner is not supported");
+
+        checkArgument(
+                !namespace.isEmpty(), "Cannot create namespace with invalid name: %s", namespace);
+        if (!properties.isEmpty()) {
+            throw new UnsupportedOperationException(
+                    "Cannot create namespace " + namespace + ": metadata is not supported");
+        }
+
+        Location nsLocation = Location.of(SLASH.join(warehouse, namespace));
+
+        if (isNamespace(nsLocation)) {
+            throw new TrinoException(SCHEMA_ALREADY_EXISTS,  String.format("Namespace already exists: %s", namespace));
+        }
+
+        try {
+            trinoFileSystem.createDirectory(nsLocation);
+
+        } catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Create namespace failed: %s", namespace), e);
+        }
+    }
+
+    @Override
+    public Optional<TrinoPrincipal> getNamespacePrincipal(ConnectorSession session, String namespace)
+    {
+        throw new TrinoException(NOT_SUPPORTED, "getNamespacePrincipal is not supported by " + catalogName);
     }
 
     @Override
     public void setNamespacePrincipal(ConnectorSession session, String namespace, TrinoPrincipal principal)
     {
-        throw new TrinoException(NOT_SUPPORTED, "setNamespacePrincipal is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "setNamespacePrincipal is not supported by " + catalogName);
     }
 
     @Override
     public void renameNamespace(ConnectorSession session, String source, String target)
     {
-        throw new TrinoException(NOT_SUPPORTED, "renameNamespace is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "renameNamespace is not supported by " + catalogName);
     }
 
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> namespace)
     {
-        return this.catalog.listTables(Namespace.of(namespace.orElseThrow())).stream()
-                .map(this::schemaFromTableId).collect(Collectors.toList());
+        Set<SchemaTableName> schemaTableNames = Sets.newHashSet();
+        try {
+            for (String ns : listNamespaces(session, namespace)) {
+                Location nsLocation = Location.of(SLASH.join(warehouse, namespace));
+                if (!isDirectory(nsLocation)) {
+                    throw new TrinoException(SCHEMA_NOT_FOUND, "could not find namespace");
+                }
+                schemaTableNames.addAll(trinoFileSystem.listDirectories(nsLocation).stream()
+                    .filter(this::isTableDir).map(tableLocation -> new SchemaTableName(ns, tableLocation.fileName())).toList());
+            }
+        } catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to list tables under: %s", namespace),e);
+        }
+
+        return Lists.newArrayList(schemaTableNames);
     }
 
     @Override
@@ -325,31 +383,31 @@ public class TrinoHadoopCatalog
     @Override
     public void setTablePrincipal(ConnectorSession session, SchemaTableName schemaTableName, TrinoPrincipal principal)
     {
-        throw new TrinoException(NOT_SUPPORTED, "setTablePrincipal is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "setTablePrincipal is not supported by " + catalogName);
     }
 
     @Override
     public void createView(ConnectorSession session, SchemaTableName schemaViewName, ConnectorViewDefinition definition, boolean replace)
     {
-        throw new TrinoException(NOT_SUPPORTED, "createView is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "createView is not supported by " + catalogName);
     }
 
     @Override
     public void renameView(ConnectorSession session, SchemaTableName source, SchemaTableName target)
     {
-        throw new TrinoException(NOT_SUPPORTED, "renameView is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "renameView is not supported by " + catalogName);
     }
 
     @Override
     public void setViewPrincipal(ConnectorSession session, SchemaTableName schemaViewName, TrinoPrincipal principal)
     {
-        throw new TrinoException(NOT_SUPPORTED, "setViewPrincipal is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "setViewPrincipal is not supported by " + catalogName);
     }
 
     @Override
     public void dropView(ConnectorSession session, SchemaTableName schemaViewName)
     {
-        throw new TrinoException(NOT_SUPPORTED, "dropView is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "dropView is not supported by " + catalogName);
     }
 
     @Override
@@ -373,13 +431,13 @@ public class TrinoHadoopCatalog
     @Override
     public void updateViewComment(ConnectorSession session, SchemaTableName viewName, Optional<String> comment)
     {
-        throw new TrinoException(NOT_SUPPORTED, "updateViewComment is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "updateViewComment is not supported by " + catalogName);
     }
 
     @Override
     public void updateViewColumnComment(ConnectorSession session, SchemaTableName schemaViewName, String columnName, Optional<String> comment)
     {
-        throw new TrinoException(NOT_SUPPORTED, "updateViewColumnComment is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "updateViewColumnComment is not supported by " + catalogName);
     }
 
     @Override
@@ -391,19 +449,19 @@ public class TrinoHadoopCatalog
             boolean replace,
             boolean ignoreExisting)
     {
-        throw new TrinoException(NOT_SUPPORTED, "createMaterializedView is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "createMaterializedView is not supported by " + catalogName);
     }
 
     @Override
     public void updateMaterializedViewColumnComment(ConnectorSession session, SchemaTableName schemaViewName, String columnName, Optional<String> comment)
     {
-        throw new TrinoException(NOT_SUPPORTED, "updateMaterializedViewColumnComment is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "updateMaterializedViewColumnComment is not supported by " + catalogName);
     }
 
     @Override
     public void dropMaterializedView(ConnectorSession session, SchemaTableName viewName)
     {
-        throw new TrinoException(NOT_SUPPORTED, "dropMaterializedView is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "dropMaterializedView is not supported by " + catalogName);
     }
 
     @Override
@@ -415,7 +473,7 @@ public class TrinoHadoopCatalog
     @Override
     public void renameMaterializedView(ConnectorSession session, SchemaTableName source, SchemaTableName target)
     {
-        throw new TrinoException(NOT_SUPPORTED, "renameMaterializedView is not supported by " + this.catalog.name());
+        throw new TrinoException(NOT_SUPPORTED, "renameMaterializedView is not supported by " + catalogName);
     }
 
     @Override
@@ -428,5 +486,54 @@ public class TrinoHadoopCatalog
     protected Optional<ConnectorMaterializedViewDefinition> doGetMaterializedView(ConnectorSession session, SchemaTableName schemaViewName)
     {
         return Optional.empty();
+    }
+
+    public CatalogName getCatalogName() {
+        return catalogName;
+    }
+
+    private boolean isDirectory(Location location)
+    {
+        try {
+            Optional<Boolean> directoryExists = trinoFileSystem.directoryExists(location);
+
+            if (directoryExists.isPresent()) {
+                return directoryExists.get();
+            }
+        } catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, "isDirectory(Location) could encountered an error ",e);
+        }
+        return false;
+    }
+    private boolean isTableDir(Location location)
+    {
+        try {
+            Optional<Boolean> directoryExists = trinoFileSystem.directoryExists(location);
+            if (directoryExists.isPresent()) {
+                if (!directoryExists.get() || !location.path().contains("metadata")) {
+                    return false;
+                }
+            }
+        } catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, "isTableDir(Location) could not determine whether directory exists",e);
+        }
+
+        try {
+            FileIterator files = trinoFileSystem.listFiles(location);
+            while (files.hasNext()) {
+                if (files.next().toString().endsWith(".metadata.json")) {
+                    return true;
+                }
+            }
+        } catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, "isTableDir(Location) could not list files",e);
+        }
+
+        return false;
+    }
+
+    private boolean isNamespace(Location location)
+    {
+        return isDirectory(location) && !isTableDir(location);
     }
 }
