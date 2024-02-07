@@ -13,27 +13,44 @@
  */
 package io.trino.plugin.iceberg.catalog.hadoop;
 
+import com.google.common.collect.Sets;
+import io.trino.filesystem.Location;
 import io.trino.plugin.iceberg.catalog.AbstractIcebergTableOperations;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.TableNotFoundException;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
-import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.util.Pair;
+import org.apache.iceberg.util.Tasks;
+import org.apache.iceberg.util.ThreadPools;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.Set;
+import java.util.UUID;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
-import static io.trino.plugin.hive.HiveMetadata.TABLE_COMMENT;
-import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_INVALID_METADATA;
-import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static java.lang.String.format;
+
+import static io.trino.plugin.hive.HiveMetadata.TABLE_COMMENT;
+import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_COMMIT_ERROR;
+import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_INVALID_METADATA;
+import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
+import static java.lang.String.valueOf;
 import static org.apache.iceberg.BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE;
 import static org.apache.iceberg.BaseMetastoreTableOperations.METADATA_LOCATION_PROP;
 import static org.apache.iceberg.BaseMetastoreTableOperations.PREVIOUS_METADATA_LOCATION_PROP;
@@ -44,6 +61,8 @@ public class HadoopIcebergTableOperations
         extends AbstractIcebergTableOperations
 {
     private final TrinoHadoopCatalog catalog;
+
+    public static final String VERSION_HINT_FILENAME = "version-hint.text";
 
     protected HadoopIcebergTableOperations(FileIO fileIo, ConnectorSession session, String database, String table, Optional<String> owner, Optional<String> location, TrinoHadoopCatalog catalog)
     {
@@ -74,6 +93,7 @@ public class HadoopIcebergTableOperations
         verify(version.isEmpty(), "commitNewTable called on a table which already exists");
         String newMetadataLocation = writeNewMetadata(metadata, 0);
 
+
         Map<String, String> properties = Map.of(
                 TABLE_TYPE_PROP, ICEBERG_TABLE_TYPE_VALUE,
                 METADATA_LOCATION_PROP, newMetadataLocation);
@@ -82,7 +102,7 @@ public class HadoopIcebergTableOperations
             properties.put(TABLE_COMMENT, tableComment);
         }
 
-        this.catalog.getCatalog().createTable(TableIdentifier.of(database, tableName), metadata.schema(), metadata.spec(), metadata.location(), properties);
+        commit(null, metadata);
     }
 
     @Override
@@ -99,8 +119,49 @@ public class HadoopIcebergTableOperations
         properties.put(METADATA_LOCATION_PROP, metadataLocation);
         properties.put(PREVIOUS_METADATA_LOCATION_PROP, currentMetadataLocation);
 
-        this.catalog.getCatalog().createTable(TableIdentifier.of(database, tableName), metadata.schema(), metadata.spec(), metadata.location(), properties);
+        commit(base,metadata);
     }
+
+    public void commit(TableMetadata base, TableMetadata metadata) {
+        Pair<OptionalInt, TableMetadata> current = Pair.of(version, currentMetadata);
+        if (base != current.second()) {
+            throw new TrinoException(ICEBERG_COMMIT_ERROR, "Cannot commit changes based on stale table metadata");
+        }
+
+        checkArgument(
+                base == null || base.location().equals(metadata.location()),
+                "Hadoop path-based tables cannot be relocated");
+        checkArgument(
+                !metadata.properties().containsKey(TableProperties.WRITE_METADATA_LOCATION),
+                "Hadoop path-based tables cannot relocate metadata");
+
+        String codecName =
+                metadata.property(
+                        TableProperties.METADATA_COMPRESSION, TableProperties.METADATA_COMPRESSION_DEFAULT);
+        TableMetadataParser.Codec codec = TableMetadataParser.Codec.fromName(codecName);
+        String fileExtension = TableMetadataParser.getFileExtension(codec);
+        Location tempMetadataFile =  Location.of(UUID.randomUUID().toString() + fileExtension);
+        TableMetadataParser.write(metadata, fileIo.newOutputFile(tempMetadataFile.toString()));
+
+        int nextVersion = current.first().isPresent() ? current.first().getAsInt() + 1 : 0;
+
+        Location finalMetadataFile = metadataFileLocation(nextVersion, codec);
+
+        try {
+            if (catalog.getTrinoFileSystem().listFiles(finalMetadataFile) != null)
+                throw new TrinoException(ICEBERG_COMMIT_ERROR, String.format("Version %d already exists: %s", nextVersion, finalMetadataFile.toString()));
+            catalog.getTrinoFileSystem().renameFile(tempMetadataFile,finalMetadataFile);
+        } catch (IOException e) {
+            throw new TrinoException(ICEBERG_COMMIT_ERROR, String.format( "Failed to commit changes using rename: %s", finalMetadataFile.toString()),e);
+        }
+
+        writeVersionHint(nextVersion);
+
+        deleteRemovedMetadataFiles(base, metadata);
+
+        this.shouldRefresh = true;
+    }
+
 
     @Override
     protected void commitMaterializedViewRefresh(TableMetadata base, TableMetadata metadata)
@@ -111,5 +172,73 @@ public class HadoopIcebergTableOperations
     private Table getTable()
     {
         return catalog.loadTable(session, getSchemaTableName());
+    }
+
+    private Location metadataFileLocation(int metadataVersion, TableMetadataParser.Codec codec) {
+        return metadataLocation("v" + metadataVersion + TableMetadataParser.getFileExtension(codec));
+    }
+
+    private Location oldMetadataFileLocation(int metadataVersion, TableMetadataParser.Codec codec) {
+        return metadataLocation("v" + metadataVersion + TableMetadataParser.getOldFileExtension(codec));
+    }
+
+    private Location metadataLocation(String filename) {
+        return metadataRoot().appendPath(filename);
+    }
+
+    private Location metadataRoot() {
+        return Location.of(valueOf(location)).appendPath("metadata");
+    }
+
+    Location versionHintFile() {
+        return metadataLocation(VERSION_HINT_FILENAME);
+    }
+
+    private void writeVersionHint(int versionToWrite) {
+        Location versionHintFile = versionHintFile();
+
+        try {
+            Location tempVersionHintFile = metadataLocation(UUID.randomUUID().toString() + "-version-hint.temp");
+            writeVersionToLocation(tempVersionHintFile, versionToWrite);
+            catalog.getTrinoFileSystem().deleteFile(versionHintFile);
+            catalog.getTrinoFileSystem().renameFile(tempVersionHintFile, versionHintFile);
+        } catch (IOException ignored)
+        {
+
+        }
+    }
+
+    private void writeVersionToLocation(Location location, int versionToWrite) throws IOException {
+            try (OutputStream out = catalog.getTrinoFileSystem().newOutputFile(location).create()) {
+                out.write(String.valueOf(versionToWrite).getBytes(StandardCharsets.UTF_8));
+            }
+    }
+
+    private void deleteRemovedMetadataFiles(TableMetadata base, TableMetadata metadata) {
+        if (base == null) {
+            return;
+        }
+
+        boolean deleteAfterCommit =
+                metadata.propertyAsBoolean(
+                        TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED,
+                        TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED_DEFAULT);
+
+        if (deleteAfterCommit) {
+            Set<TableMetadata.MetadataLogEntry> removedPreviousMetadataFiles =
+                    Sets.newHashSet(base.previousFiles());
+            removedPreviousMetadataFiles.removeAll(metadata.previousFiles());
+            Tasks.foreach(removedPreviousMetadataFiles)
+                    .executeWith(ThreadPools.getWorkerPool())
+                    .noRetry()
+                    .suppressFailureWhenFinished()
+                    .run(previousMetadataFile -> {
+                        try {
+                            catalog.getTrinoFileSystem().deleteFile(Location.of(previousMetadataFile.file()));
+                        } catch (IOException ignored) {
+
+                        }
+                    });
+        }
     }
 }

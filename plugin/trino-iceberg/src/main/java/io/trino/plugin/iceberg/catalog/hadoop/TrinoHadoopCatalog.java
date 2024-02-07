@@ -15,23 +15,31 @@ package io.trino.plugin.iceberg.catalog.hadoop;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.common.util.concurrent.UncheckedExecutionException;
 import io.trino.cache.EvictableCacheBuilder;
 import io.trino.cache.SafeCaches;
 import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.filesystem.TrinoInputFile;
+import io.trino.hadoop.$internal.org.apache.commons.lang3.function.Failable;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.catalog.AbstractTrinoCatalog;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
+import io.trino.plugin.iceberg.catalog.TrinoCatalog;
+import io.trino.plugin.iceberg.fileio.ForwardingFileIo;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnMetadata;
@@ -48,18 +56,30 @@ import io.trino.spi.security.PrincipalType;
 import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.type.TypeManager;
 import org.apache.iceberg.BaseTable;
+import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.StaticTableOperations;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
+import org.apache.iceberg.TableMetadataParser;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.Transaction;
+import org.apache.iceberg.Transactions;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.metrics.MetricsReporter;
+import org.apache.iceberg.util.Pair;
 import org.apache.iceberg.util.PropertyUtil;
-import software.amazon.awssdk.services.s3.endpoints.internal.Value;
+
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -73,8 +93,12 @@ import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static io.trino.cache.CacheUtils.uncheckedCacheGet;
+import static io.trino.plugin.iceberg.IcebergUtil.getIcebergTableWithMetadata;
+import static io.trino.plugin.iceberg.IcebergUtil.loadIcebergTable;
 import static io.trino.spi.ErrorType.USER_ERROR;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -91,14 +115,13 @@ public class TrinoHadoopCatalog
 {
     private static final Map<String, String> EMPTY_SESSION_MAP = ImmutableMap.of();
     private static final Joiner SLASH = Joiner.on("/");
+    private static final Splitter DOT = Splitter.on('.');
     private static final int PER_QUERY_CACHES_SIZE = 1000;
-    private final TrinoFileSystemFactory fileSystemFactory;
-    private final Map<String, String> catalogProperties;
-    private final Cache<String, Catalog> catalogCache;
+    private static final String METADATA_JSON = "metadata.json";
     private final TrinoFileSystem trinoFileSystem;
     private final CatalogName catalogName;
     private final String warehouse;
-    private final TrinoFileSystem trinoFileSystem;
+    private final IcebergTableOperationsProvider tableOperationsProvider;
     private final Cache<SchemaTableName, TableMetadata> tableMetadataCache = EvictableCacheBuilder.newBuilder()
             .maximumSize(PER_QUERY_CACHES_SIZE)
             .build();
@@ -113,25 +136,26 @@ public class TrinoHadoopCatalog
             IcebergConfig icebergConfig)
     {
         super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
-        this.catalogCache = SafeCaches.buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(icebergConfig.getCatalogCacheSize()));
         this.warehouse = requireNonNull(icebergConfig.getCatalogWarehouse(), "warehouse is null");
         this.trinoFileSystem = fileSystemFactory.create(identity);
         this.catalogName = catalogName;
+        this.tableOperationsProvider = tableOperationsProvider;
 
         Preconditions.checkArgument(
                 !Strings.isNullOrEmpty(icebergConfig.getCatalogWarehouse()),
                 "Cannot initialize HadoopCatalog because warehousePath must not be null or empty");
-
     }
 
     @Override
     public boolean namespaceExists(ConnectorSession session, String namespace)
     {
-        if (!namespace.equals(namespace.toLowerCase(ENGLISH))) {
+        String ns = splitQualifiedNamespace(namespace);
+
+        if (!ns.equals(ns.toLowerCase(ENGLISH))) {
             // Currently, Trino schemas are always lowercase, so this one cannot exist (https://github.com/trinodb/trino/issues/17)
             return false;
         }
-        return listNamespaces(session).stream().filter(namespace::equals).findAny().orElse(null) != null;
+        return listNamespaces(session).stream().filter(ns::equals).findAny().orElse(null) != null;
     }
 
     private List<String> listNamespaces(ConnectorSession session, Optional<String> namespace)
@@ -155,7 +179,7 @@ public class TrinoHadoopCatalog
     @Override
     public void dropNamespace(ConnectorSession session, String namespace)
     {
-        Location nsLocation = Location.of(SLASH.join(warehouse, namespace));
+        Location nsLocation = Location.of(SLASH.join(warehouse, SLASH.join(DOT.split(namespace))));
 
         if (!isNamespace(nsLocation) || namespace.isEmpty()) {
             throw new TrinoException(SCHEMA_NOT_FOUND, "could not find namespace");
@@ -176,7 +200,7 @@ public class TrinoHadoopCatalog
     @Override
     public Map<String, Object> loadNamespaceMetadata(ConnectorSession session, String namespace)
     {
-        Location nsLocation = Location.of(SLASH.join(warehouse, namespace));
+        Location nsLocation = Location.of(SLASH.join(warehouse, SLASH.join(DOT.split(namespace))));
 
         if (!isNamespace(nsLocation) || namespace.isEmpty()) {
             throw new TrinoException(SCHEMA_NOT_FOUND, "could not find namespace");
@@ -198,7 +222,7 @@ public class TrinoHadoopCatalog
                     "Cannot create namespace " + namespace + ": metadata is not supported");
         }
 
-        Location nsLocation = Location.of(SLASH.join(warehouse, namespace));
+        Location nsLocation = Location.of(SLASH.join(warehouse, SLASH.join(DOT.split(namespace))));
 
         if (isNamespace(nsLocation)) {
             throw new TrinoException(SCHEMA_ALREADY_EXISTS,  String.format("Namespace already exists: %s", namespace));
@@ -234,9 +258,10 @@ public class TrinoHadoopCatalog
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> namespace)
     {
         Set<SchemaTableName> schemaTableNames = Sets.newHashSet();
+        String newNameSpace =  splitQualifiedNamespace(String.valueOf(namespace));
         try {
-            for (String ns : listNamespaces(session, namespace)) {
-                Location nsLocation = Location.of(SLASH.join(warehouse, namespace));
+            for (String ns : listNamespaces(session, Optional.ofNullable(newNameSpace))) {
+                Location nsLocation = Location.of(SLASH.join(warehouse, SLASH.join(DOT.split(String.valueOf(namespace)))));
                 if (!isDirectory(nsLocation)) {
                     throw new TrinoException(SCHEMA_NOT_FOUND, "could not find namespace");
                 }
@@ -290,12 +315,10 @@ public class TrinoHadoopCatalog
     public Transaction newCreateTableTransaction(ConnectorSession session, SchemaTableName schemaTableName, Schema schema, PartitionSpec partitionSpec, SortOrder sortOrder, String location, Map<String, String> properties, Optional<String> owner)
     {
         // Location cannot be specified for hadoop tables.
-        return this.catalog.newCreateTableTransaction(
-                toTableId(schemaTableName),
-                schema,
-                partitionSpec,
-                null,
-                properties);
+        return builder(schemaTableName, schema)
+                .withPartitionSpec(partitionSpec)
+                .withProperties(properties)
+                .createTransaction(session);
     }
 
     @Override
@@ -313,9 +336,23 @@ public class TrinoHadoopCatalog
     }
 
     @Override
-    public void registerTable(ConnectorSession session, SchemaTableName tableName, TableMetadata tableMetadata)
-    {
-        this.catalog.registerTable(TableIdentifier.of(tableName.getSchemaName(), tableName.getTableName()), tableMetadata.metadataFileLocation());
+    public void registerTable(ConnectorSession session, SchemaTableName schemaTableName, TableMetadata tableMetadata) {
+        Preconditions.checkNotNull(schemaTableName);
+        Preconditions.checkNotNull(tableMetadata);
+        Preconditions.checkArgument(tableMetadata.metadataFileLocation() != null && !tableMetadata.metadataFileLocation().isEmpty(),
+                "Cannot register an empty metadata file location as a table");
+
+        // Throw an exception if this table already exists in the catalog.
+        if (tableExists(session, Optional.empty(), schemaTableName)) {
+            throw new AlreadyExistsException("Table already exists: %s", schemaTableName.getTableName());
+        }
+
+        TableOperations ops = newTableOps(session, Optional.empty(), schemaTableName);
+        try (FileIO fileIo = new ForwardingFileIo(trinoFileSystem)) {
+            InputFile metadataFile = fileIo.newInputFile(tableLocation(schemaTableName));
+            TableMetadata metadata = TableMetadataParser.read(ops.io(), metadataFile);
+            ops.commit(null, metadata);
+        }
     }
 
     @Override
@@ -327,51 +364,78 @@ public class TrinoHadoopCatalog
     @Override
     public void dropTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
-        this.catalog.dropTable(toTableId(schemaTableName), true);
+        TableOperations ops = newTableOps(session, Optional.empty(), schemaTableName);
+        try {
+            // Since the data files and the metadata files may store in different locations,
+            // so it has to call dropTableData to force delete the data file.
+            CatalogUtil.dropTableData(ops.io(), ops.current());
+            trinoFileSystem.deleteDirectory(Location.of(tableLocation(schemaTableName)));
+        } catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, "Failed to delete table: "+ schemaTableName, e);
+        }
+        invalidateTableCache(schemaTableName);
     }
 
     @Override
     public void dropCorruptedTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
-        this.catalog.dropTable(toTableId(schemaTableName), true);
+        dropTable(session, schemaTableName);
     }
 
     @Override
     public void renameTable(ConnectorSession session, SchemaTableName from, SchemaTableName to)
     {
-        this.catalog.renameTable(toTableId(from), toTableId(to));
+        throw new TrinoException(NOT_SUPPORTED, "renameTable is not supported by " + catalogName);
     }
 
     @Override
     public Table loadTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
+        TableMetadata metadata;
         try {
-            return this.catalog.loadTable(toTableId(schemaTableName));
+            metadata = uncheckedCacheGet(
+                    tableMetadataCache,
+                    schemaTableName,
+                    () -> ((BaseTable) loadIcebergTable(this, tableOperationsProvider, session, schemaTableName)).operations().current());
         }
-        catch (NoSuchTableException e) {
-            // Have to change exception types due to code relying on specific exception to be thrown.
-            throw new TableNotFoundException(schemaTableName, e);
+        catch (UncheckedExecutionException e) {
+            throwIfUnchecked(e.getCause());
+            throw new NoSuchTableException("Table does not exist at location: %s", tableLocation(schemaTableName));
         }
+
+        return getIcebergTableWithMetadata(this, tableOperationsProvider, session, schemaTableName, metadata);
     }
 
+//    @Override
+//    public Table loadTableWithoutCache(ConnectorSession session, SchemaTableName schemaTableName)
+//    {
+//        Table result;
+//        String location =tableLocation(schemaTableName);
+//        Pair<String, MetadataTableType> parsedMetadataType = parseMetadataType(location);
+//
+//        if (parsedMetadataType != null) {
+//            // Load a metadata table
+//            result = loadMetadataTable(session, Optional.empty(),  schemaTableName, parsedMetadataType.first(), parsedMetadataType.second());
+//        } else {
+//            // Load a normal table
+//            TableOperations ops =newTableOps(session, Optional.empty(), schemaTableName);
+//            if (ops.current() != null) {
+//                result = new BaseTable(ops, location);
+//            } else {
+//                throw new NoSuchTableException("Table does not exist at location: %s", location);
+//            }
+//        }
+//        return result;
+//    }
     @Override
     public Map<SchemaTableName, List<ColumnMetadata>> tryGetColumnMetadata(ConnectorSession session, List<SchemaTableName> tables)
     {
         return null;
     }
 
-    @Override
-    public String defaultTableLocation(ConnectorSession session, SchemaTableName schemaTableName)
+    public String tableLocation(SchemaTableName schemaTableName)
     {
-        TableIdentifier tableIdentifier = toTableId(schemaTableName);
-        String dbLocationUri = PropertyUtil.propertyAsString(getNamespaceCatalog().loadNamespaceMetadata(tableIdentifier.namespace()), "locationUri", null);
-
-        if (dbLocationUri != null) {
-            return String.format("%s/%s", dbLocationUri, tableIdentifier.name());
-        }
-        else {
-            return String.format("%s/%s/%s", warehouse, schemaFromTableId(tableIdentifier), tableIdentifier.name());
-        }
+        return SLASH.join(this.warehouse, schemaTableName.getSchemaName(),schemaTableName.getTableName());
     }
 
     @Override
@@ -441,6 +505,11 @@ public class TrinoHadoopCatalog
     }
 
     @Override
+    public String defaultTableLocation(ConnectorSession session, SchemaTableName schemaTableName) {
+        return tableLocation(schemaTableName);
+    }
+
+    @Override
     public void createMaterializedView(
             ConnectorSession session,
             SchemaTableName viewName,
@@ -492,6 +561,10 @@ public class TrinoHadoopCatalog
         return catalogName;
     }
 
+    public TrinoFileSystem getTrinoFileSystem() {
+        return trinoFileSystem;
+    }
+
     private boolean isDirectory(Location location)
     {
         try {
@@ -505,6 +578,7 @@ public class TrinoHadoopCatalog
         }
         return false;
     }
+
     private boolean isTableDir(Location location)
     {
         try {
@@ -535,5 +609,179 @@ public class TrinoHadoopCatalog
     private boolean isNamespace(Location location)
     {
         return isDirectory(location) && !isTableDir(location);
+    }
+
+    protected String splitQualifiedNamespace(String namespace) {
+        String[] parts = Iterables.toArray(DOT.split(namespace), String.class);
+        return parts[parts.length - 1];
+    }
+
+    public boolean tableExists(ConnectorSession session, Optional<String> owner, SchemaTableName schemaTableName)
+    {
+        return newTableOps(session, owner, schemaTableName).current() != null;
+    }
+
+    private TableOperations newTableOps(ConnectorSession session, Optional<String> owner, SchemaTableName schemaTableName)
+    {
+        return tableOperationsProvider.createTableOperations(TrinoHadoopCatalog.this, session,
+                schemaTableName.getSchemaName(), schemaTableName.getTableName(), owner, Optional.of(tableLocation(schemaTableName)));
+    }
+
+    /**
+     * Try to resolve a metadata table, which we encode as URI fragments e.g.
+     * hdfs:///warehouse/my_table#snapshots
+     *
+     * @param location Path to parse
+     * @return A base table name and MetadataTableType if a type is found, null if not
+     */
+    private Pair<String, MetadataTableType> parseMetadataType(String location) {
+        int hashIndex = location.lastIndexOf('#');
+        if (hashIndex != -1 && !location.endsWith("#")) {
+            String baseTable = location.substring(0, hashIndex);
+            String metaTable = location.substring(hashIndex + 1);
+            MetadataTableType type = MetadataTableType.from(metaTable);
+            return (type == null) ? null : Pair.of(baseTable, type);
+        } else {
+            return null;
+        }
+    }
+
+    private Table loadMetadataTable(ConnectorSession session, Optional<String> owner, SchemaTableName schemaTableName, String table, MetadataTableType type)
+    {
+        TableOperations ops = newTableOps(session, owner, schemaTableName);
+        if (ops.current() == null) {
+            throw new NoSuchTableException("Table does not exist at location: %s",tableLocation(schemaTableName));
+        }
+        return MetadataTableUtils.createMetadataTableInstance(ops,tableLocation(schemaTableName), table, type);
+    }
+
+    public TrinoHadoopCatalogTableBuilder builder(SchemaTableName schemaTableName, Schema schema)
+    {
+        return new TrinoHadoopCatalogTableBuilder(schemaTableName, schema);
+    }
+
+    private class TrinoHadoopCatalogTableBuilder{
+        private final String tableLocation;
+        private final SchemaTableName schemaTableName;
+        private final ImmutableMap.Builder<String, String> propertiesBuilder = ImmutableMap.builder();
+        private final Map<String, String> tableProperties = Maps.newHashMap();
+        private final Schema schema;
+        private PartitionSpec spec = PartitionSpec.unpartitioned();
+        private SortOrder sortOrder = SortOrder.unsorted();
+        private Optional<String> owner = Optional.empty();
+
+        TrinoHadoopCatalogTableBuilder(SchemaTableName schemaTableName, Schema schema) {
+
+            this.schemaTableName = schemaTableName;
+            this.tableLocation = tableLocation(schemaTableName);
+            this.schema = schema;
+        }
+
+        public TrinoHadoopCatalogTableBuilder withPartitionSpec(PartitionSpec newSpec) {
+            this.spec = newSpec != null ? newSpec : PartitionSpec.unpartitioned();
+            return this;
+        }
+
+        public TrinoHadoopCatalogTableBuilder withSortOrder(SortOrder newSortOrder) {
+            this.sortOrder = newSortOrder != null ? newSortOrder : SortOrder.unsorted();
+            return this;
+        }
+
+        public TrinoHadoopCatalogTableBuilder withLocation(String location) {
+            Preconditions.checkArgument(
+                    location == null || location.equals(tableLocation),
+                    "Cannot set a custom location for a path-based table. Expected "
+                            + tableLocation
+                            + " but got "
+                            + location);
+            return this;
+        }
+
+        public TrinoHadoopCatalogTableBuilder withProperties(Map<String, String> properties) {
+            if (properties != null) {
+                propertiesBuilder.putAll(properties);
+            }
+            return this;
+        }
+
+        public TrinoHadoopCatalogTableBuilder withProperty(String key, String value) {
+            propertiesBuilder.put(key, value);
+            return this;
+        }
+
+        public TrinoHadoopCatalogTableBuilder withOwner(String owner)
+        {
+            this.owner = Optional.of(owner);
+            return this;
+        }
+
+        public Table create(ConnectorSession session)
+        {
+            TableOperations ops = tableOperationsProvider.createTableOperations(TrinoHadoopCatalog.this, session,
+                    schemaTableName.getSchemaName(), schemaTableName.getTableName(), owner, Optional.of(tableLocation));
+            if (ops.current() != null) {
+                throw new AlreadyExistsException("Table already exists at location: %s", tableLocation);
+            }
+
+            Map<String, String> properties = propertiesBuilder.build();
+            TableMetadata metadata = tableMetadata(schema, spec, sortOrder, properties, tableLocation);
+            ops.commit(null, metadata);
+            return new BaseTable(ops, tableLocation);
+        }
+
+        public Transaction createTransaction(ConnectorSession session) {
+            TableOperations ops = tableOperationsProvider.createTableOperations(TrinoHadoopCatalog.this, session,
+                    schemaTableName.getSchemaName(), schemaTableName.getTableName(), owner, Optional.of(tableLocation));
+            if (ops.current() != null) {
+                throw new AlreadyExistsException("Table already exists: %s", tableLocation);
+            }
+
+            Map<String, String> properties = propertiesBuilder.build();
+            TableMetadata metadata = tableMetadata(schema, spec, null, properties, tableLocation);
+            return Transactions.createTableTransaction(tableLocation, ops, metadata);
+        }
+
+        public Transaction replaceTransaction(ConnectorSession session) {
+            return newReplaceTableTransaction(false, session);
+        }
+
+        public Transaction createOrReplaceTransaction(ConnectorSession session) {
+            return newReplaceTableTransaction(true, session);
+        }
+
+        private Transaction newReplaceTableTransaction(boolean orCreate, ConnectorSession session) {
+            TableOperations ops = newTableOps(session,Optional.empty(), schemaTableName);
+            if (!orCreate && ops.current() == null) {
+                throw new NoSuchTableException("No such table: %s", tableLocation);
+            }
+
+            Map<String, String> properties = propertiesBuilder.build();
+            TableMetadata metadata;
+            if (ops.current() != null) {
+                metadata = ops.current().buildReplacement(schema, spec, sortOrder, tableLocation, properties);
+            } else {
+                metadata = tableMetadata(schema, spec, sortOrder, properties, tableLocation);
+            }
+
+            if (orCreate) {
+                return Transactions.createOrReplaceTableTransaction(tableLocation, ops, metadata);
+            } else {
+                return Transactions.replaceTableTransaction(tableLocation, ops, metadata);
+            }
+        }
+
+        private TableMetadata tableMetadata(
+                Schema schema,
+                PartitionSpec spec,
+                SortOrder order,
+                Map<String, String> properties,
+                String location) {
+            Preconditions.checkNotNull(schema, "A table schema is required");
+
+            Map<String, String> tableProps = properties == null ? ImmutableMap.of() : properties;
+            PartitionSpec partitionSpec = spec == null ? PartitionSpec.unpartitioned() : spec;
+            SortOrder sortOrder = order == null ? SortOrder.unsorted() : order;
+            return TableMetadata.newTableMetadata(schema, partitionSpec, sortOrder, location, tableProps);
+        }
     }
 }
