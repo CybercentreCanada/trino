@@ -21,8 +21,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import io.trino.cache.EvictableCacheBuilder;
 import io.trino.filesystem.FileIterator;
@@ -68,6 +66,7 @@ import org.apache.iceberg.io.InputFile;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -77,7 +76,6 @@ import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -237,7 +235,7 @@ public class TrinoHadoopCatalog
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> namespace)
     {
-        Set<SchemaTableName> schemaTableNames = Sets.newHashSet();
+        HashSet<SchemaTableName> schemaTableNames = new HashSet();
         String newNameSpace = splitQualifiedNamespace(String.valueOf(namespace));
         try {
             for (String ns : listNamespaces(session, Optional.ofNullable(newNameSpace))) {
@@ -318,8 +316,8 @@ public class TrinoHadoopCatalog
     @Override
     public void registerTable(ConnectorSession session, SchemaTableName schemaTableName, TableMetadata tableMetadata)
     {
-        checkNotNull(schemaTableName);
-        checkNotNull(tableMetadata);
+        requireNonNull(schemaTableName);
+        requireNonNull(tableMetadata);
         checkArgument(tableMetadata.metadataFileLocation() != null && !tableMetadata.metadataFileLocation().isEmpty(),
                 "Cannot register an empty metadata file location as a table");
 
@@ -654,7 +652,6 @@ public class TrinoHadoopCatalog
         private final String tableLocation;
         private final SchemaTableName schemaTableName;
         private final ImmutableMap.Builder<String, String> propertiesBuilder = ImmutableMap.builder();
-        private final Map<String, String> tableProperties = Maps.newHashMap();
         private final Schema schema;
         private PartitionSpec spec = PartitionSpec.unpartitioned();
         private SortOrder sortOrder = SortOrder.unsorted();
@@ -718,7 +715,7 @@ public class TrinoHadoopCatalog
                 throw new AlreadyExistsException("Table already exists at location: %s", tableLocation);
             }
 
-            Map<String, String> properties = propertiesBuilder.build();
+            Map<String, String> properties = propertiesBuilder.buildOrThrow();
             TableMetadata metadata = tableMetadata(schema, spec, sortOrder, properties, tableLocation);
             ops.commit(null, metadata);
             return new BaseTable(ops, tableLocation);
@@ -732,7 +729,7 @@ public class TrinoHadoopCatalog
                 throw new AlreadyExistsException("Table already exists: %s", tableLocation);
             }
 
-            Map<String, String> properties = propertiesBuilder.build();
+            Map<String, String> properties = propertiesBuilder.buildOrThrow();
             TableMetadata metadata = tableMetadata(schema, spec, null, properties, tableLocation);
             return Transactions.createTableTransaction(tableLocation, ops, metadata);
         }
@@ -754,7 +751,7 @@ public class TrinoHadoopCatalog
                 throw new NoSuchTableException("No such table: %s", tableLocation);
             }
 
-            Map<String, String> properties = propertiesBuilder.build();
+            Map<String, String> properties = propertiesBuilder.buildOrThrow();
             TableMetadata metadata;
             if (ops.current() != null) {
                 metadata = ops.current().buildReplacement(schema, spec, sortOrder, tableLocation, properties);
@@ -773,7 +770,7 @@ public class TrinoHadoopCatalog
 
         private TableMetadata tableMetadata(Schema schema, PartitionSpec spec, SortOrder order, Map<String, String> properties, String location)
         {
-            checkNotNull(schema, "A table schema is required");
+            requireNonNull(schema, "A table schema is required");
 
             Map<String, String> tableProps = properties == null ? ImmutableMap.of() : properties;
             PartitionSpec partitionSpec = spec == null ? PartitionSpec.unpartitioned() : spec;
