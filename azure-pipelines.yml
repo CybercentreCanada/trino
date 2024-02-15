@@ -53,7 +53,9 @@ jobs:
         condition: always()
 
   - job: ContainerBuild
-    dependsOn: PrepareNode
+    dependsOn:
+      - PrepareNode
+      - PullRedHatImage
     displayName: Maven Build (Container)
     pool: cauldron-vmss
     variables:
