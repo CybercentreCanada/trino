@@ -30,7 +30,9 @@ jobs:
         displayName: Pull RedHat image
         inputs:
           targetType: 'inline'
-          script: docker pull registry.access.redhat.com/ubi9/ubi-minimal:latest
+          script: |
+            docker pull registry.access.redhat.com/ubi9/ubi-minimal:latest
+            docker tag registry.access.redhat.com/ubi9/ubi-minimal:latest uchimera.azurecr.io/ubi9/ubi-minimal:latest
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
