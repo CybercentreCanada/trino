@@ -123,7 +123,6 @@ for arch in "${ARCHITECTURES[@]}"; do
         --pull \
         --build-arg JDK_VERSION="${JDK_VERSION}" \
         --build-arg JDK_DOWNLOAD_LINK="$(temurin_jdk_link "${JDK_VERSION}" "${arch}")" \
-        --build-arg UBI_MINIMAL_TAG="${UBI_MINIMAL_TAG}"
         --platform "linux/$arch" \
         -f Dockerfile \
         -t "${TAG_PREFIX}-$arch" \

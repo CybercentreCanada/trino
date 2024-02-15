@@ -24,15 +24,25 @@ jobs:
     pool:
       vmImage: ubuntu-latest
     steps:
-      - task: Docker@2
-        name: BuildBaseJDKImage
-        displayName: Build base JDK image
+      - task: Bash@3
+        name: CreateTrinoDockerFile
+        displayName: Docker build
         inputs:
-          command: build
-          containerRegistry: ${{ variables.containerRegistry }}
-          imageRepository: cccs/ubi-minimal-jdk
-          Dockerfile: $(Build.SourcesDirectory)/core/docker/base.Dockerfile
-          tags: $(Build.BuildId)
+          targetType: 'inline'
+          script: |
+            cd $(Build.SourcesDirectory)/core/docker
+            chmod g+w ${HOME}
+            chmod ug+x ./build.sh
+            ./build.sh -a amd64
+            if [ $? -ne 0 ]; then
+            echo "Docker build failed"
+            exit 1
+            fi
+
+            TRINO_VERSION=$(./mvnw --quiet help:evaluate -Dexpression=project.version -DforceStdout)
+            echo "##vso[task.setvariable variable=TRINO_VERSION;isOutput=true;]$TRINO_VERSION"
+
+            docker tag trino:${TRINO_VERSION}-amd64 cccs/ubi-minimal-jdk:$(Build.BuildId)
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
@@ -62,6 +72,7 @@ jobs:
       containerRegistry: uchimera
       imageRepository: cccs/trino-base
       buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
+      TRINO_VERSION: $[ dependencies.BuildAndPushReadHatImage.outputs['CreateTrinoDockerFile.TRINO_VERSION'] ]
       JAVA_TOOL_OPTIONS: " -Xmx8g"
       DOCKER_BUILDKIT: 1
     container:
@@ -96,48 +107,35 @@ jobs:
             echo "##vso[task.setvariable variable=BRANCH_NAME]$BRANCH_NAME"
         displayName: Parse Source Control Branch Name
       - task: Bash@3
-        name: setTrinoVersion_and_build
+        name: BuildTrino
         displayName: Maven build
         inputs:
           targetType: 'inline'
           script: |
-            TRINO_VERSION=$(./mvnw --quiet help:evaluate -Dexpression=project.version -DforceStdout)
-            echo "##vso[task.setvariable variable=TRINO_VERSION]$TRINO_VERSION"
-            echo "home directory listing"
             $(Build.SourcesDirectory)/mvnw clean install -e -DskipTests -pl '!:trino-docs' -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
           command: login
           containerRegistry: ${{ variables.containerRegistry }}
-      - task: Bash@3
-        name: CreateTrinoDockerFile
-        displayName: Docker build
-        inputs:
-          targetType: 'inline'
-          script: |
-            cd $(Build.SourcesDirectory)/core/docker
-            chmod g+w ${HOME}
-            chmod ug+x ./build.sh
-            export UBI_MINIMAL_TAG=$(Build.BuildId)
-            ./build.sh -a amd64
-            if [ $? -ne 0 ]; then
-            echo "Docker build failed"
-            exit 1
-            fi
-            cd $(Build.SourcesDirectory)
-            DOCKERFILE="FROM trino:${TRINO_VERSION}-amd64
-            LABEL cccs.trino.upstream.version=${TRINO_VERSION}"
-            DOCKERFILE_PATH=$(mktemp -d)/Dockerfile
-            echo "${DOCKERFILE}" > "${DOCKERFILE_PATH}"
-            echo "##vso[task.setvariable variable=DOCKERFILE_PATH]$DOCKERFILE_PATH"
       - task: Docker@2
-        displayName: Finalize, tag and push image to ${{ variables.containerRegistry }}
+        name: BuildTrinoBaseImage
+        displayName: Build image ${{ variables.imageRepository }}
         inputs:
-          command: buildAndPush
+          command: build
+          containerRegistry: ${{ variables.containerRegistry }}
+          imageRepository: ${{ variables.imageRepository }}
+          Dockerfile: $(Build.SourcesDirectory)/core/docker/trino-base.Dockerfile
+          arguments: --build-arg BASE_IMAGE_TAG=$(Build.BuildId) --build-arg TRINO_VERSION=${TRINO_VERSION}
+          tags: |
+            $(BRANCH_NAME)
+            $(BRANCH_NAME)_$(buildTimestamp)_b$(Build.BuildId)
+      - task: Docker@2
+        displayName: Push image to ${{ variables.containerRegistry }}
+        inputs:
+          command: push
           containerRegistry: ${{ variables.containerRegistry }}
           repository: ${{ variables.imageRepository }}
-          Dockerfile: $(DOCKERFILE_PATH)
           tags: |
             $(BRANCH_NAME)
             $(BRANCH_NAME)_$(buildTimestamp)_b$(Build.BuildId)
