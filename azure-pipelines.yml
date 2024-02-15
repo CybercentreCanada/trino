@@ -12,8 +12,7 @@ variables:
 jobs:
   - job: PrepareNode
     displayName: Prepare the node for the Container Build
-    pool:
-      vmImage: cauldron-vmss
+    pool: cauldron-vmss
     steps:
       - checkout: none
       - bash: |
@@ -22,7 +21,8 @@ jobs:
 
   - job: BuildAndPushReadHatImage
     displayName: Pull RedHat image and push it to UChimera
-    pool: ubuntu-latest
+    pool:
+      vmImage: ubuntu-latest
     steps:
       - checkout: none
       - task: Docker@2
@@ -53,8 +53,7 @@ jobs:
   - job: ContainerBuild
     dependsOn: PrepareNode
     displayName: Maven Build (Container)
-    pool:
-      vmImage: cauldron-vmss
+    pool: cauldron-vmss
     variables:
       containerRegistry: uchimera
       imageRepository: cccs/trino-base
