@@ -24,15 +24,15 @@ jobs:
     pool:
       vmImage: ubuntu-latest
     steps:
-      - checkout: none
-      - task: Bash@3
-        name: PullRedHatImage
-        displayName: Pull RedHat image
+      - task: Docker@2
+        name: BuildBaseJDKImage
+        displayName: Build base JDK image
         inputs:
-          targetType: 'inline'
-          script: |
-            docker pull registry.access.redhat.com/ubi9/ubi-minimal:latest
-            docker tag registry.access.redhat.com/ubi9/ubi-minimal:latest uchimera.azurecr.io/ubi9/ubi-minimal:latest
+          command: build
+          containerRegistry: ${{ variables.containerRegistry }}
+          imageRepository: cccs/ubi-minimal-jdk
+          Dockerfile: $(Build.SourcesDirectory)/core/docker/base.Dockerfile
+          tags: $(Build.BuildId)
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
@@ -43,8 +43,8 @@ jobs:
         inputs:
           command: push
           containerRegistry: ${{ variables.containerRegistry }}
-          repository: ubi9/ubi-minimal
-          tags: latest
+          repository: cccs/ubi-minimal-jdk
+          tags: $(Build.BuildId)
       - task: Docker@2
         displayName: Logout of ${{ variables.containerRegistry }}
         inputs:
@@ -119,6 +119,7 @@ jobs:
             cd $(Build.SourcesDirectory)/core/docker
             chmod g+w ${HOME}
             chmod ug+x ./build.sh
+            export UBI_MINIMAL_TAG=$(Build.BuildId)
             ./build.sh -a amd64
             if [ $? -ne 0 ]; then
             echo "Docker build failed"
