@@ -97,7 +97,7 @@ TRINO_VERSION=$("${SOURCE_DIR}/mvnw" -f "${SOURCE_DIR}/pom.xml" --quiet help:eva
 echo "🧱 Preparing the image build context directory"
 WORK_DIR="$(mktemp -d)"
 
-TAG_PREFIX="uchimera.azurecr.io/cccs/ubi-minimal:${BASE_IMAGE_TAG}"
+TAG_PREFIX="uchimera.azurecr.io/cccs/ubi-minimal-jdk:${BASE_IMAGE_TAG}"
 
 for arch in "${ARCHITECTURES[@]}"; do
     echo "🫙  Building the image for $arch with JDK ${JDK_VERSION}"
