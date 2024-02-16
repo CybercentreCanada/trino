@@ -25,7 +25,7 @@ BASE_IMAGE_TAG=
 TRINO_VERSION=
 JDK_VERSION=$(cat "${SOURCE_DIR}/.java-version")
 
-while getopts ":a:h:r:j:" o; do
+while getopts ":a:h:r:j:t:" o; do
     case "${o}" in
         a)
             IFS=, read -ra ARCHITECTURES <<< "$OPTARG"
