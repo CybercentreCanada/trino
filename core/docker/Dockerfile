@@ -13,7 +13,7 @@
 #
 FROM ghcr.io/airlift/jvmkill:latest AS jvmkill
 
-FROM uchimera.azurecr.io/ubi9/ubi-minimal:latest AS jdk-download
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS jdk-download
 ARG JDK_DOWNLOAD_LINK
 ARG JDK_VERSION
 ENV JAVA_HOME="/usr/lib/jvm/jdk-${JDK_VERSION}"
@@ -27,7 +27,7 @@ RUN \
     curl -#LfS "${JDK_DOWNLOAD_LINK}" | tar -zx --strip 1 -C "${JAVA_HOME}"
 
 # Use ubi9 minimal as it's more secure
-FROM uchimera.azurecr.io/ubi9/ubi-minimal:latest
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 ARG JDK_VERSION
 ENV JAVA_HOME="/usr/lib/jvm/jdk-${JDK_VERSION}"
 ENV PATH=$PATH:$JAVA_HOME/bin
