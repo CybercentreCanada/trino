@@ -21,8 +21,10 @@ cd "${SCRIPT_DIR}" || exit 2
 SOURCE_DIR="${SCRIPT_DIR}/../.."
 
 ARCHITECTURES=(amd64 arm64 ppc64le)
+BASE_IMAGE_TAG=
 TRINO_VERSION=
 JDK_VERSION=$(cat "${SOURCE_DIR}/.java-version")
+
 
 while getopts ":a:h:r:j:" o; do
     case "${o}" in
@@ -30,7 +32,7 @@ while getopts ":a:h:r:j:" o; do
             IFS=, read -ra ARCHITECTURES <<< "$OPTARG"
             ;;
         r)
-            TRINO_VERSION=${OPTARG}
+            TRINO_VERSION="${OPTARG}"
             ;;
         h)
             usage
@@ -38,6 +40,9 @@ while getopts ":a:h:r:j:" o; do
             ;;
         j)
             JDK_VERSION="${OPTARG}"
+            ;;
+        t)
+            BASE_IMAGE_TAG="${OPTARG}"
             ;;
         *)
             usage
@@ -53,38 +58,6 @@ function check_environment() {
         exit 1
     fi
 }
-
-#function temurin_jdk_link() {
-#  local JDK_VERSION="${1}"
-#  local ARCH="${2}"
-#
-#  versionsUrl="https://api.adoptium.net/v3/info/release_names?heap_size=normal&image_type=jdk&os=linux&page=0&page_size=20&project=jdk&release_type=ga&semver=false&sort_method=DEFAULT&sort_order=ASC&vendor=eclipse&version=%28${JDK_VERSION}%2C%5D"
-#  if ! result=$(curl -fLs "$versionsUrl" -H 'accept: application/json'); then
-#    echo >&2 "Failed to fetch release names for JDK version [${JDK_VERSION}, ) from Temurin API : $result"
-#    exit 1
-#  fi
-#
-#  if ! RELEASE_NAME=$(echo "$result" | jq -er '.releases[]' | grep "${JDK_VERSION}" | head -n 1); then
-#    echo >&2 "Failed to determine release name: ${RELEASE_NAME}"
-#    exit 1
-#  fi
-#
-#  case "${ARCH}" in
-#    arm64)
-#      echo "https://api.adoptium.net/v3/binary/version/${RELEASE_NAME}/linux/aarch64/jdk/hotspot/normal/eclipse?project=jdk"
-#    ;;
-#    amd64)
-#      echo "https://api.adoptium.net/v3/binary/version/${RELEASE_NAME}/linux/x64/jdk/hotspot/normal/eclipse?project=jdk"
-#    ;;
-#    ppc64le)
-#      echo "https://api.adoptium.net/v3/binary/version/${RELEASE_NAME}/linux/ppc64le/jdk/hotspot/normal/eclipse?project=jdk"
-#    ;;
-#  *)
-#    echo "${ARCH} is not supported for Docker image"
-#    exit 1
-#    ;;
-#  esac
-#}
 
 check_environment
 
@@ -121,8 +94,7 @@ for arch in "${ARCHITECTURES[@]}"; do
         "${WORK_DIR}" \
         --progress=plain \
         --pull \
-#        --build-arg JDK_VERSION="${JDK_VERSION}" \
-#        --build-arg JDK_DOWNLOAD_LINK="$(temurin_jdk_link "${JDK_VERSION}" "${arch}")" \
+        --build-arg BASE_IMAGE_TAG="${BASE_IMAGE_TAG}" \
         --platform "linux/$arch" \
         -f trino-base.Dockerfile \
         -t "${TAG_PREFIX}-$arch" \

@@ -23,8 +23,6 @@ COPY --chown=trino:trino trino-server-${TRINO_VERSION} /usr/lib/trino
 COPY --chown=trino:trino default/etc /etc/trino
 COPY --chown=trino:trino --from=jvmkill /libjvmkill.so /usr/lib/trino/bin
 
-LABEL cccs.trino.upstream.version=${TRINO_VERSION}
-
 EXPOSE 8080
 USER trino:trino
 CMD ["/usr/lib/trino/bin/run-trino"]

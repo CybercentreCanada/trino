@@ -25,8 +25,8 @@ jobs:
       vmImage: ubuntu-latest
     steps:
       - task: Bash@3
-        name: CreateTrinoDockerFile
-        displayName: Docker build
+        name: CreateRedHatJDKImage
+        displayName: Docker build - Red Hat and JDK image
         inputs:
           targetType: 'inline'
           script: |
@@ -40,7 +40,7 @@ jobs:
             fi
 
             TRINO_VERSION=$(./mvnw --quiet help:evaluate -Dexpression=project.version -DforceStdout)
-            echo "##vso[task.setvariable variable=TRINO_VERSION;isOutput=true;]$TRINO_VERSION"
+            echo "##vso[task.setvariable variable=TRINO_VERSION;]$TRINO_VERSION"
 
             docker tag trino:${TRINO_VERSION}-amd64 cccs/ubi-minimal-jdk:$(Build.BuildId)
       - task: Docker@2
@@ -72,7 +72,6 @@ jobs:
       containerRegistry: uchimera
       imageRepository: cccs/trino-base
       buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
-      TRINO_VERSION: $[ dependencies.BuildAndPushReadHatImage.outputs['CreateTrinoDockerFile.TRINO_VERSION'] ]
       JAVA_TOOL_OPTIONS: " -Xmx8g"
       DOCKER_BUILDKIT: 1
     container:
@@ -118,24 +117,35 @@ jobs:
         inputs:
           command: login
           containerRegistry: ${{ variables.containerRegistry }}
-      - task: Docker@2
-        name: BuildTrinoBaseImage
-        displayName: Build image ${{ variables.imageRepository }}
+      - task: Bash@3
+        name: CreateTrinoDockerFile
+        displayName: Create Temp docker file
         inputs:
-          command: build
-          containerRegistry: ${{ variables.containerRegistry }}
-          imageRepository: ${{ variables.imageRepository }}
-          Dockerfile: $(Build.SourcesDirectory)/core/docker/trino-base.Dockerfile
-          arguments: --build-arg BASE_IMAGE_TAG=$(Build.BuildId) --build-arg TRINO_VERSION=${TRINO_VERSION}
-          tags: |
-            $(BRANCH_NAME)
-            $(BRANCH_NAME)_$(buildTimestamp)_b$(Build.BuildId)
+          targetType: 'inline'
+          script: |
+            cd $(Build.SourcesDirectory)/core/docker
+            chmod g+w ${HOME}
+            chmod ug+x ./build.sh
+            ./build-trino-base.sh -a amd64 -t $(Build.BuildId)
+            if [ $? -ne 0 ]; then
+            echo "Docker build failed"
+            exit 1
+            fi
+            cd $(Build.SourcesDirectory)
+            DOCKERFILE="FROM trino:${TRINO_VERSION}-amd64
+            LABEL cccs.trino.upstream.version=${TRINO_VERSION}"
+            DOCKERFILE_PATH=$(mktemp -d)/Dockerfile
+            echo "${DOCKERFILE}" > "${DOCKERFILE_PATH}"
+            echo "##vso[task.setvariable variable=DOCKERFILE_PATH]$DOCKERFILE_PATH"
+            echo "DOCKERFILE:"
+            echo "${DOCKERFILE}"
       - task: Docker@2
-        displayName: Push image to ${{ variables.containerRegistry }}
+        displayName: Finalize, tag and push image to ${{ variables.containerRegistry }}
         inputs:
-          command: push
+          command: buildAndPush
           containerRegistry: ${{ variables.containerRegistry }}
           repository: ${{ variables.imageRepository }}
+          Dockerfile: $(DOCKERFILE_PATH)
           tags: |
             $(BRANCH_NAME)
             $(BRANCH_NAME)_$(buildTimestamp)_b$(Build.BuildId)
