@@ -110,7 +110,7 @@ for arch in "${ARCHITECTURES[@]}"; do
         --platform "linux/$arch" \
         -f Dockerfile \
         -t "${TAG_PREFIX}-$arch" \
-        --build-arg "TRINO_VERSION=${TRINO_VERSION}"
+
 done
 
 echo "🧹 Cleaning up the build context directory"

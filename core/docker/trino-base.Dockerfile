@@ -11,9 +11,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+ARG BASE_IMAGE_TAG
+
 FROM ghcr.io/airlift/jvmkill:latest AS jvmkill
 
-ARG BASE_IMAGE_TAG
 # Use ubi9 minimal as it's more secure
 FROM uchimera.azurecr.io/cccs/ubi-minimal-jdk:${BASE_IMAGE_TAG}-amd64
 

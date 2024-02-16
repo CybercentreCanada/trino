@@ -94,11 +94,12 @@ for arch in "${ARCHITECTURES[@]}"; do
         "${WORK_DIR}" \
         --progress=plain \
         --pull \
-        --build-arg BASE_IMAGE_TAG="${BASE_IMAGE_TAG}" \
+        --build-arg "BASE_IMAGE_TAG=${BASE_IMAGE_TAG}" \
+        --build-arg "TRINO_VERSION=${TRINO_VERSION}" \
         --platform "linux/$arch" \
         -f trino-base.Dockerfile \
         -t "${TAG_PREFIX}-$arch" \
-        --build-arg "TRINO_VERSION=${TRINO_VERSION}"
+
 done
 
 echo "🧹 Cleaning up the build context directory"

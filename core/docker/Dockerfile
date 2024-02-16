@@ -11,7 +11,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-FROM ghcr.io/airlift/jvmkill:latest AS jvmkill
 
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest AS jdk-download
 ARG JDK_DOWNLOAD_LINK
