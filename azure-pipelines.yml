@@ -33,16 +33,11 @@ jobs:
             cd $(Build.SourcesDirectory)/core/docker
             chmod g+w ${HOME}
             chmod ug+x ./build.sh
-            ./build.sh -a amd64
+            ./build.sh -a amd64 -t $(Build.BuildId)
             if [ $? -ne 0 ]; then
             echo "Docker build failed"
             exit 1
             fi
-
-            TRINO_VERSION=$(./mvnw --quiet help:evaluate -Dexpression=project.version -DforceStdout)
-            echo "##vso[task.setvariable variable=TRINO_VERSION;]$TRINO_VERSION"
-
-            docker tag trino:${TRINO_VERSION}-amd64 cccs/ubi-minimal-jdk:$(Build.BuildId)
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
@@ -54,7 +49,7 @@ jobs:
           command: push
           containerRegistry: ${{ variables.containerRegistry }}
           repository: cccs/ubi-minimal-jdk
-          tags: $(Build.BuildId)
+          tags: $(Build.BuildId)-amd64
       - task: Docker@2
         displayName: Logout of ${{ variables.containerRegistry }}
         inputs:

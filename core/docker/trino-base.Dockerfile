@@ -15,7 +15,7 @@ FROM ghcr.io/airlift/jvmkill:latest AS jvmkill
 
 ARG BASE_IMAGE_TAG
 # Use ubi9 minimal as it's more secure
-FROM uchimera.azurecr.io/ubi9/ubi-minimal:${BASE_IMAGE_TAG}
+FROM uchimera.azurecr.io/cccs/ubi-minimal:${BASE_IMAGE_TAG}-amd64
 
 ARG TRINO_VERSION
 COPY --chown=trino:trino trino-cli-${TRINO_VERSION}-executable.jar /usr/bin/trino

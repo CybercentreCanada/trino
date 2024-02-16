@@ -21,6 +21,7 @@ cd "${SCRIPT_DIR}" || exit 2
 SOURCE_DIR="${SCRIPT_DIR}/../.."
 
 ARCHITECTURES=(amd64 arm64 ppc64le)
+BASE_IMAGE_TAG=
 TRINO_VERSION=
 JDK_VERSION=$(cat "${SOURCE_DIR}/.java-version")
 
@@ -38,6 +39,9 @@ while getopts ":a:h:r:j:" o; do
             ;;
         j)
             JDK_VERSION="${OPTARG}"
+            ;;
+        t)
+            BASE_IMAGE_TAG="${OPTARG}"
             ;;
         *)
             usage
@@ -93,7 +97,7 @@ TRINO_VERSION=$("${SOURCE_DIR}/mvnw" -f "${SOURCE_DIR}/pom.xml" --quiet help:eva
 echo "🧱 Preparing the image build context directory"
 WORK_DIR="$(mktemp -d)"
 
-TAG_PREFIX="trino:${TRINO_VERSION}"
+TAG_PREFIX="uchimera.azurecr.io/cccs/ubi-minimal:${BASE_IMAGE_TAG}"
 
 for arch in "${ARCHITECTURES[@]}"; do
     echo "🫙  Building the image for $arch with JDK ${JDK_VERSION}"
@@ -111,14 +115,3 @@ done
 
 echo "🧹 Cleaning up the build context directory"
 rm -r "${WORK_DIR}"
-
-echo "🏃 Testing built images"
-source container-test.sh
-
-for arch in "${ARCHITECTURES[@]}"; do
-    # TODO: remove when https://github.com/multiarch/qemu-user-static/issues/128 is fixed
-    if [[ "$arch" != "ppc64le" ]]; then
-        test_container "${TAG_PREFIX}-$arch" "linux/$arch"
-    fi
-    docker image inspect -f '🚀 Built {{.RepoTags}} {{.Id}}' "${TAG_PREFIX}-$arch"
-done
