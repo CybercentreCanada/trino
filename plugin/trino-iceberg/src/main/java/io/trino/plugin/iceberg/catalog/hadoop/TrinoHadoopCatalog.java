@@ -240,9 +240,9 @@ public class TrinoHadoopCatalog
         String newNameSpace = splitQualifiedNamespace(String.valueOf(namespace));
         try {
             for (String ns : listNamespaces(session, Optional.ofNullable(newNameSpace))) {
-                Location nsLocation = Location.of(SLASH.join(warehouse, SLASH.join(DOT.split(String.valueOf(namespace)))));
+                Location nsLocation = Location.of(SLASH.join(warehouse, String.valueOf(namespace)));
                 if (!isDirectory(nsLocation)) {
-                    throw new TrinoException(SCHEMA_NOT_FOUND, "could not find namespace");
+                    throw new TrinoException(SCHEMA_NOT_FOUND, String.format("could not find namespace %s", newNameSpace));
                 }
                 schemaTableNames.addAll(trinoFileSystem.listDirectories(nsLocation).stream()
                         .filter(this::isTableDir).map(tableLocation -> new SchemaTableName(ns, extractFilename(tableLocation))).toList());
