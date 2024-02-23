@@ -547,7 +547,7 @@ public class TrinoHadoopCatalog
         }
         return filePath.substring(filePath.lastIndexOf('/') + 1);
     }
-    
+
     public CatalogName getCatalogName()
     {
         return catalogName;
