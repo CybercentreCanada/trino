@@ -542,8 +542,10 @@ public class TrinoHadoopCatalog
     private String extractFilename(Location location)
     {
         String filePath = location.path();
+        String trimmedFilePath = "";
         if (filePath != null && filePath.endsWith("/")) {
-            return CharMatcher.is('/').trimFrom(filePath.substring(filePath.lastIndexOf('/') + 1));
+            trimmedFilePath = CharMatcher.is('/').trimFrom(filePath);
+            return trimmedFilePath.substring(trimmedFilePath.lastIndexOf('/') + 1);
         }
         return filePath.substring(filePath.lastIndexOf('/') + 1);
     }
