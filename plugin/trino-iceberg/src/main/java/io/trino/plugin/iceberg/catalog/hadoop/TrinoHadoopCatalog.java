@@ -237,10 +237,13 @@ public class TrinoHadoopCatalog
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> namespace)
     {
         HashSet<SchemaTableName> schemaTableNames = new HashSet();
-        String newNameSpace = splitQualifiedNamespace(String.valueOf(namespace));
+        String newNameSpace="";
+        if(namespace.isPresent()) {
+            newNameSpace = splitQualifiedNamespace(namespace.get());
+        }
         try {
-            for (String ns : listNamespaces(session, Optional.ofNullable(newNameSpace))) {
-                Location nsLocation = Location.of(SLASH.join(warehouse, String.valueOf(namespace)));
+            for (String ns : listNamespaces(session, Optional.of(newNameSpace))) {
+                Location nsLocation = Location.of(SLASH.join(warehouse, newNameSpace));
                 if (!isDirectory(nsLocation)) {
                     throw new TrinoException(SCHEMA_NOT_FOUND, String.format("could not find namespace %s", newNameSpace));
                 }
