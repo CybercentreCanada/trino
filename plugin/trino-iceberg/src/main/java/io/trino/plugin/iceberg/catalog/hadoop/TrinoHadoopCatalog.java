@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.iceberg.catalog.hadoop;
 
+import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
@@ -149,7 +150,7 @@ public class TrinoHadoopCatalog
     public List<String> listNamespaces(ConnectorSession session)
     {
         try {
-            return trinoFileSystem.listDirectories(Location.of(warehouse)).stream().filter(this::isNamespace).map(Location::fileName).toList();
+            return trinoFileSystem.listDirectories(Location.of(warehouse)).stream().filter(this::isNamespace).map(this::extractFilename).toList();
         }
         catch (IOException e) {
             throw new TrinoException(GENERIC_INTERNAL_ERROR, "could not list namespaces", e);
@@ -244,7 +245,7 @@ public class TrinoHadoopCatalog
                     throw new TrinoException(SCHEMA_NOT_FOUND, "could not find namespace");
                 }
                 schemaTableNames.addAll(trinoFileSystem.listDirectories(nsLocation).stream()
-                        .filter(this::isTableDir).map(tableLocation -> new SchemaTableName(ns, tableLocation.fileName())).toList());
+                        .filter(this::isTableDir).map(tableLocation -> new SchemaTableName(ns, extractFilename(tableLocation))).toList());
             }
         }
         catch (IOException e) {
@@ -538,6 +539,15 @@ public class TrinoHadoopCatalog
         return Optional.empty();
     }
 
+    private String extractFilename(Location location)
+    {
+        String filePath = location.path();
+        if (filePath != null && filePath.endsWith("/")) {
+            return CharMatcher.is('/').trimFrom(filePath.substring(filePath.lastIndexOf('/') + 1));
+        }
+        return filePath.substring(filePath.lastIndexOf('/') + 1);
+    }
+    
     public CatalogName getCatalogName()
     {
         return catalogName;
@@ -558,7 +568,7 @@ public class TrinoHadoopCatalog
             }
         }
         catch (IOException e) {
-            throw new TrinoException(GENERIC_INTERNAL_ERROR, "isDirectory(Location) could encountered an error ", e);
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, "isDirectory(Location) encountered an error ", e);
         }
         return false;
     }
