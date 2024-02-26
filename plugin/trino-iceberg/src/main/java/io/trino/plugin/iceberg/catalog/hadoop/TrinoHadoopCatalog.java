@@ -65,7 +65,6 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -577,9 +576,7 @@ public class TrinoHadoopCatalog
         try {
             Optional<Boolean> directoryExists = trinoFileSystem.directoryExists(location);
             if (directoryExists.isPresent()) {
-                Set<Location> directories = new HashSet<>();
-                directories = trinoFileSystem.listDirectories(location);
-                if (!directoryExists.get() || !directories.contains(Location.of(SLASH.join(location, "metadata")))) {
+                if (!directoryExists.get() || !location.path().contains("metadata")) {
                     return false;
                 }
             }
@@ -589,7 +586,7 @@ public class TrinoHadoopCatalog
         }
 
         try {
-            FileIterator files = trinoFileSystem.listFiles(Location.of(SLASH.join(location, "metadata")));
+            FileIterator files = trinoFileSystem.listFiles(location);
             while (files.hasNext()) {
                 if (files.next().toString().endsWith(".metadata.json")) {
                     return true;
