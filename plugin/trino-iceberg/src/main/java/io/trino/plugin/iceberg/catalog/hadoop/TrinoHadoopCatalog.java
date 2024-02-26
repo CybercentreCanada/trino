@@ -237,8 +237,8 @@ public class TrinoHadoopCatalog
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> namespace)
     {
         HashSet<SchemaTableName> schemaTableNames = new HashSet();
-        String newNameSpace="";
-        if(namespace.isPresent()) {
+        String newNameSpace = "";
+        if (namespace.isPresent()) {
             newNameSpace = splitQualifiedNamespace(namespace.get());
         }
         try {
