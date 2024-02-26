@@ -236,16 +236,12 @@ public class TrinoHadoopCatalog
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> namespace)
     {
-        HashSet<SchemaTableName> schemaTableNames = new HashSet();
-        String newNameSpace = "";
-        if (namespace.isPresent()) {
-            newNameSpace = splitQualifiedNamespace(namespace.get());
-        }
+        ImmutableList.Builder<SchemaTableName> schemaTableNames = ImmutableList.builder();
         try {
-            for (String ns : listNamespaces(session, Optional.of(newNameSpace))) {
-                Location nsLocation = Location.of(SLASH.join(warehouse, newNameSpace));
+            for (String ns : listNamespaces(session, namespace)) {
+                Location nsLocation = Location.of(SLASH.join(warehouse, ns));
                 if (!isDirectory(nsLocation)) {
-                    throw new TrinoException(SCHEMA_NOT_FOUND, String.format("could not find namespace %s", newNameSpace));
+                    throw new TrinoException(SCHEMA_NOT_FOUND, String.format("could not find namespace %s", ns));
                 }
                 schemaTableNames.addAll(trinoFileSystem.listDirectories(nsLocation).stream()
                         .filter(this::isTableDir).map(tableLocation -> new SchemaTableName(ns, extractFilename(tableLocation))).toList());
@@ -254,7 +250,7 @@ public class TrinoHadoopCatalog
         catch (IOException e) {
             throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to list tables under: %s", namespace), e);
         }
-        return Lists.newArrayList(schemaTableNames);
+        return schemaTableNames.build();
     }
 
     @Override
@@ -461,7 +457,7 @@ public class TrinoHadoopCatalog
     @Override
     public List<SchemaTableName> listViews(ConnectorSession session, Optional<String> namespace)
     {
-        return new ArrayList<>();
+        return ImmutableList.of();
     }
 
     @Override
@@ -473,7 +469,7 @@ public class TrinoHadoopCatalog
     @Override
     public List<SchemaTableName> listMaterializedViews(ConnectorSession session, Optional<String> namespace)
     {
-        return new ArrayList<>();
+        return ImmutableList.of();
     }
 
     @Override
@@ -583,7 +579,9 @@ public class TrinoHadoopCatalog
         try {
             Optional<Boolean> directoryExists = trinoFileSystem.directoryExists(location);
             if (directoryExists.isPresent()) {
-                if (!directoryExists.get() || !location.path().contains("metadata")) {
+                Set<Location> directories = new HashSet<>();
+                directories = trinoFileSystem.listDirectories(location);
+                if (!directoryExists.get() || !directories.contains(Location.of(SLASH.join(location, "metadata")))) {
                     return false;
                 }
             }
@@ -593,7 +591,7 @@ public class TrinoHadoopCatalog
         }
 
         try {
-            FileIterator files = trinoFileSystem.listFiles(location);
+            FileIterator files = trinoFileSystem.listFiles(Location.of(SLASH.join(location, "metadata")));
             while (files.hasNext()) {
                 if (files.next().toString().endsWith(".metadata.json")) {
                     return true;
