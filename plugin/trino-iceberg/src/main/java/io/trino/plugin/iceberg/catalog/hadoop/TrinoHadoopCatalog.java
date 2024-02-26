@@ -573,12 +573,11 @@ public class TrinoHadoopCatalog
 
     private boolean isTableDir(Location location)
     {
+        Location metadataLocation = location.appendPath("metadata");
         try {
-            Optional<Boolean> directoryExists = trinoFileSystem.directoryExists(location);
-            if (directoryExists.isPresent()) {
-                if (!directoryExists.get() || !location.path().contains("metadata")) {
-                    return false;
-                }
+            Optional<Boolean> directoryExists = trinoFileSystem.directoryExists(metadataLocation);
+            if (directoryExists.isEmpty() || !directoryExists.get()) {
+                return false;
             }
         }
         catch (IOException e) {
@@ -586,9 +585,9 @@ public class TrinoHadoopCatalog
         }
 
         try {
-            FileIterator files = trinoFileSystem.listFiles(location);
+            FileIterator files = trinoFileSystem.listFiles(metadataLocation);
             while (files.hasNext()) {
-                if (files.next().toString().endsWith(".metadata.json")) {
+                if (files.next().location().fileName().endsWith(".metadata.json")) {
                     return true;
                 }
             }
