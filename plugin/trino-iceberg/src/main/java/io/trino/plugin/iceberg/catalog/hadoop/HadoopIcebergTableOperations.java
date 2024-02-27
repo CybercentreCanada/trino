@@ -13,12 +13,15 @@
  */
 package io.trino.plugin.iceberg.catalog.hadoop;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.Sets;
+import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.Location;
+import io.trino.filesystem.TrinoFileSystem;
+import io.trino.filesystem.TrinoInputFile;
 import io.trino.plugin.iceberg.catalog.AbstractIcebergTableOperations;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSession;
-import io.trino.spi.connector.TableNotFoundException;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
@@ -31,7 +34,9 @@ import org.apache.iceberg.util.ThreadPools;
 
 import javax.annotation.concurrent.NotThreadSafe;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -39,6 +44,8 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -46,6 +53,7 @@ import static com.google.common.base.Verify.verify;
 import static io.trino.plugin.hive.HiveMetadata.TABLE_COMMENT;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_COMMIT_ERROR;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_INVALID_METADATA;
+import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static org.apache.iceberg.BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE;
 import static org.apache.iceberg.BaseMetastoreTableOperations.METADATA_LOCATION_PROP;
@@ -56,31 +64,38 @@ import static org.apache.iceberg.BaseMetastoreTableOperations.TABLE_TYPE_PROP;
 public class HadoopIcebergTableOperations
         extends AbstractIcebergTableOperations
 {
+    private final FileIO fileIO;
     private final TrinoHadoopCatalog catalog;
 
+    private static final Joiner SLASH = Joiner.on("/");
     public static final String VERSION_HINT_FILENAME = "version-hint.text";
+    private static final Pattern VERSION_PATTERN = Pattern.compile("v([^\\.]*)\\..*");
 
     protected HadoopIcebergTableOperations(FileIO fileIo, ConnectorSession session, String database, String table, Optional<String> owner, Optional<String> location, TrinoHadoopCatalog catalog)
     {
         super(fileIo, session, database, table, owner, location);
+        this.fileIO = fileIo;
         this.catalog = catalog;
     }
 
     @Override
     protected String getRefreshedLocation(boolean invalidateCaches)
     {
-        Table table = getTable();
+        int version = findVersion();
+        Optional<Location> metadataFileLocation;
 
-        if (table == null) {
-            throw new TableNotFoundException(getSchemaTableName());
+        try {
+            metadataFileLocation = getMetadataFile(version);
         }
-
-        String metadataLocation = table.properties().get(METADATA_LOCATION_PROP);
-        if (metadataLocation == null) {
-            throw new TrinoException(ICEBERG_INVALID_METADATA, String.format("Table is missing [%s] property: %s", METADATA_LOCATION_PROP, getSchemaTableName()));
+        catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Could not determine refreshed table metadata location.  Error trying to recover metadataFile location for table %s", getSchemaTableName()), e);
         }
-
-        return metadataLocation;
+        if (metadataFileLocation.isEmpty()) {
+            throw new TrinoException(ICEBERG_INVALID_METADATA, String.format("Could not establish refreshed table metadata location for table: %s", getSchemaTableName()));
+        }
+        else {
+            return SLASH.join(metadataFileLocation.get().path(), metadataFileLocation.get().fileName());
+        }
     }
 
     @Override
@@ -165,26 +180,6 @@ public class HadoopIcebergTableOperations
         return catalog.loadTable(session, getSchemaTableName());
     }
 
-    private Location metadataFileLocation(int metadataVersion, TableMetadataParser.Codec codec)
-    {
-        return metadataLocation("v" + metadataVersion + TableMetadataParser.getFileExtension(codec));
-    }
-
-    private Location oldMetadataFileLocation(int metadataVersion, TableMetadataParser.Codec codec)
-    {
-        return metadataLocation("v" + metadataVersion + TableMetadataParser.getOldFileExtension(codec));
-    }
-
-    private Location metadataLocation(String filename)
-    {
-        return metadataRoot().appendPath(filename);
-    }
-
-    private Location metadataRoot()
-    {
-        return Location.of(String.valueOf(location)).appendPath("metadata");
-    }
-
     Location versionHintFile()
     {
         return metadataLocation(VERSION_HINT_FILENAME);
@@ -225,7 +220,7 @@ public class HadoopIcebergTableOperations
 
         if (deleteAfterCommit) {
             Set<TableMetadata.MetadataLogEntry> removedPreviousMetadataFiles = Sets.newHashSet(base.previousFiles());
-            removedPreviousMetadataFiles.removeAll(metadata.previousFiles());
+            metadata.previousFiles().forEach(removedPreviousMetadataFiles::remove);
             Tasks.foreach(removedPreviousMetadataFiles)
                     .executeWith(ThreadPools.getWorkerPool())
                     .noRetry()
@@ -237,6 +232,91 @@ public class HadoopIcebergTableOperations
                         catch (IOException ignored) {
                         }
                     });
+        }
+    }
+
+    int findVersion()
+    {
+        Location versionHintFile = versionHintFile();
+        TrinoFileSystem tfs = catalog.getTrinoFileSystem();
+
+        try (InputStreamReader fsr = new InputStreamReader(fileIO.newInputFile(versionHintFile.toString()).newStream(), StandardCharsets.UTF_8);
+                BufferedReader in = new BufferedReader(fsr)) {
+            return Integer.parseInt(in.readLine().replace("\n", ""));
+        }
+        catch (Exception e) {
+            try {
+                Optional<Boolean> directoryExists = catalog.getTrinoFileSystem().directoryExists(metadataRoot());
+                if (directoryExists.isEmpty()) {
+                    return 0;
+                }
+                if (!directoryExists.get()) {
+                    return 0;
+                }
+
+                // List the metadata directory to find the version files, and try to recover the max
+                // available version
+                FileIterator files = tfs.listFiles(metadataRoot());
+                int maxVersion = 0;
+
+                while (files.hasNext()) {
+                    int currentVersion = version(files.next().location().fileName());
+                    if (currentVersion > maxVersion && getMetadataFile(currentVersion).isPresent()) {
+                        maxVersion = currentVersion;
+                    }
+                }
+
+                return maxVersion;
+            }
+            catch (IOException io) {
+                return 0;
+            }
+        }
+    }
+
+    Optional<Location> getMetadataFile(int metadataVersion)
+            throws IOException
+    {
+        TrinoFileSystem tfs = catalog.getTrinoFileSystem();
+        Location metadataFileLocation;
+
+        try {
+            metadataFileLocation = metadataFileLocation(metadataVersion, TableMetadataParser.Codec.NONE);
+            TrinoInputFile inputFile = tfs.newInputFile(metadataFileLocation);
+        }
+        catch (IllegalArgumentException e) {
+            return Optional.empty();
+        }
+        return Optional.of(metadataFileLocation);
+    }
+
+    private Location metadataFileLocation(int metadataVersion, TableMetadataParser.Codec codec)
+    {
+        return metadataLocation("v" + metadataVersion + TableMetadataParser.getFileExtension(codec));
+    }
+
+    private Location metadataLocation(String filename)
+    {
+        return metadataRoot().appendPath(filename);
+    }
+
+    private Location metadataRoot()
+    {
+        return Location.of(String.valueOf(location)).appendPath("metadata");
+    }
+
+    private int version(String fileName)
+    {
+        Matcher matcher = VERSION_PATTERN.matcher(fileName);
+        if (!matcher.matches()) {
+            return -1;
+        }
+        String versionNumber = matcher.group(1);
+        try {
+            return Integer.parseInt(versionNumber);
+        }
+        catch (NumberFormatException ne) {
+            return -1;
         }
     }
 }
