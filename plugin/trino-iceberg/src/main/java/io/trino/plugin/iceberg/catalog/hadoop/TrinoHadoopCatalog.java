@@ -79,7 +79,8 @@ import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.cache.CacheUtils.uncheckedCacheGet;
 import static io.trino.plugin.iceberg.IcebergUtil.getIcebergTableWithMetadata;
-import static io.trino.plugin.iceberg.IcebergUtil.loadIcebergTable;
+import static io.trino.plugin.iceberg.IcebergUtil.quotedTableName;
+import static io.trino.plugin.iceberg.TrinoMetricsReporter.TRINO_METRICS_REPORTER;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.SCHEMA_ALREADY_EXISTS;
@@ -373,7 +374,16 @@ public class TrinoHadoopCatalog
             metadata = uncheckedCacheGet(
                     tableMetadataCache,
                     schemaTableName,
-                    () -> ((BaseTable) loadIcebergTable(this, tableOperationsProvider, session, schemaTableName)).operations().current());
+                    () -> {
+                        TableOperations operations = tableOperationsProvider.createTableOperations(
+                                this,
+                                session,
+                                schemaTableName.getSchemaName(),
+                                schemaTableName.getTableName(),
+                                Optional.empty(),
+                                Optional.ofNullable(tableLocation(schemaTableName)));
+                        return new BaseTable(operations, quotedTableName(schemaTableName), TRINO_METRICS_REPORTER).operations().current();
+                    });
         }
         catch (UncheckedExecutionException e) {
             throwIfUnchecked(e.getCause());
