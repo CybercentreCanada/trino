@@ -30,6 +30,7 @@ import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.catalog.AbstractTrinoCatalog;
+import io.trino.plugin.iceberg.catalog.IcebergTableOperations;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.fileio.ForwardingFileIo;
 import io.trino.spi.TrinoException;
@@ -375,13 +376,14 @@ public class TrinoHadoopCatalog
                     tableMetadataCache,
                     schemaTableName,
                     () -> {
-                        TableOperations operations = tableOperationsProvider.createTableOperations(
+                        IcebergTableOperations operations = tableOperationsProvider.createTableOperations(
                                 this,
                                 session,
                                 schemaTableName.getSchemaName(),
                                 schemaTableName.getTableName(),
                                 Optional.empty(),
                                 Optional.ofNullable(tableLocation(schemaTableName)));
+                        operations.initializeFromMetadata(TableMetadata.buildFromEmpty().withMetadataLocation(SLASH.join(tableLocation(schemaTableName), "metadata")).build());
                         return new BaseTable(operations, quotedTableName(schemaTableName), TRINO_METRICS_REPORTER).operations().current();
                     });
         }

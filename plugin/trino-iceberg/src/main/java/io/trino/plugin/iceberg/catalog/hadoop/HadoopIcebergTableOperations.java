@@ -71,7 +71,14 @@ public class HadoopIcebergTableOperations
     public static final String VERSION_HINT_FILENAME = "version-hint.text";
     private static final Pattern VERSION_PATTERN = Pattern.compile("v([^\\.]*)\\..*");
 
-    protected HadoopIcebergTableOperations(FileIO fileIo, ConnectorSession session, String database, String table, Optional<String> owner, Optional<String> location, TrinoHadoopCatalog catalog)
+    protected HadoopIcebergTableOperations(
+            FileIO fileIo,
+            ConnectorSession session,
+            String database,
+            String table,
+            Optional<String> owner,
+            Optional<String> location,
+            TrinoHadoopCatalog catalog)
     {
         super(fileIo, session, database, table, owner, location);
         this.fileIO = fileIo;
