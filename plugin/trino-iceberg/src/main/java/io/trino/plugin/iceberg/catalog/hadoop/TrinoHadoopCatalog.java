@@ -21,7 +21,6 @@ import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
-import com.google.common.util.concurrent.UncheckedExecutionException;
 import io.trino.cache.EvictableCacheBuilder;
 import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.Location;
@@ -30,7 +29,6 @@ import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.base.CatalogName;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.catalog.AbstractTrinoCatalog;
-import io.trino.plugin.iceberg.catalog.IcebergTableOperations;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.fileio.ForwardingFileIo;
 import io.trino.spi.TrinoException;
@@ -64,6 +62,7 @@ import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.util.Pair;
 
 import java.io.IOException;
 import java.util.Iterator;
@@ -75,13 +74,8 @@ import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
-import static io.trino.cache.CacheUtils.uncheckedCacheGet;
-import static io.trino.plugin.iceberg.IcebergUtil.getIcebergTableWithMetadata;
-import static io.trino.plugin.iceberg.IcebergUtil.quotedTableName;
-import static io.trino.plugin.iceberg.TrinoMetricsReporter.TRINO_METRICS_REPORTER;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.SCHEMA_ALREADY_EXISTS;
@@ -352,7 +346,7 @@ public class TrinoHadoopCatalog
         catch (IOException e) {
             throw new TrinoException(GENERIC_INTERNAL_ERROR, "Failed to delete table: " + schemaTableName, e);
         }
-        invalidateTableCache(schemaTableName);
+//        invalidateTableCache(schemaTableName);
     }
 
     @Override
@@ -367,55 +361,58 @@ public class TrinoHadoopCatalog
         throw new TrinoException(NOT_SUPPORTED, "renameTable is not supported by " + catalogName);
     }
 
+//    @Override
+//    public Table loadTable(ConnectorSession session, SchemaTableName schemaTableName)
+//    {
+//        TableMetadata metadata;
+//        try {
+//            metadata = uncheckedCacheGet(
+//                    tableMetadataCache,
+//                    schemaTableName,
+//                    () -> {
+//                        IcebergTableOperations operations = tableOperationsProvider.createTableOperations(
+//                                this,
+//                                session,
+//                                schemaTableName.getSchemaName(),
+//                                schemaTableName.getTableName(),
+//                                Optional.empty(),
+//                                Optional.ofNullable(tableLocation(schemaTableName)));
+//                        operations.initializeFromMetadata(TableMetadata.buildFromEmpty().withMetadataLocation(SLASH.join(tableLocation(schemaTableName), "metadata")).build());
+//                        return new BaseTable(operations, quotedTableName(schemaTableName), TRINO_METRICS_REPORTER).operations().current();
+//                    });
+//        }
+//        catch (UncheckedExecutionException e) {
+//            throwIfUnchecked(e.getCause());
+//            throw new NoSuchTableException("Table does not exist at location: %s", tableLocation(schemaTableName));
+//        }
+//
+//        return getIcebergTableWithMetadata(this, tableOperationsProvider, session, schemaTableName, metadata);
+//    }
+
     @Override
     public Table loadTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
-        TableMetadata metadata;
-        try {
-            metadata = uncheckedCacheGet(
-                    tableMetadataCache,
-                    schemaTableName,
-                    () -> {
-                        IcebergTableOperations operations = tableOperationsProvider.createTableOperations(
-                                this,
-                                session,
-                                schemaTableName.getSchemaName(),
-                                schemaTableName.getTableName(),
-                                Optional.empty(),
-                                Optional.ofNullable(tableLocation(schemaTableName)));
-                        operations.initializeFromMetadata(TableMetadata.buildFromEmpty().withMetadataLocation(SLASH.join(tableLocation(schemaTableName), "metadata")).build());
-                        return new BaseTable(operations, quotedTableName(schemaTableName), TRINO_METRICS_REPORTER).operations().current();
-                    });
-        }
-        catch (UncheckedExecutionException e) {
-            throwIfUnchecked(e.getCause());
-            throw new NoSuchTableException("Table does not exist at location: %s", tableLocation(schemaTableName));
-        }
+        Table result;
+        String location = tableLocation(schemaTableName);
+        Pair<String, MetadataTableType> parsedMetadataType = parseMetadataType(location);
 
-        return getIcebergTableWithMetadata(this, tableOperationsProvider, session, schemaTableName, metadata);
+        if (parsedMetadataType != null) {
+            // Load a metadata table
+            result = loadMetadataTable(session, Optional.empty(), schemaTableName, parsedMetadataType.first(), parsedMetadataType.second());
+        }
+        else {
+            // Load a normal table
+            TableOperations ops = newTableOps(session, Optional.empty(), schemaTableName);
+            if (ops.current() != null) {
+                result = new BaseTable(ops, location);
+            }
+            else {
+                throw new NoSuchTableException("Table does not exist at location: %s", location);
+            }
+        }
+        return result;
     }
 
-//    @Override
-//    public Table loadTableWithoutCache(ConnectorSession session, SchemaTableName schemaTableName)
-//    {
-//        Table result;
-//        String location =tableLocation(schemaTableName);
-//        Pair<String, MetadataTableType> parsedMetadataType = parseMetadataType(location);
-//
-//        if (parsedMetadataType != null) {
-//            // Load a metadata table
-//            result = loadMetadataTable(session, Optional.empty(),  schemaTableName, parsedMetadataType.first(), parsedMetadataType.second());
-//        } else {
-//            // Load a normal table
-//            TableOperations ops =newTableOps(session, Optional.empty(), schemaTableName);
-//            if (ops.current() != null) {
-//                result = new BaseTable(ops, location);
-//            } else {
-//                throw new NoSuchTableException("Table does not exist at location: %s", location);
-//            }
-//        }
-//        return result;
-//    }
     @Override
     public Map<SchemaTableName, List<ColumnMetadata>> tryGetColumnMetadata(ConnectorSession session, List<SchemaTableName> tables)
     {
@@ -632,25 +629,26 @@ public class TrinoHadoopCatalog
                 schemaTableName.getSchemaName(), schemaTableName.getTableName(), owner, Optional.of(tableLocation(schemaTableName)));
     }
 
-//    /**
-//     * Try to resolve a metadata table, which we encode as URI fragments e.g.
-//     * hdfs:///warehouse/my_table#snapshots
-//     *
-//     * @param location Path to parse
-//     * @return A base table name and MetadataTableType if a type is found, null if not
-//     */
-//    private Pair<String, MetadataTableType> parseMetadataType(String location)
-//    {
-//        int hashIndex = location.lastIndexOf('#');
-//        if (hashIndex != -1 && !location.endsWith("#")) {
-//            String baseTable = location.substring(0, hashIndex);
-//            String metaTable = location.substring(hashIndex + 1);
-//            MetadataTableType type = MetadataTableType.from(metaTable);
-//            return (type == null) ? null : Pair.of(baseTable, type);
-//        } else {
-//            return null;
-//        }
-//    }
+    /**
+     * Try to resolve a metadata table, which we encode as URI fragments e.g.
+     * hdfs:///warehouse/my_table#snapshots
+     *
+     * @param location Path to parse
+     * @return A base table name and MetadataTableType if a type is found, null if not
+     */
+    private Pair<String, MetadataTableType> parseMetadataType(String location)
+    {
+        int hashIndex = location.lastIndexOf('#');
+        if (hashIndex != -1 && !location.endsWith("#")) {
+            String baseTable = location.substring(0, hashIndex);
+            String metaTable = location.substring(hashIndex + 1);
+            MetadataTableType type = MetadataTableType.from(metaTable);
+            return (type == null) ? null : Pair.of(baseTable, type);
+        }
+        else {
+            return null;
+        }
+    }
 
     private Table loadMetadataTable(ConnectorSession session, Optional<String> owner, SchemaTableName schemaTableName, String table, MetadataTableType type)
     {
