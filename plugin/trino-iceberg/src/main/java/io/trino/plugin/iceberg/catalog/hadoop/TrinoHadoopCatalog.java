@@ -403,6 +403,7 @@ public class TrinoHadoopCatalog
         else {
             // Load a normal table
             TableOperations ops = newTableOps(session, Optional.empty(), schemaTableName);
+            ops.refresh();
             if (ops.current() != null) {
                 result = new BaseTable(ops, location);
             }
@@ -664,7 +665,7 @@ public class TrinoHadoopCatalog
         return new TrinoHadoopCatalogTableBuilder(schemaTableName, schema);
     }
 
-    private class TrinoHadoopCatalogTableBuilder
+    protected class TrinoHadoopCatalogTableBuilder
     {
         private final String tableLocation;
         private final SchemaTableName schemaTableName;
