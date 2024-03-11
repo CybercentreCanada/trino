@@ -187,6 +187,60 @@ public class HadoopIcebergTableOperations
         return catalog.loadTable(session, getSchemaTableName());
     }
 
+    private synchronized void updateVersionAndMetadata(int newVersion, String metadataFile)
+    {
+        // update if the current version is out of date
+        if (version.isEmpty() || version.getAsInt() != newVersion) {
+            this.version = OptionalInt.of(newVersion);
+            this.currentMetadata =
+                    checkUUID(currentMetadata, TableMetadataParser.read(io(), metadataFile));
+        }
+    }
+
+    private static TableMetadata checkUUID(TableMetadata currentMetadata, TableMetadata newMetadata)
+    {
+        String newUUID = newMetadata.uuid();
+        if (currentMetadata != null && currentMetadata.uuid() != null && newUUID != null) {
+            checkState(
+                    newUUID.equals(currentMetadata.uuid()),
+                    "Table UUID does not match: current=%s != refreshed=%s",
+                    currentMetadata.uuid(),
+                    newUUID);
+        }
+        return newMetadata;
+    }
+
+    @Override
+    public TableMetadata refresh()
+    {
+        int ver = version.orElseGet(this::findVersion);
+        //int ver = version.isPresent() ? version : findVersion();
+        try {
+            Optional<Location> metadataFile = getMetadataFile(ver);
+            if (version.isEmpty() && metadataFile.isEmpty() && ver == 0) {
+                // no v0 metadata means the table doesn't exist yet
+                return null;
+            }
+            else if (metadataFile.isEmpty()) {
+                throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Metadata file for version %d is missing", ver));
+            }
+
+            Optional<Location> nextMetadataFile = getMetadataFile(ver + 1);
+            while (nextMetadataFile.isPresent()) {
+                ver += 1;
+                metadataFile = nextMetadataFile;
+                nextMetadataFile = getMetadataFile(ver + 1);
+            }
+
+            updateVersionAndMetadata(ver, metadataFile.toString());
+            this.shouldRefresh = false;
+            return currentMetadata;
+        }
+        catch (IOException e) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to refresh the table"), e);
+        }
+    }
+
     Location versionHintFile()
     {
         return metadataLocation(VERSION_HINT_FILENAME);

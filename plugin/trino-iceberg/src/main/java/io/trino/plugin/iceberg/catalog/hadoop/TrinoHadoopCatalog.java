@@ -377,7 +377,7 @@ public class TrinoHadoopCatalog
 //                                schemaTableName.getTableName(),
 //                                Optional.empty(),
 //                                Optional.ofNullable(tableLocation(schemaTableName)));
-//                        operations.initializeFromMetadata(TableMetadata.buildFromEmpty().withMetadataLocation(SLASH.join(tableLocation(schemaTableName), "metadata")).build());
+//                        operations.refresh();
 //                        return new BaseTable(operations, quotedTableName(schemaTableName), TRINO_METRICS_REPORTER).operations().current();
 //                    });
 //        }
