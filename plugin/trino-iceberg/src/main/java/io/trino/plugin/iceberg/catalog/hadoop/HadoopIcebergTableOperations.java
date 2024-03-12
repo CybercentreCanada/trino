@@ -193,7 +193,7 @@ public class HadoopIcebergTableOperations
         if (version.isEmpty() || version.getAsInt() != newVersion) {
             this.version = OptionalInt.of(newVersion);
             this.currentMetadata =
-                    checkUUID(currentMetadata, TableMetadataParser.read(io(), metadataFile));
+                    checkUUID(currentMetadata, TableMetadataParser.read(fileIo, metadataFile));
         }
     }
 

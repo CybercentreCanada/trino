@@ -403,12 +403,12 @@ public class TrinoHadoopCatalog
         else {
             // Load a normal table
             TableOperations ops = newTableOps(session, Optional.empty(), schemaTableName);
-            ops.refresh();
+            TableMetadata tmd = ops.refresh();
             if (ops.current() != null) {
                 result = new BaseTable(ops, location);
             }
             else {
-                throw new NoSuchTableException("Table does not exist at location: %s", location);
+                throw new NoSuchTableException("Table %1s does not exist at location: %2s", schemaTableName.getTableName(), location);
             }
         }
         return result;
