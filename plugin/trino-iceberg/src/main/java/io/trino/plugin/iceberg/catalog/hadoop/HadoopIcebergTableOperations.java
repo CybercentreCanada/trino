@@ -211,6 +211,15 @@ public class HadoopIcebergTableOperations
     }
 
     @Override
+    public TableMetadata current()
+    {
+        if (shouldRefresh) {
+            return this.refresh();
+        }
+        return currentMetadata;
+    }
+
+    @Override
     public TableMetadata refresh()
     {
         int ver = version.orElseGet(this::findVersion);
