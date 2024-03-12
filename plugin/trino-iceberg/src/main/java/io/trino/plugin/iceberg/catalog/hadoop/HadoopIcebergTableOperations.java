@@ -316,7 +316,7 @@ public class HadoopIcebergTableOperations
         }
         catch (Exception e) {
             try {
-                Optional<Boolean> directoryExists = catalog.getTrinoFileSystem().directoryExists(metadataRoot());
+                Optional<Boolean> directoryExists = tfs.directoryExists(metadataRoot());
                 if (directoryExists.isEmpty()) {
                     return 0;
                 }
@@ -339,7 +339,9 @@ public class HadoopIcebergTableOperations
                 return maxVersion;
             }
             catch (IOException io) {
-                return 0;
+//                return 0;
+                throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to retrieve version number at location %s", location.toString()), e);
+
             }
         }
     }

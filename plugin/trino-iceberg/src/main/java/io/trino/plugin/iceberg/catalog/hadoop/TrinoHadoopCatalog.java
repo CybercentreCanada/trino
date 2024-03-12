@@ -76,6 +76,7 @@ import java.util.function.UnaryOperator;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static io.trino.plugin.iceberg.TrinoMetricsReporter.TRINO_METRICS_REPORTER;
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.StandardErrorCode.SCHEMA_ALREADY_EXISTS;
@@ -404,7 +405,7 @@ public class TrinoHadoopCatalog
             // Load a normal table
             TableOperations ops = newTableOps(session, Optional.empty(), schemaTableName);
             if (ops.current() != null) {
-                result = new BaseTable(ops, location);
+                result = new BaseTable(ops, location, TRINO_METRICS_REPORTER);
             }
             else {
                 throw new NoSuchTableException("Table %1s does not exist at location: %2s", schemaTableName.getTableName(), location);
