@@ -363,7 +363,7 @@ public class HadoopIcebergTableOperations
 
     private Location metadataRoot()
     {
-        return Location.of(String.valueOf(location)).appendPath("metadata");
+        return Location.of(location.orElse("")).appendPath("metadata");
     }
 
     private int version(String fileName)
