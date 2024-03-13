@@ -190,7 +190,7 @@ public class HadoopIcebergTableOperations
     private synchronized void updateVersionAndMetadata(int newVersion, String metadataFile)
     {
         // update if the current version is out of date
-        if (version.isEmpty() || version.getAsInt() != newVersion) {
+        if (version.isEmpty() || version.orElseThrow() != newVersion) {
             this.version = OptionalInt.of(newVersion);
             this.currentMetadata =
                     checkUUID(currentMetadata, TableMetadataParser.read(fileIo, metadataFile));
@@ -341,7 +341,6 @@ public class HadoopIcebergTableOperations
             catch (IOException io) {
 //                return 0;
                 throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to retrieve version number at location %s", location.toString()), e);
-
             }
         }
     }
@@ -350,14 +349,13 @@ public class HadoopIcebergTableOperations
             throws IOException
     {
         TrinoFileSystem tfs = catalog.getTrinoFileSystem();
-        Location metadataFileLocation;
-
+        Location metadataFileLocation = metadataFileLocation(metadataVersion, TableMetadataParser.Codec.NONE);
         try {
-            metadataFileLocation = metadataFileLocation(metadataVersion, TableMetadataParser.Codec.NONE);
             TrinoInputFile inputFile = tfs.newInputFile(metadataFileLocation);
         }
         catch (IllegalArgumentException e) {
-            return Optional.empty();
+//            return Optional.empty();
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to retrieve metadata file  at location %s", metadataFileLocation.toString()), e);
         }
         return Optional.of(metadataFileLocation);
     }
