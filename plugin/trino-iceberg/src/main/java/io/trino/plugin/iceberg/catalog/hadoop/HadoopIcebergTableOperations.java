@@ -18,7 +18,7 @@ import com.google.common.collect.Sets;
 import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.TrinoInputFile;
+import io.trino.filesystem.TrinoInputStream;
 import io.trino.plugin.iceberg.catalog.AbstractIcebergTableOperations;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSession;
@@ -156,13 +156,13 @@ public class HadoopIcebergTableOperations
                         TableProperties.METADATA_COMPRESSION, TableProperties.METADATA_COMPRESSION_DEFAULT);
         TableMetadataParser.Codec codec = TableMetadataParser.Codec.fromName(codecName);
         String fileExtension = TableMetadataParser.getFileExtension(codec);
-        Location tempMetadataFile = Location.of(UUID.randomUUID().toString() + fileExtension);
+        Location tempMetadataFile = metadataLocation(UUID.randomUUID().toString() + fileExtension);
         TableMetadataParser.write(metadata, fileIo.newOutputFile(tempMetadataFile.toString()));
         int nextVersion = current.first().isPresent() ? current.first().getAsInt() + 1 : 0;
         Location finalMetadataFile = metadataFileLocation(nextVersion, codec);
 
         try {
-            if (catalog.getTrinoFileSystem().listFiles(finalMetadataFile) != null) {
+            if (catalog.getTrinoFileSystem().listFiles(finalMetadataFile).hasNext()) {
                 throw new TrinoException(ICEBERG_COMMIT_ERROR, String.format("Version %d already exists: %s", nextVersion, finalMetadataFile.toString()));
             }
             catalog.getTrinoFileSystem().renameFile(tempMetadataFile, finalMetadataFile);
@@ -241,7 +241,7 @@ public class HadoopIcebergTableOperations
                 nextMetadataFile = getMetadataFile(ver + 1);
             }
 
-            updateVersionAndMetadata(ver, metadataFile.toString());
+            updateVersionAndMetadata(ver, metadataFile.get().toString());
             this.shouldRefresh = false;
             return currentMetadata;
         }
@@ -331,7 +331,7 @@ public class HadoopIcebergTableOperations
 
                 while (files.hasNext()) {
                     int currentVersion = version(files.next().location().fileName());
-                    if (currentVersion > maxVersion && getMetadataFile(currentVersion).isPresent()) {
+                    if (currentVersion > maxVersion && getMetadataFile(currentVersion).isEmpty()) {
                         maxVersion = currentVersion;
                     }
                 }
@@ -350,12 +350,14 @@ public class HadoopIcebergTableOperations
     {
         TrinoFileSystem tfs = catalog.getTrinoFileSystem();
         Location metadataFileLocation = metadataFileLocation(metadataVersion, TableMetadataParser.Codec.NONE);
+        TrinoInputStream inputStream;
         try {
-            TrinoInputFile inputFile = tfs.newInputFile(metadataFileLocation);
+            inputStream = tfs.newInputFile(metadataFileLocation).newStream();
+            inputStream.close();
         }
-        catch (IllegalArgumentException e) {
-//            return Optional.empty();
-            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to retrieve metadata file  at location %s", metadataFileLocation.toString()), e);
+        catch (Exception e) {
+            return Optional.empty();
+//            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to retrieve metadata file  at location %s", metadataFileLocation.toString()), e);
         }
         return Optional.of(metadataFileLocation);
     }

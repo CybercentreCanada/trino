@@ -41,6 +41,7 @@ import io.trino.spi.connector.RelationColumnsMetadata;
 import io.trino.spi.connector.RelationCommentMetadata;
 import io.trino.spi.connector.RelationType;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.security.PrincipalType;
 import io.trino.spi.security.TrinoPrincipal;
@@ -408,7 +409,7 @@ public class TrinoHadoopCatalog
                 result = new BaseTable(ops, location, TRINO_METRICS_REPORTER);
             }
             else {
-                throw new NoSuchTableException("Table %1s does not exist at location: %2s", schemaTableName.getTableName(), location);
+                throw new TableNotFoundException(schemaTableName, String.format("Table %1s does not exist at location: %2s", schemaTableName.getTableName(), location));
             }
         }
         return result;
