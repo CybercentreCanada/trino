@@ -302,9 +302,9 @@ class HdfsFileSystem
                     throw new IOException("mkdirs failed");
                 }
                 // explicitly set permission since the default umask overrides it on creation
-                if (permission.isPresent()) {
-                    fileSystem.setPermission(directory, permission.get());
-                }
+//                if (permission.isPresent()) {
+//                    fileSystem.setPermission(directory, permission.get());
+//                }
             }
             catch (IOException e) {
                 stats.getCreateDirectoryCalls().recordException(e);
