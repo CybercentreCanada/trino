@@ -66,22 +66,8 @@ public class TrinoHadoopCatalogFactory
                 typeManager,
                 identity,
                 tableOperationsProvider,
-//                instantiateHadoopCatalog(catalogName.toString(), catalogProperties.buildOrThrow(), fileSystemFactory.create(identity)),
                 fileSystemFactory,
                 isUniqueTableLocation,
                 config);
     }
-
-//    private static Catalog instantiateHadoopCatalog(String catalogName, Map<String, String> catalogProperties, TrinoFileSystem fileSystem)
-//    {
-//        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(fileSystem.getClass().getClassLoader())) {
-//            HadoopNative.requireHadoopNative();
-//            HadoopCatalog catalog = new HadoopCatalog();
-//            Configuration conf = new Configuration();
-//            conf.set(ConfigurationKeys.FS_AZURE_ACCOUNT_AUTH_TYPE_PROPERTY_NAME, AuthType.OAuth.name());
-//            catalog.setConf(conf);
-//            catalog.initialize(catalogName, catalogProperties);
-//            return catalog;
-//        }
-//    }
 }

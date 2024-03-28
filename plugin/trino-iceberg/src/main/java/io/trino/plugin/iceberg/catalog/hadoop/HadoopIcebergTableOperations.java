@@ -223,7 +223,6 @@ public class HadoopIcebergTableOperations
     public TableMetadata refresh()
     {
         int ver = version.orElseGet(this::findVersion);
-        //int ver = version.isPresent() ? version : findVersion();
         try {
             Optional<Location> metadataFile = getMetadataFile(ver);
             if (version.isEmpty() && metadataFile.isEmpty() && ver == 0) {
@@ -339,7 +338,6 @@ public class HadoopIcebergTableOperations
                 return maxVersion;
             }
             catch (IOException io) {
-//                return 0;
                 throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to retrieve version number at location %s", location.toString()), e);
             }
         }
@@ -357,7 +355,6 @@ public class HadoopIcebergTableOperations
         }
         catch (Exception e) {
             return Optional.empty();
-//            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Failed to retrieve metadata file  at location %s", metadataFileLocation.toString()), e);
         }
         return Optional.of(metadataFileLocation);
     }

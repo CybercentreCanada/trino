@@ -111,14 +111,14 @@ public class TrinoHadoopCatalog
             IcebergConfig icebergConfig)
     {
         super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
-        this.warehouse = requireNonNull(icebergConfig.getCatalogWarehouse(), "warehouse is null");
+        checkArgument(
+                !Strings.isNullOrEmpty(icebergConfig.getCatalogWarehouse()),
+                "Cannot initialize HadoopCatalog because warehousePath must not be null or empty");
+        this.warehouse = icebergConfig.getCatalogWarehouse();
         this.trinoFileSystem = fileSystemFactory.create(identity);
         this.catalogName = catalogName;
         this.tableOperationsProvider = tableOperationsProvider;
 
-        checkArgument(
-                !Strings.isNullOrEmpty(icebergConfig.getCatalogWarehouse()),
-                "Cannot initialize HadoopCatalog because warehousePath must not be null or empty");
     }
 
     @Override
