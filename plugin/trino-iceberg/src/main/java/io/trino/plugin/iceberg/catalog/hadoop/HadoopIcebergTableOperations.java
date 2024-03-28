@@ -235,7 +235,7 @@ public class HadoopIcebergTableOperations
 
             Optional<Location> nextMetadataFile = getMetadataFile(ver + 1);
             while (nextMetadataFile.isPresent()) {
-                ver += 1;
+                ver++;
                 metadataFile = nextMetadataFile;
                 nextMetadataFile = getMetadataFile(ver + 1);
             }
