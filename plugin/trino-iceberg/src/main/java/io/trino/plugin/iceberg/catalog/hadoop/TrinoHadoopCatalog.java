@@ -118,7 +118,6 @@ public class TrinoHadoopCatalog
         this.trinoFileSystem = fileSystemFactory.create(identity);
         this.catalogName = catalogName;
         this.tableOperationsProvider = tableOperationsProvider;
-
     }
 
     @Override
