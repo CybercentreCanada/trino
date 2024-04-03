@@ -60,7 +60,7 @@ jobs:
   - job: ContainerBuild
     dependsOn:
       - PrepareNode
-      - BuildAndPushReadHatImage
+      - BuildAndPushRedHatImage
     displayName: Maven Build (Container)
     pool: cauldron-vmss
     variables:
