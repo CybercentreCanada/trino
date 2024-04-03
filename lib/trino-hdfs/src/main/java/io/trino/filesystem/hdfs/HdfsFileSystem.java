@@ -303,7 +303,7 @@ class HdfsFileSystem
                 }
                 // explicitly set permission since the default umask overrides it on creation
                 // CCCS-MODIFICATION: Folders are already created with the proper permissions and this
-                // this call to the API generates a misleading error because the permissions can`t be
+                // call to the API generates a misleading error because the permissions can`t be changed
                 // but the folders get properly created on the filesystem and with the right permissions.
                 //  if (permission.isPresent()) {
                 //      fileSystem.setPermission(directory, permission.get());
