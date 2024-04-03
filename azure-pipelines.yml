@@ -19,7 +19,7 @@ jobs:
           mkdir -p ${{ variables.m2RepoNodePath }}
         displayName: Create required directories
 
-  - job: BuildAndPushReadHatImage
+  - job: BuildAndPushRedHatImage
     displayName: Pull RedHat image and push it to UChimera
     pool:
       vmImage: ubuntu-latest
