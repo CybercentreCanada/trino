@@ -95,7 +95,7 @@ public class HadoopIcebergTableOperations
             metadataFileLocation = getMetadataFile(version);
         }
         catch (IOException e) {
-            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Could not determine refreshed table metadata location.  Error trying to recover metadataFile location for table %s", getSchemaTableName()), e);
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, String.format("Could not determine refreshed table metadata location. Error trying to recover metadataFile location for table %s", getSchemaTableName()), e);
         }
         if (metadataFileLocation.isEmpty()) {
             throw new TrinoException(ICEBERG_INVALID_METADATA, String.format("Could not establish refreshed table metadata location for table: %s", getSchemaTableName()));
