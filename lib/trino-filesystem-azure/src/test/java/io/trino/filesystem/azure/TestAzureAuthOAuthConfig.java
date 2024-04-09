@@ -49,7 +49,7 @@ class TestAzureAuthOAuthConfig
                 .setClientId("clientId")
                 .setTenantId("tenantId")
                 .setClientSecret("secret");
-        
+
         assertFullMapping(properties, expected);
     }
 }
