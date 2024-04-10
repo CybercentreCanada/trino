@@ -28,7 +28,7 @@ TRINO_VERSION=
 # Must match https://api.adoptium.net/q/swagger-ui/#/Release%20Info/getReleaseNames
 TEMURIN_RELEASE=$(cat "${SOURCE_DIR}/.temurin-release")
 
-while getopts ":a:h:r:t:i" o; do
+while getopts ":a:b:h:r:t" o; do
     case "${o}" in
         a)
             IFS=, read -ra ARCHITECTURES <<< "$OPTARG"
