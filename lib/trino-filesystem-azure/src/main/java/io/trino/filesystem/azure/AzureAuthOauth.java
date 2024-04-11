@@ -27,7 +27,6 @@ public class AzureAuthOauth
     @Inject
     public AzureAuthOauth(AzureAuthOAuthConfig config)
     {
-
         this(config.getClientEndpoint(), config.getTenantId(), config.getClientId(), config.getClientSecret());
     }
 
