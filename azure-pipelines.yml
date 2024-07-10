@@ -76,19 +76,6 @@ jobs:
       volumes:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
     steps:
-      - task: DownloadSecureFile@1
-        name: cccs_stratus_m2_settings
-        displayName: "Download settings.xml"
-        inputs:
-          secureFile: "cccs-stratus-m2-settings.xml"
-      - task: Bash@3
-        name: move_settings_to_m2
-        displayName: "Move settings to .m2"
-        inputs:
-          targetType: "inline"
-          script: |
-            mkdir -p "${HOME}/.m2"
-            cp "$(cccs_stratus_m2_settings.secureFilePath)" "${HOME}/.m2/settings.xml"
       - task: MavenAuthenticate@0
         inputs:
           artifactsFeeds: cccs-stratus
