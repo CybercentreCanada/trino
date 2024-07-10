@@ -378,7 +378,31 @@
 
             <dependency>
                 <groupId>cccs.ap.iceberg</groupId>
+                <artifactId>iceberg-nessie</artifactId>
+                <version>${dep.iceberg.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>cccs.ap.iceberg</groupId>
                 <artifactId>iceberg-parquet</artifactId>
+                <version>${dep.iceberg.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.slf4j</groupId>
+                        <artifactId>slf4j-api</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>cccs.ap.iceberg</groupId>
+                <artifactId>iceberg-snowflake</artifactId>
                 <version>${dep.iceberg.version}</version>
                 <exclusions>
                     <exclusion>
