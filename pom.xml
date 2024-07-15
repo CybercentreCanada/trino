@@ -1909,6 +1909,7 @@
                 <version>5.2.4</version>
             </dependency>
 
+            <dependency>
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>${dep.kafka-clients.version}</version>
