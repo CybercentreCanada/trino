@@ -351,7 +351,8 @@ public class HadoopIcebergTableOperations
         TrinoInputStream inputStream;
         try (TrinoInputStream inputStream = tfs.newInputFile(metadataFileLocation).newStream()) {
             return Optional.of(metadataFileLocation);
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             return Optional.empty();
         }
     }
