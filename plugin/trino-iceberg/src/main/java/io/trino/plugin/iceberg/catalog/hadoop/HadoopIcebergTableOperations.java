@@ -348,7 +348,6 @@ public class HadoopIcebergTableOperations
     {
         TrinoFileSystem tfs = catalog.getTrinoFileSystem();
         Location metadataFileLocation = metadataFileLocation(metadataVersion, TableMetadataParser.Codec.NONE);
-        TrinoInputStream inputStream;
         try (TrinoInputStream inputStream = tfs.newInputFile(metadataFileLocation).newStream()) {
             return Optional.of(metadataFileLocation);
         }
