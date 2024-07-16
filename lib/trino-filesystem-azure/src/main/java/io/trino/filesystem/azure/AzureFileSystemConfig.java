@@ -17,6 +17,7 @@ import io.airlift.configuration.Config;
 import io.airlift.units.DataSize;
 import io.airlift.units.DataSize.Unit;
 import jakarta.validation.constraints.NotNull;
+import java.time.Duration;
 
 public class AzureFileSystemConfig
 {
@@ -33,6 +34,10 @@ public class AzureFileSystemConfig
     private DataSize writeBlockSize = DataSize.of(4, Unit.MEGABYTE);
     private int maxWriteConcurrency = 8;
     private DataSize maxSingleUploadSize = DataSize.of(4, Unit.MEGABYTE);
+    private Duration connectTimeout = Duration.ofSeconds(60);
+    private Duration readTimeout = Duration.ofSeconds(60);
+    private Duration writeTimeout = Duration.ofSeconds(60);
+    private int connectionPoolSize = 10;
 
     @NotNull
     public AuthType getAuthType()
@@ -95,6 +100,56 @@ public class AzureFileSystemConfig
     public AzureFileSystemConfig setMaxSingleUploadSize(DataSize maxSingleUploadSize)
     {
         this.maxSingleUploadSize = maxSingleUploadSize;
+        return this;
+    }
+
+    @NotNull
+    public Duration getConnectTimeout()
+    {
+        return connectTimeout;
+    }
+
+    @Config("azure.connect-timeout")
+    public AzureFileSystemConfig setConnectTimeout(Duration connectTimeout) {
+        this.connectTimeout = connectTimeout;
+        return this;
+    }
+
+    @NotNull
+    public Duration getReadTimeout()
+    {
+        return readTimeout;
+    }
+
+    @Config("azure.read-timeout")
+    public AzureFileSystemConfig setReadTimeout(Duration readTimeout)
+    {
+        this.readTimeout = readTimeout;
+        return this;
+    }
+
+    @NotNull
+    public Duration getWriteTimeout()
+    {
+        return writeTimeout;
+    }
+
+    @Config("azure.write-timeout")
+    public AzureFileSystemConfig setWriteTimeout(Duration writeTimeout) {
+        this.writeTimeout = writeTimeout;
+        return this;
+    }
+
+    @NotNull
+    public int getConnectionPoolSize()
+    {
+        return connectionPoolSize;
+    }
+
+    @Config("azure.connection-pool-size")
+    public AzureFileSystemConfig setConnectionPoolSize(int connectionPoolSize)
+    {
+        this.connectionPoolSize = connectionPoolSize;
         return this;
     }
 }

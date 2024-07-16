@@ -26,6 +26,7 @@ import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.spi.security.ConnectorIdentity;
 import jakarta.annotation.PreDestroy;
 import okhttp3.ConnectionPool;
+import okhttp3.Dispatcher;
 import okhttp3.OkHttpClient;
 
 import java.util.concurrent.TimeUnit;
@@ -53,7 +54,11 @@ public class AzureFileSystemFactory
                 config.getReadBlockSize(),
                 config.getWriteBlockSize(),
                 config.getMaxWriteConcurrency(),
-                config.getMaxSingleUploadSize());
+                config.getMaxSingleUploadSize(),
+                config.getConnectTimeout(),
+                config.getReadTimeout(),
+                config.getWriteTimeout(),
+                config.getConnectionPoolSize());
     }
 
     public AzureFileSystemFactory(
@@ -62,7 +67,11 @@ public class AzureFileSystemFactory
             DataSize readBlockSize,
             DataSize writeBlockSize,
             int maxWriteConcurrency,
-            DataSize maxSingleUploadSize)
+            DataSize maxSingleUploadSize,
+            Duration connectTimeout,
+            Duration readTimeout,
+            Duration writeTimeout,
+            int connectionPoolSize)
     {
         this.auth = requireNonNull(azureAuth, "azureAuth is null");
         this.readBlockSize = requireNonNull(readBlockSize, "readBlockSize is null");
@@ -70,11 +79,20 @@ public class AzureFileSystemFactory
         checkArgument(maxWriteConcurrency >= 0, "maxWriteConcurrency is negative");
         this.maxWriteConcurrency = maxWriteConcurrency;
         this.maxSingleUploadSize = requireNonNull(maxSingleUploadSize, "maxSingleUploadSize is null");
+        this.connectionTimeout = requireNonNull(connectionTimeout, "connectionTimeout is null");;
+        this.readTimeout = requireNonNull(readTimeout, "readTimeout is null");;
+        this.writeTimeout = requireNonNull(writeTimeout, "writeTimeout is null");;
+        this.connectionPoolSize = requireNonNull(connectionPoolSize, "maxSingleUploadSize is null");;
         this.tracingOptions = new OpenTelemetryTracingOptions().setOpenTelemetry(openTelemetry);
 
         okHttpClient = new OkHttpClient.Builder().build();
         HttpClientOptions clientOptions = new HttpClientOptions();
         clientOptions.setTracingOptions(tracingOptions);
+        // Set configurable options for clientOptions
+        clientOptions.setConnectTimeout(config.getConnectTimeout());
+        clientOptions.setReadTimeout(config.getReadTimeout());
+        clientOptions.setWriteTimeout(config.getWriteTimeout());
+        clientOptions.setMaximumConnectionPoolSize(config.getConnectionPoolSize());
         httpClient = createAzureHttpClient(okHttpClient, clientOptions);
     }
 
@@ -96,6 +114,9 @@ public class AzureFileSystemFactory
         Integer poolSize = clientOptions.getMaximumConnectionPoolSize();
         // By default, OkHttp uses a maximum idle connection count of 5.
         int maximumConnectionPoolSize = (poolSize != null && poolSize > 0) ? poolSize : 5;
+        Dispatcher dispatcher = new Dispatcher();
+        dispatcher.setMaxRequests(Runtime.getRuntime().availableProcessors() * 4);
+        dispatcher.setMaxRequestsPerHost(Runtime.getRuntime().availableProcessors() * 2);
 
         return new OkHttpAsyncHttpClientBuilder(okHttpClient)
                 .proxy(clientOptions.getProxyOptions())
@@ -104,6 +125,8 @@ public class AzureFileSystemFactory
                 .writeTimeout(clientOptions.getWriteTimeout())
                 .readTimeout(clientOptions.getReadTimeout())
                 .connectionPool(new ConnectionPool(maximumConnectionPoolSize,
-                        clientOptions.getConnectionIdleTimeout().toMillis(), TimeUnit.MILLISECONDS)).build();
+                        clientOptions.getConnectionIdleTimeout().toMillis(), TimeUnit.MILLISECONDS))
+                .dispatcher(dispatcher)
+                .build();
     }
 }
