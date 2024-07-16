@@ -29,7 +29,10 @@ import okhttp3.ConnectionPool;
 import okhttp3.Dispatcher;
 import okhttp3.OkHttpClient;
 
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -37,6 +40,10 @@ import static java.util.Objects.requireNonNull;
 public class AzureFileSystemFactory
         implements TrinoFileSystemFactory
 {
+    static {
+        Logger.getLogger(OkHttpClient.class.getName()).setLevel(Level.FINE);
+    }
+
     private final AzureAuth auth;
     private final DataSize readBlockSize;
     private final DataSize writeBlockSize;
@@ -54,7 +61,11 @@ public class AzureFileSystemFactory
                 config.getReadBlockSize(),
                 config.getWriteBlockSize(),
                 config.getMaxWriteConcurrency(),
-                config.getMaxSingleUploadSize());
+                config.getMaxSingleUploadSize(),
+                config.getConnectTimeout(),
+                config.getReadTimeout(),
+                config.getWriteTimeout(),
+                config.getConnectionPoolSize());
     }
 
     public AzureFileSystemFactory(
@@ -63,7 +74,11 @@ public class AzureFileSystemFactory
             DataSize readBlockSize,
             DataSize writeBlockSize,
             int maxWriteConcurrency,
-            DataSize maxSingleUploadSize)
+            DataSize maxSingleUploadSize,
+            Duration connectTimeout,
+            Duration readTimeout,
+            Duration writeTimeout,
+            int connectionPoolSize)
     {
         this.auth = requireNonNull(azureAuth, "azureAuth is null");
         this.readBlockSize = requireNonNull(readBlockSize, "readBlockSize is null");
@@ -76,6 +91,11 @@ public class AzureFileSystemFactory
         okHttpClient = new OkHttpClient.Builder().build();
         HttpClientOptions clientOptions = new HttpClientOptions();
         clientOptions.setTracingOptions(tracingOptions);
+        // Set configurable options for clientOptions
+        clientOptions.setConnectTimeout(connectTimeout);
+        clientOptions.setReadTimeout(readTimeout);
+        clientOptions.setWriteTimeout(writeTimeout);
+        clientOptions.setMaximumConnectionPoolSize(connectionPoolSize);
         httpClient = createAzureHttpClient(okHttpClient, clientOptions);
     }
 
