@@ -30,6 +30,8 @@ import okhttp3.Dispatcher;
 import okhttp3.OkHttpClient;
 
 import java.util.concurrent.TimeUnit;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -37,6 +39,10 @@ import static java.util.Objects.requireNonNull;
 public class AzureFileSystemFactory
         implements TrinoFileSystemFactory
 {
+    static {
+        Logger.getLogger(OkHttpClient.class.getName()).setLevel(Level.FINE);
+    }
+
     private final AzureAuth auth;
     private final DataSize readBlockSize;
     private final DataSize writeBlockSize;
