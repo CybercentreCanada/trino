@@ -12,7 +12,8 @@ variables:
 jobs:
   - job: PrepareNode
     displayName: Prepare the node for the Container Build
-    pool: cybertron-build-pool
+    pool:
+      vmImage: ubuntu-latest
     steps:
       - checkout: none
       - bash: |
@@ -62,7 +63,8 @@ jobs:
       - PrepareNode
       - BuildAndPushRedHatImage
     displayName: Maven Build (Container)
-    pool: cybertron-build-pool
+    pool:
+      vmImage: ubuntu-latest
     variables:
       containerRegistry: uchimera
       imageRepository: cccs/trino-base
