@@ -6,14 +6,13 @@ trigger:
 
 variables:
   containerRegistry: uchimera
-  m2RepoNodePath: /tmp/datadisks/disk1/.m2/repository
+  m2RepoNodePath: /datadisks/disk1/.m2/repository
   m2RepoContainerPath: /tmp/m2/repository
 
 jobs:
   - job: PrepareNode
     displayName: Prepare the node for the Container Build
-    pool:
-      vmImage: ubuntu-latest
+    pool: cybertron-build-pool
     steps:
       - checkout: none
       - bash: |
@@ -63,8 +62,7 @@ jobs:
       - PrepareNode
       - BuildAndPushRedHatImage
     displayName: Maven Build (Container)
-    pool:
-      vmImage: ubuntu-latest
+    pool: cybertron-build-pool
     variables:
       containerRegistry: uchimera
       imageRepository: cccs/trino-base
