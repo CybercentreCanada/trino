@@ -22,6 +22,8 @@ import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.common.policy.RequestRetryOptions;
+import com.azure.storage.common.policy.RetryPolicyType;
 import com.azure.storage.file.datalake.DataLakeDirectoryClient;
 import com.azure.storage.file.datalake.DataLakeFileClient;
 import com.azure.storage.file.datalake.DataLakeFileSystemClient;
@@ -41,6 +43,7 @@ import io.trino.filesystem.TrinoInputFile;
 import io.trino.filesystem.TrinoOutputFile;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -471,10 +474,20 @@ public class AzureFileSystem
     {
         requireNonNull(location, "location is null");
 
+        // Configure the retry options
+        RequestRetryOptions retryOptions = new RequestRetryOptions(
+                RetryPolicyType.EXPONENTIAL,  // Retry policy type
+                1,  // Max tries
+                null,  // Try timeout
+                Duration.ofSeconds(4),  // Retry delay
+                Duration.ofSeconds(120),  // Max retry delay
+                null);  // Secondary host
+
         DataLakeServiceClientBuilder builder = new DataLakeServiceClientBuilder()
                 .httpClient(httpClient)
                 .clientOptions(new ClientOptions().setTracingOptions(tracingOptions))
-                .endpoint(String.format("https://%s.dfs.core.windows.net", location.account()));
+                .endpoint(String.format("https://%s.dfs.core.windows.net", location.account()))
+                .retryOptions(retryOptions);
         azureAuth.setAuth(location.account(), builder);
         DataLakeServiceClient client = builder.buildClient();
         DataLakeFileSystemClient fileSystemClient = client.getFileSystemClient(location.container().orElseThrow());
