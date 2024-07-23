@@ -6,7 +6,7 @@ trigger:
 
 variables:
   containerRegistry: uchimera
-  m2RepoNodePath: /datadisks/disk1/.m2/repository
+  m2RepoNodePath: /tmp/datadisks/disk1/.m2/repository
   m2RepoContainerPath: /tmp/m2/repository
 
 jobs:
