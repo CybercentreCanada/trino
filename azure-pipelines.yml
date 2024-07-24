@@ -79,11 +79,6 @@ jobs:
       - task: MavenAuthenticate@0
         inputs:
           artifactsFeeds: analytical-platform
-      - task: DownloadSecureFile@1
-        name: cccs_stratus_m2_settings
-        displayName: "Download settings.xml"
-        inputs:
-          secureFile: "settings.xml"
       - task: Bash@3
         name: move_settings_to_m2
         displayName: "Move settings to .m2"
@@ -91,7 +86,7 @@ jobs:
           targetType: "inline"
           script: |
             mkdir -p "${HOME}/.m2"
-            cp "$(cccs_stratus_m2_settings.secureFilePath)" "${HOME}/.m2/settings.xml"
+            cp "$(M2_SETTING_HOME)/settings.xml" "${HOME}/.m2/settings.xml"
       - task: Bash@3
         name: setBranchName
         inputs:
