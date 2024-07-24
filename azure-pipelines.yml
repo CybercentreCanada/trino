@@ -76,17 +76,17 @@ jobs:
       volumes:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
     steps:
-      - task: MavenAuthenticate@0
-        inputs:
-          artifactsFeeds: analytical-platform
       - task: Bash@3
         name: move_settings_to_m2
-        displayName: "Move settings to .m2"
+        displayName: "Move settings.xml to .m2"
         inputs:
           targetType: "inline"
           script: |
             mkdir -p "${HOME}/.m2"
             cp "$(M2_SETTING_HOME)/settings.xml" "${HOME}/.m2/settings.xml"
+      - task: MavenAuthenticate@0
+        inputs:
+          artifactsFeeds: analytical-platform
       - task: Bash@3
         name: setBranchName
         inputs:
