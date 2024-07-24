@@ -71,12 +71,10 @@ jobs:
       DOCKER_BUILDKIT: 1
     container:
       image: uchimera.azurecr.io/cccs/dev/projector-intellij-ce:trino_20240716153915_b10530
-      options: --entrypoint="" --user=0
+      options: --entrypoint="" --user=0 -- $(M2_SETTING_HOME)/settings.xml:${HOME}/.m2/settings.xml
       endpoint: uchimera
       volumes:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
-      volumeMounts:
-        - $(M2_SETTING_HOME)/settings.xml:${HOME}/.m2/settings.xml
     steps:
       - task: MavenAuthenticate@0
         inputs:
