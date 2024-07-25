@@ -475,20 +475,13 @@ public class AzureFileSystem
         requireNonNull(location, "location is null");
 
         // Configure the retry options
-        // RequestRetryOptions retryOptions = new RequestRetryOptions(
-        //         RetryPolicyType.EXPONENTIAL,  // Retry policy type
-        //         1,  // Max tries
-        //         null,  // Try timeout
-        //         Duration.ofSeconds(4),  // Retry delay
-        //         Duration.ofSeconds(120),  // Max retry delay
-        //         null);  // Secondary host
-
-        // Using ExponentialBackoffOptions
-        ExponentialBackoffOptions exponentialOptions = new ExponentialBackoffOptions()
-                .setMaxRetries(0)
-                .setBaseDelay(Duration.ofSeconds(1))
-                .setMaxDelay(Duration.ofSeconds(10));
-        RetryOptions retryOptions = new RetryOptions(exponentialOptions);
+        RequestRetryOptions retryOptions = new RequestRetryOptions(
+                RetryPolicyType.NO_RETRY,
+                1,
+                Duration.ofSeconds(30),
+                null,
+                null,
+                null);
 
         DataLakeServiceClientBuilder builder = new DataLakeServiceClientBuilder()
                 .httpClient(httpClient)
