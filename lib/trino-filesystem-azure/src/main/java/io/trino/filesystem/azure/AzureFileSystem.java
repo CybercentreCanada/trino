@@ -14,8 +14,6 @@
 package io.trino.filesystem.azure;
 
 import com.azure.core.http.HttpClient;
-import com.azure.core.http.policy.ExponentialBackoffOptions;
-import com.azure.core.http.policy.RetryOptions;
 import com.azure.core.http.rest.PagedIterable;
 import com.azure.core.util.ClientOptions;
 import com.azure.core.util.TracingOptions;
