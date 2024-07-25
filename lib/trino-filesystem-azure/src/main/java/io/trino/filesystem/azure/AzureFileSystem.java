@@ -22,6 +22,8 @@ import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.common.policy.RequestRetryOptions;
+import com.azure.storage.common.policy.RetryPolicyType;
 import com.azure.storage.file.datalake.DataLakeDirectoryClient;
 import com.azure.storage.file.datalake.DataLakeFileClient;
 import com.azure.storage.file.datalake.DataLakeFileSystemClient;
@@ -474,12 +476,12 @@ public class AzureFileSystem
 
         // Configure the retry options
         RequestRetryOptions retryOptions = new RequestRetryOptions(
-                RetryPolicyType.NO_RETRY,
-                1,
-                Duration.ofSeconds(30),
-                null,
-                null,
-                null);
+                RetryPolicyType.EXPONENTIAL,
+                1,  // maxTries
+                Duration.ofSeconds(30),  // tryTimeout
+                Duration.ofSeconds(4),  // retryDelay
+                Duration.ofSeconds(120),  // maxRetryDelay
+                null);  // secondaryHost
 
         DataLakeServiceClientBuilder builder = new DataLakeServiceClientBuilder()
                 .httpClient(httpClient)
