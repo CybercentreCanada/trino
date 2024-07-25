@@ -14,6 +14,8 @@
 package io.trino.filesystem.azure;
 
 import com.azure.core.http.HttpClient;
+import com.azure.core.http.policy.ExponentialBackoffOptions;
+import com.azure.core.http.policy.RetryOptions;
 import com.azure.core.http.rest.PagedIterable;
 import com.azure.core.util.ClientOptions;
 import com.azure.core.util.TracingOptions;
@@ -22,8 +24,6 @@ import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobContainerClientBuilder;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.ListBlobsOptions;
-import com.azure.storage.common.policy.RequestRetryOptions;
-import com.azure.storage.common.policy.RetryPolicyType;
 import com.azure.storage.file.datalake.DataLakeDirectoryClient;
 import com.azure.storage.file.datalake.DataLakeFileClient;
 import com.azure.storage.file.datalake.DataLakeFileSystemClient;
@@ -475,13 +475,20 @@ public class AzureFileSystem
         requireNonNull(location, "location is null");
 
         // Configure the retry options
-        RequestRetryOptions retryOptions = new RequestRetryOptions(
-                RetryPolicyType.EXPONENTIAL,  // Retry policy type
-                1,  // Max tries
-                null,  // Try timeout
-                Duration.ofSeconds(4),  // Retry delay
-                Duration.ofSeconds(120),  // Max retry delay
-                null);  // Secondary host
+        // RequestRetryOptions retryOptions = new RequestRetryOptions(
+        //         RetryPolicyType.EXPONENTIAL,  // Retry policy type
+        //         1,  // Max tries
+        //         null,  // Try timeout
+        //         Duration.ofSeconds(4),  // Retry delay
+        //         Duration.ofSeconds(120),  // Max retry delay
+        //         null);  // Secondary host
+
+        // Using ExponentialBackoffOptions
+        ExponentialBackoffOptions exponentialOptions = new ExponentialBackoffOptions()
+                .setMaxRetries(0)
+                .setBaseDelay(Duration.ofSeconds(1))
+                .setMaxDelay(Duration.ofSeconds(10));
+        RetryOptions retryOptions = new RetryOptions(exponentialOptions);
 
         DataLakeServiceClientBuilder builder = new DataLakeServiceClientBuilder()
                 .httpClient(httpClient)
