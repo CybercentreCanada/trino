@@ -12,7 +12,7 @@ variables:
 jobs:
   - job: PrepareNode
     displayName: Prepare the node for the Container Build
-    pool: cybertron-build-pool
+    pool: cauldron-vmss
     steps:
       - checkout: none
       - bash: |
@@ -62,7 +62,7 @@ jobs:
       - PrepareNode
       - BuildAndPushRedHatImage
     displayName: Maven Build (Container)
-    pool: cybertron-build-pool
+    pool: cauldron-vmss
     variables:
       containerRegistry: uchimera
       imageRepository: cccs/trino-base
@@ -75,19 +75,20 @@ jobs:
       endpoint: uchimera
       volumes:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
-        - /root/.m2/settings.xml:/tmp/m2/settings.xml
     steps:
+      - task: DownloadSecureFile@1
+        name: cccs_stratus_m2_settings
+        displayName: "Download settings.xml"
+        inputs:
+          secureFile: "settings.xml"
       - task: Bash@3
         name: move_settings_to_m2
-        displayName: "Move settings.xml to .m2"
+        displayName: "Move settings to .m2"
         inputs:
           targetType: "inline"
           script: |
             mkdir -p "${HOME}/.m2"
-            cp "/tmp/m2/settings.xml" "${HOME}/.m2/settings.xml"
-      - task: MavenAuthenticate@0
-        inputs:
-          artifactsFeeds: analytical-platform
+            cp "$(cccs_stratus_m2_settings.secureFilePath)" "${HOME}/.m2/settings.xml"
       - task: Bash@3
         name: setBranchName
         inputs:
