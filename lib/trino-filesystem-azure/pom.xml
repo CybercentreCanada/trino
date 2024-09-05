@@ -67,10 +67,6 @@
                     <artifactId>azure-core-http-netty</artifactId>
                 </exclusion>
                 <exclusion>
-                    <groupId>com.azure</groupId>
-                    <artifactId>azure-storage-internal-avro</artifactId>
-                </exclusion>
-                <exclusion>
                     <groupId>com.fasterxml.jackson.dataformat</groupId>
                     <artifactId>jackson-dataformat-xml</artifactId>
                 </exclusion>

@@ -227,6 +227,27 @@
             </dependency>
 
             <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-storage-blob</artifactId>
+                <version>12.28.0-beta.1</version>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-storage-common</artifactId>
+                <version>12.27.0-beta.1</version>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-storage-internal-avro</artifactId>
+                <version>12.13.0-beta.1</version>
+                <scope>import</scope>
+            </dependency>
+
+            <dependency>
                 <groupId>com.google.cloud</groupId>
                 <artifactId>libraries-bom</artifactId>
                 <version>26.43.0</version>
@@ -543,6 +564,18 @@
                     <exclusion>
                         <groupId>com.azure</groupId>
                         <artifactId>azure-core</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+
+            <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-storage-file-datalake</artifactId>
+                <version>12.20.1</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>com.azure</groupId>
+                        <artifactId>azure-storage-blob</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
