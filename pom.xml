@@ -2850,5 +2850,11 @@
                 </plugins>
             </build>
         </profile>
+        <profile>
+            <id>skip-enforcer</id>
+            <properties>
+                <maven.enforcer.skip>true</maven.enforcer.skip>
+            </properties>
+        </profile>
     </profiles>
 </project>
