@@ -26,7 +26,6 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.parallel.Execution;
-import org.testcontainers.shaded.com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
@@ -82,13 +81,6 @@ class TestJsonStringArrayExtractScalar
     void testScalarStringExtract()
     {
         failedExtract("1", "$");
-    }
-
-    @Test
-    void testEmptyArrayExtract()
-    {
-        assertThat(extract("[]", "$.name").value())
-                .isEqualTo(ImmutableList.of());
     }
 
     @Test

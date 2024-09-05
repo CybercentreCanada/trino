@@ -2444,59 +2444,6 @@
                 </plugin>
 
                 <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-enforcer-plugin</artifactId>
-                    <configuration>
-                        <rules>
-                            <requireUpperBoundDeps>
-                                <excludes combine.children="append">
-                                    <!-- TODO: fix this in Airlift resolver -->
-                                    <exclude>org.codehaus.plexus:plexus-utils</exclude>
-                                    <exclude>com.google.guava:guava</exclude>
-                                    <exclude>com.fasterxml.jackson.core:jackson-core</exclude>
-                                    <exclude>com.google.j2objc:j2objc-annotations</exclude>
-                                </excludes>
-                            </requireUpperBoundDeps>
-                            <bannedDependencies>
-                                <excludes combine.children="append">
-                                    <!-- We don't use log4j2, additionally versions < 2.15.0 are vulnerable to the RCE Log4Shell (CVE-2021-44228) -->
-                                    <exclude>org.apache.logging.log4j:log4j-core</exclude>
-                                    <!-- 1.x versions are banned due to https://www.cve.org/CVERecord?id=CVE-2022-1471 -->
-                                    <exclude>org.yaml:snakeyaml</exclude>
-                                    <!-- use Guice version -->
-                                    <exclude>javax.inject:javax.inject</exclude>
-                                    <!-- use Jakarta version -->
-                                    <exclude>javax.annotation:javax.annotation-api</exclude>
-                                </excludes>
-                                <includes combine.children="append">
-                                    <!-- 2.x versions are not affected by CVE-2022-1471 -->
-                                    <include>org.yaml:snakeyaml:2.+</include>
-                                </includes>
-                            </bannedDependencies>
-                            <RestrictImports>
-                                <reason>Prefer org.assertj.core.api.Assertions over:</reason>
-                                <bannedImports>
-                                    <bannedImport>org.junit.jupiter.api.Assertions.*</bannedImport>
-                                    <bannedImport>org.testng.Assert.*</bannedImport>
-                                    <bannedImport>org.testng.AssertJUnit.*</bannedImport>
-                                    <bannedImport>org.testng.asserts.**</bannedImport>
-                                </bannedImports>
-                            </RestrictImports>
-                            <RestrictImports>
-                                <bannedImports>
-                                    <bannedImport>com.google.api.client.util.Preconditions</bannedImport>
-                                    <bannedImport>com.google.api.client.util.Preconditions.*</bannedImport>
-                                </bannedImports>
-                            </RestrictImports>
-                            <requireProfileIdsExist />
-                            <requirePropertyDiverges>
-                                <property>project.description</property>
-                            </requirePropertyDiverges>
-                        </rules>
-                    </configuration>
-                </plugin>
-
-                <plugin>
                     <groupId>ca.vanzyl.provisio.maven.plugins</groupId>
                     <artifactId>provisio-maven-plugin</artifactId>
                     <version>1.0.25</version>

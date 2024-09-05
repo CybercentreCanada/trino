@@ -348,20 +348,6 @@
                         <propertiesEncoding>ISO-8859-1</propertiesEncoding>
                     </configuration>
                 </plugin>
-
-                <plugin>
-                    <groupId>org.apache.maven.plugins</groupId>
-                    <artifactId>maven-enforcer-plugin</artifactId>
-                    <configuration>
-                        <rules>
-                            <requireUpperBoundDeps>
-                                <excludes combine.children="append">
-                                    <exclude>io.airlift:units</exclude>
-                                </excludes>
-                            </requireUpperBoundDeps>
-                        </rules>
-                    </configuration>
-                </plugin>
             </plugins>
         </pluginManagement>
 
