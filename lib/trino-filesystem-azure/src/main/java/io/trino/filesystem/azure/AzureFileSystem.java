@@ -41,6 +41,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
+import io.airlift.log.Logger;
 import io.trino.filesystem.FileIterator;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
@@ -98,6 +99,8 @@ public class AzureFileSystem
             int maxWriteConcurrency,
             DataSize maxSingleUploadSize)
     {
+        private static final Logger log = Logger.get(AzureFileSystem.class);
+
         this.httpClient = requireNonNull(httpClient, "httpClient is null");
         this.tracingOptions = requireNonNull(tracingOptions, "tracingOptions is null");
         this.azureAuth = requireNonNull(azureAuth, "azureAuth is null");
@@ -628,7 +631,9 @@ public class AzureFileSystem
 
         azureAuth.setAuth(location.account(), builder);
         location.container().ifPresent(builder::containerName);
-        return builder.buildClient();
+        BlobContainerClient blobContainerClient = builder.buildClient();
+        log.info("blobContainerClient created for location: {}", location);
+        return blobContainerClient;
     }
 
     private DataLakeFileSystemClient createFileSystemClient(AzureLocation location, Optional<EncryptionKey> key)
@@ -646,6 +651,7 @@ public class AzureFileSystem
         if (!fileSystemClient.exists()) {
             throw new IllegalArgumentException();
         }
+        log.info("fileSystemClient created for location: {}", location);
         return fileSystemClient;
     }
 

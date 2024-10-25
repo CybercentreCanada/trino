@@ -19,6 +19,7 @@ import com.azure.core.tracing.opentelemetry.OpenTelemetryTracingOptions;
 import com.azure.core.util.HttpClientOptions;
 import com.azure.core.util.TracingOptions;
 import com.google.inject.Inject;
+import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.opentelemetry.api.OpenTelemetry;
 import io.trino.filesystem.TrinoFileSystem;
@@ -37,6 +38,8 @@ import static java.util.Objects.requireNonNull;
 public class AzureFileSystemFactory
         implements TrinoFileSystemFactory
 {
+    private static final Logger log = Logger.get(AzureFileSystemFactory.class);
+
     private final AzureAuth auth;
     private final String endpoint;
     private final DataSize readBlockSize;
@@ -87,6 +90,8 @@ public class AzureFileSystemFactory
                 .build();
         HttpClientOptions clientOptions = new HttpClientOptions();
         clientOptions.setTracingOptions(tracingOptions);
+        // Double the default idle connection pool size from 5 to 10
+        clientOptions.setMaximumConnectionPoolSize(10);
         httpClient = createAzureHttpClient(okHttpClient, clientOptions);
     }
 
@@ -109,14 +114,24 @@ public class AzureFileSystemFactory
         // By default, OkHttp uses a maximum idle connection count of 5.
         int maximumConnectionPoolSize = (poolSize != null && poolSize > 0) ? poolSize : 5;
 
-        return new OkHttpAsyncHttpClientBuilder(okHttpClient)
-                .proxy(clientOptions.getProxyOptions())
-                .configuration(clientOptions.getConfiguration())
-                .connectionTimeout(clientOptions.getConnectTimeout())
-                .writeTimeout(clientOptions.getWriteTimeout())
-                .readTimeout(clientOptions.getReadTimeout())
-                .connectionPool(new ConnectionPool(maximumConnectionPoolSize,
-                        clientOptions.getConnectionIdleTimeout().toMillis(), TimeUnit.MILLISECONDS))
-                .build();
+        // Set lower idle connection timeout than default
+        long idleConnectionTimeout = 30 * 1000; // in milliseconds
+
+        try {
+            return new OkHttpAsyncHttpClientBuilder(okHttpClient)
+                    .proxy(clientOptions.getProxyOptions())
+                    .configuration(clientOptions.getConfiguration())
+                    .connectionTimeout(clientOptions.getConnectTimeout())
+                    .writeTimeout(clientOptions.getWriteTimeout())
+                    .readTimeout(clientOptions.getReadTimeout())
+                    .connectionPool(new ConnectionPool(maximumConnectionPoolSize,
+                            idleConnectionTimeout, TimeUnit.MILLISECONDS))
+                    .build();
+        }
+        catch (Exception e) {
+            // Log the error and rethrow as a runtime exception
+            log.error("Failed to create Azure HTTP client: {}", e.getMessage(), e);
+            throw new RuntimeException("Unable to create Azure HTTP client", e);
+        }
     }
 }
