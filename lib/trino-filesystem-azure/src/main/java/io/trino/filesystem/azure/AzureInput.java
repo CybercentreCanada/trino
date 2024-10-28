@@ -17,6 +17,7 @@ import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.models.BlobRange;
 import com.azure.storage.blob.options.BlobInputStreamOptions;
 import com.azure.storage.blob.specialized.BlobInputStream;
+import io.airlift.log.Logger;
 import io.trino.filesystem.TrinoInput;
 
 import java.io.EOFException;
@@ -30,6 +31,8 @@ import static java.util.Objects.requireNonNull;
 class AzureInput
         implements TrinoInput
 {
+    private static final Logger log = Logger.get(AzureInput.class);
+
     private final AzureLocation location;
     private final BlobClient blobClient;
     private OptionalLong length;
