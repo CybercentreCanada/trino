@@ -93,6 +93,7 @@ public class AzureFileSystemFactory
         // Double the default idle connection pool size from 5 to 10
         clientOptions.setMaximumConnectionPoolSize(10);
         httpClient = createAzureHttpClient(okHttpClient, clientOptions);
+        log.info("OkHttpClient created: %s", httpClient);
     }
 
     @PreDestroy
