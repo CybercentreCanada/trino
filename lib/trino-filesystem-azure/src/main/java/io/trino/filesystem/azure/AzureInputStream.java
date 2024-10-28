@@ -22,6 +22,7 @@ import io.trino.filesystem.TrinoInputStream;
 
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.Arrays;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.filesystem.azure.AzureUtils.handleAzureException;
