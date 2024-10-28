@@ -58,21 +58,46 @@ class AzureInput
         BlobInputStreamOptions options = new BlobInputStreamOptions()
                 .setRange(new BlobRange(position, (long) bufferLength))
                 .setBlockSize(bufferLength);
-        try (BlobInputStream blobInputStream = blobClient.openInputStream(options)) {
-            long fileSize = blobInputStream.getProperties().getBlobSize();
-            if (position >= fileSize) {
-                throw new IOException("Cannot read at %s. File size is %s: %s".formatted(position, fileSize, location));
-            }
 
-            int readSize = blobInputStream.readNBytes(buffer, bufferOffset, bufferLength);
-            if (readSize != bufferLength) {
-                throw new EOFException("End of file reached before reading fully: " + location);
+        final int maxRetries = 3;
+        int attempts = 0;
+
+        while (attempts < maxRetries) {
+            attempts++;
+            try (BlobInputStream blobInputStream = blobClient.openInputStream(options)) {
+                long fileSize = blobInputStream.getProperties().getBlobSize();
+                if (position >= fileSize) {
+                    throw new IOException("Cannot read at %s. File size is %s: %s".formatted(position, fileSize, location));
+                }
+
+                int readSize = blobInputStream.readNBytes(buffer, bufferOffset, bufferLength);
+                if (readSize != bufferLength) {
+                    throw new EOFException("End of file reached before reading fully: " + location);
+                }
+
+                // Successfully read, so break out of the retry loop
+                break;
             }
-        }
-        catch (RuntimeException e) {
-            throw handleAzureException(e, "reading file", location);
+            catch (IllegalStateException e) {
+                if (attempts >= maxRetries) {
+                    throw new IOException("Failed to read file due to an unbalanced enter/exit error after " + attempts + " attempts", e);
+                }
+                log.warn("Attempt %s failed due to IllegalStateException, retrying... Location: %s", attempts, location, e);
+                // Short pause to avoid hammering the server on retries
+                try {
+                    Thread.sleep(100);
+                }
+                catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted during retry sleep", ie);
+                }
+            }
+            catch (RuntimeException e) {
+                throw handleAzureException(e, "reading file", location);
+            }
         }
     }
+
 
     @Override
     public int readTail(byte[] buffer, int bufferOffset, int bufferLength)
