@@ -98,7 +98,6 @@ class AzureInput
         }
     }
 
-
     @Override
     public int readTail(byte[] buffer, int bufferOffset, int bufferLength)
             throws IOException
