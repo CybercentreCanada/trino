@@ -80,6 +80,8 @@ import static java.util.function.Predicate.not;
 public class AzureFileSystem
         implements TrinoFileSystem
 {
+    private static final Logger log = Logger.get(AzureFileSystem.class);
+
     private final HttpClient httpClient;
     private final TracingOptions tracingOptions;
     private final AzureAuth azureAuth;
@@ -99,8 +101,6 @@ public class AzureFileSystem
             int maxWriteConcurrency,
             DataSize maxSingleUploadSize)
     {
-        private static final Logger log = Logger.get(AzureFileSystem.class);
-
         this.httpClient = requireNonNull(httpClient, "httpClient is null");
         this.tracingOptions = requireNonNull(tracingOptions, "tracingOptions is null");
         this.azureAuth = requireNonNull(azureAuth, "azureAuth is null");
