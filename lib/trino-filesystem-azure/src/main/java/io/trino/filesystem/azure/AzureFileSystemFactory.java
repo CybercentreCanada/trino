@@ -130,7 +130,7 @@ public class AzureFileSystemFactory
         }
         catch (Exception e) {
             // Log the error and rethrow as a runtime exception
-            log.error("Failed to create Azure HTTP client: {}", e.getMessage(), e);
+            log.error("Failed to create Azure HTTP client: %s", e.getMessage());
             throw new RuntimeException("Unable to create Azure HTTP client", e);
         }
     }
