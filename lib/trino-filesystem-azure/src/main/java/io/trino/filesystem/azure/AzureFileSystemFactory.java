@@ -14,6 +14,7 @@
 package io.trino.filesystem.azure;
 
 import com.azure.core.http.HttpClient;
+import com.azure.core.http.okhttp.OkHttpAsyncHttpClient;
 import com.azure.core.http.okhttp.OkHttpAsyncHttpClientBuilder;
 import com.azure.core.tracing.opentelemetry.OpenTelemetryTracingOptions;
 import com.azure.core.util.HttpClientOptions;
@@ -94,13 +95,14 @@ public class AzureFileSystemFactory
         clientOptions.setMaximumConnectionPoolSize(10);
         httpClient = createAzureHttpClient(okHttpClient, clientOptions);
         // Log OkHttpClient properties
+        OkHttpAsyncHttpClient okHttpAsyncHttpClient = (OkHttpAsyncHttpClient) httpClient;
         log.info("OkHttpClient created; Connection pool size: %s; Connect timeout: %s ms; Read timeout: %s ms; Write timeout: %s ms; Max requests: %s; Max requests per host: %s",
-                httpClient.connectionPool().connectionCount(),
-                httpClient.connectTimeoutMillis(),
-                httpClient.readTimeoutMillis(),
-                httpClient.writeTimeoutMillis(),
-                httpClient.dispatcher().maxRequests(),
-                httpClient.dispatcher().maxRequestsPerHost());
+                okHttpAsyncHttpClient.connectionPool().connectionCount(),
+                okHttpAsyncHttpClient.connectTimeoutMillis(),
+                okHttpAsyncHttpClient.readTimeoutMillis(),
+                okHttpAsyncHttpClient.writeTimeoutMillis(),
+                okHttpAsyncHttpClient.dispatcher().maxRequests(),
+                okHttpAsyncHttpClient.dispatcher().maxRequestsPerHost());
     }
 
     @PreDestroy
