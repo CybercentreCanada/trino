@@ -128,12 +128,12 @@ public class AzureFileSystemFactory
                             idleConnectionTimeout, TimeUnit.MILLISECONDS));
             // Log OkHttpClient properties
             log.info("Creating OkHttpClient with; Connection pool: %s; Connect timeout: %s ms; Read timeout: %s ms; Write timeout: %s ms; Dispatcher: %s; Proxy options: %s",
-                builder.connectionPool,
-                builder.connectionTimeout,
-                builder.readTimeout,
-                builder.writeTimeout,
-                builder.dispatcher,
-                builder.proxyOptions);
+                    builder.connectionPool,
+                    builder.connectionTimeout,
+                    builder.readTimeout,
+                    builder.writeTimeout,
+                    builder.dispatcher,
+                    builder.proxyOptions);
             return builder.build();
         }
         catch (Exception e) {
