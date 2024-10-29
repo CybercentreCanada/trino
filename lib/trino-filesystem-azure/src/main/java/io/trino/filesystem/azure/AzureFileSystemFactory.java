@@ -14,7 +14,6 @@
 package io.trino.filesystem.azure;
 
 import com.azure.core.http.HttpClient;
-import com.azure.core.http.okhttp.OkHttpAsyncHttpClient;
 import com.azure.core.http.okhttp.OkHttpAsyncHttpClientBuilder;
 import com.azure.core.tracing.opentelemetry.OpenTelemetryTracingOptions;
 import com.azure.core.util.HttpClientOptions;
@@ -94,15 +93,6 @@ public class AzureFileSystemFactory
         // Double the default idle connection pool size from 5 to 10
         clientOptions.setMaximumConnectionPoolSize(10);
         httpClient = createAzureHttpClient(okHttpClient, clientOptions);
-        // Log OkHttpClient properties
-        OkHttpAsyncHttpClient okHttpAsyncHttpClient = (OkHttpAsyncHttpClient) httpClient;
-        log.info("OkHttpClient created; Connection pool size: %s; Connect timeout: %s ms; Read timeout: %s ms; Write timeout: %s ms; Max requests: %s; Max requests per host: %s",
-                okHttpAsyncHttpClient.connectionPool().connectionCount(),
-                okHttpAsyncHttpClient.connectTimeoutMillis(),
-                okHttpAsyncHttpClient.readTimeoutMillis(),
-                okHttpAsyncHttpClient.writeTimeoutMillis(),
-                okHttpAsyncHttpClient.dispatcher().maxRequests(),
-                okHttpAsyncHttpClient.dispatcher().maxRequestsPerHost());
     }
 
     @PreDestroy
@@ -128,15 +118,23 @@ public class AzureFileSystemFactory
         long idleConnectionTimeout = 30 * 1000; // in milliseconds
 
         try {
-            return new OkHttpAsyncHttpClientBuilder(okHttpClient)
+            builder = new OkHttpAsyncHttpClientBuilder(okHttpClient)
                     .proxy(clientOptions.getProxyOptions())
                     .configuration(clientOptions.getConfiguration())
                     .connectionTimeout(clientOptions.getConnectTimeout())
                     .writeTimeout(clientOptions.getWriteTimeout())
                     .readTimeout(clientOptions.getReadTimeout())
                     .connectionPool(new ConnectionPool(maximumConnectionPoolSize,
-                            idleConnectionTimeout, TimeUnit.MILLISECONDS))
-                    .build();
+                            idleConnectionTimeout, TimeUnit.MILLISECONDS));
+            // Log OkHttpClient properties
+            log.info("Creating OkHttpClient with; Connection pool: %s; Connect timeout: %s ms; Read timeout: %s ms; Write timeout: %s ms; Dispatcher: %s; Proxy options: %s",
+                builder.connectionPool,
+                builder.connectionTimeout,
+                builder.readTimeout,
+                builder.writeTimeout,
+                builder.dispatcher,
+                builder.proxyOptions);
+            return builder.build();
         }
         catch (Exception e) {
             // Log the error and rethrow as a runtime exception
