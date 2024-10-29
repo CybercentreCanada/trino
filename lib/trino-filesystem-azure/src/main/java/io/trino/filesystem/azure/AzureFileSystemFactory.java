@@ -134,7 +134,8 @@ public class AzureFileSystemFactory
                     .writeTimeout(clientOptions.getWriteTimeout())
                     .readTimeout(clientOptions.getReadTimeout())
                     .connectionPool(new ConnectionPool(maximumConnectionPoolSize,
-                            idleConnectionTimeout, TimeUnit.MILLISECONDS));
+                            idleConnectionTimeout, TimeUnit.MILLISECONDS))
+                    build();
         }
         catch (Exception e) {
             // Log the error and rethrow as a runtime exception
