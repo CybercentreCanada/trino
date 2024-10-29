@@ -31,8 +31,6 @@ import okhttp3.Dispatcher;
 import okhttp3.OkHttpClient;
 
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -83,10 +81,6 @@ public class AzureFileSystemFactory
         this.maxWriteConcurrency = maxWriteConcurrency;
         this.maxSingleUploadSize = requireNonNull(maxSingleUploadSize, "maxSingleUploadSize is null");
         this.tracingOptions = new OpenTelemetryTracingOptions().setOpenTelemetry(openTelemetry);
-
-        // Try to set OkHttpClient logging level to FINE
-        Logger okhttpLogger = Logger.getLogger("okhttp3.OkHttpClient");
-        okhttpLogger.setLevel(Level.FINE);
 
         Dispatcher dispatcher = new Dispatcher();
         dispatcher.setMaxRequests(maxHttpRequests);

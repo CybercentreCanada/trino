@@ -18,12 +18,20 @@ import com.google.inject.Module;
 import com.google.inject.Scopes;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
 
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
 public class AzureFileSystemModule
         extends AbstractConfigurationAwareModule
 {
+    private static final Logger okhttpLogger = Logger.getLogger("okhttp3.OkHttpClient");
+
     @Override
     protected void setup(Binder binder)
     {
+        // Set OkHttpClient logging level to FINE for detailed connection information
+        okhttpLogger.setLevel(Level.FINE);
+
         binder.bind(AzureFileSystemFactory.class).in(Scopes.SINGLETON);
         Module module = switch (buildConfigObject(AzureFileSystemConfig.class).getAuthType()) {
             case ACCESS_KEY -> new AzureAuthAccessKeyModule();
