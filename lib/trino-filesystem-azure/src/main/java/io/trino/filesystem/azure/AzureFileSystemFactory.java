@@ -118,7 +118,7 @@ public class AzureFileSystemFactory
         long idleConnectionTimeout = 30 * 1000; // in milliseconds
 
         try {
-            builder = new OkHttpAsyncHttpClientBuilder(okHttpClient)
+            OkHttpAsyncHttpClientBuilder builder = new OkHttpAsyncHttpClientBuilder(okHttpClient)
                     .proxy(clientOptions.getProxyOptions())
                     .configuration(clientOptions.getConfiguration())
                     .connectionTimeout(clientOptions.getConnectTimeout())
