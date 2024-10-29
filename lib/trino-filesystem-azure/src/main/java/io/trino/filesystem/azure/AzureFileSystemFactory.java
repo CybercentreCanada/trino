@@ -101,7 +101,6 @@ public class AzureFileSystemFactory
                 httpClient.writeTimeoutMillis(),
                 httpClient.dispatcher().maxRequests(),
                 httpClient.dispatcher().maxRequestsPerHost());
-
     }
 
     @PreDestroy
