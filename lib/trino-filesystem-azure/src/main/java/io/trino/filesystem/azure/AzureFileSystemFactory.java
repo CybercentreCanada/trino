@@ -118,7 +118,16 @@ public class AzureFileSystemFactory
         long idleConnectionTimeout = 30 * 1000; // in milliseconds
 
         try {
-            OkHttpAsyncHttpClientBuilder builder = new OkHttpAsyncHttpClientBuilder(okHttpClient)
+            // Log OkHttpClient properties
+            log.info("Creating OkHttpClient with; Connection pool size: %s; Idle connection timeout: %s; Connect timeout: %s ms; Read timeout: %s ms; Write timeout: %s ms; Configuration: %s; Proxy options: %s",
+                    maximumConnectionPoolSize,
+                    idleConnectionTimeout,
+                    clientOptions.getConnectTimeout(),
+                    clientOptions.getReadTimeout(),
+                    clientOptions.getWriteTimeout(),
+                    clientOptions.getConfiguration(),
+                    clientOptions.getProxyOptions());
+            return new OkHttpAsyncHttpClientBuilder(okHttpClient)
                     .proxy(clientOptions.getProxyOptions())
                     .configuration(clientOptions.getConfiguration())
                     .connectionTimeout(clientOptions.getConnectTimeout())
@@ -126,15 +135,6 @@ public class AzureFileSystemFactory
                     .readTimeout(clientOptions.getReadTimeout())
                     .connectionPool(new ConnectionPool(maximumConnectionPoolSize,
                             idleConnectionTimeout, TimeUnit.MILLISECONDS));
-            // Log OkHttpClient properties
-            log.info("Creating OkHttpClient with; Connection pool: %s; Connect timeout: %s ms; Read timeout: %s ms; Write timeout: %s ms; Dispatcher: %s; Proxy options: %s",
-                    builder.connectionPool,
-                    builder.connectionTimeout,
-                    builder.readTimeout,
-                    builder.writeTimeout,
-                    builder.dispatcher,
-                    builder.proxyOptions);
-            return builder.build();
         }
         catch (Exception e) {
             // Log the error and rethrow as a runtime exception
