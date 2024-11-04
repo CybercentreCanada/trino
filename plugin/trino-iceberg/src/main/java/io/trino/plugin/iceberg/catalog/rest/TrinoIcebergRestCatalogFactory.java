@@ -28,7 +28,6 @@ import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.TypeManager;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 
 import java.net.URI;
@@ -101,7 +100,7 @@ public class TrinoIcebergRestCatalogFactory
             }
 
             RESTSessionCatalog icebergCatalogInstance = new RESTSessionCatalog(
-                    config -> HTTPClient.builder(config).uri(config.get(CatalogProperties.URI)).build(),
+                    config -> RESTClientLogging.builder(config).uri(config.get(CatalogProperties.URI)).build(),
                     (context, config) -> {
                         ConnectorIdentity currentIdentity = (context.wrappedIdentity() != null)
                                 ? ((ConnectorIdentity) context.wrappedIdentity())
