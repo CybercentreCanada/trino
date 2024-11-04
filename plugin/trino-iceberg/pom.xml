@@ -27,6 +27,18 @@
 
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-bundled-guava</artifactId>
+            <version>${dep.iceberg.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-common</artifactId>
+            <version>${dep.iceberg.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
         </dependency>
 
@@ -328,18 +340,6 @@
             <groupId>org.openjdk.jol</groupId>
             <artifactId>jol-core</artifactId>
             <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>iceberg-bundled-guava</artifactId>
-            <version>${dep.iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>iceberg-common</artifactId>
-            <version>${dep.iceberg.version}</version>
         </dependency>
 
         <dependency>
