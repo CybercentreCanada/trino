@@ -486,6 +486,8 @@ following properties:
 * - `iceberg.rest-catalog.oauth2.scope`
   - Scope to be used when communicating with the REST Catalog. Applicable only
     when using `credential`.
+* - `iceberg.rest-catalog.oauth2.server-uri`
+  - The endpoint to retrieve access token from OAuth2 Server.
 :::
 
 The following example shows a minimal catalog configuration using an Iceberg
