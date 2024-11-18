@@ -356,6 +356,7 @@ public class RESTClientLogging
             }
 
             try {
+                LOG.info("responseType=%s, responseBody=%s", responseType, responseBody);
                 return mapper.readValue(responseBody, responseType);
             }
             catch (JsonProcessingException e) {
