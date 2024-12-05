@@ -55,8 +55,8 @@ jobs:
         inputs:
           targetType: 'inline'
           script: |
-            export MAVEN_OPTS="${{ MAVEN_INSTALL_OPTS }}"
-            $(Build.SourcesDirectory)/mvnw clean install ${{ MAVEN_FAST_INSTALL }} -e -pl '!:trino-docs,!:trino-server-rpm' -Dprofile -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
+            export MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
+            $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -e -pl '!:trino-docs,!:trino-server-rpm' -Dprofile -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
