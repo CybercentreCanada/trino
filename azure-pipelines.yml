@@ -58,7 +58,6 @@ jobs:
           script: |
             export MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
             $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dprofile -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
-            mvn clean install -DskipTests -pl '' -am
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
