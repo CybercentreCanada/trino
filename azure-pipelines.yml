@@ -29,8 +29,9 @@ jobs:
       containerRegistry: uchimera
       imageRepository: cccs/trino-base
       buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
-      JAVA_TOOL_OPTIONS: " -Xmx8g"
       DOCKER_BUILDKIT: 1
+      MAVEN_INSTALL_OPTS: "-Xmx3G -XX:+ExitOnOutOfMemoryError"
+      MAVEN_FAST_INSTALL: "-B -V -T 1C -DskipTests -Dmaven.source.skip=true -Dair.check.skip-all"
     container:
       image: uchimera.azurecr.io/cccs/dev/trino-build:465_cccs-main_20241205164426_b11358
       options: --entrypoint="" --user=0
@@ -54,7 +55,8 @@ jobs:
         inputs:
           targetType: 'inline'
           script: |
-            $(Build.SourcesDirectory)/mvnw clean install -e -DskipTests -pl '!:trino-docs' -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
+            export MAVEN_OPTS="${{ MAVEN_INSTALL_OPTS }}"
+            $(Build.SourcesDirectory)/mvnw clean install ${{ MAVEN_FAST_INSTALL }} -e -pl '!:trino-docs,!:trino-server-rpm' -Dprofile -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
