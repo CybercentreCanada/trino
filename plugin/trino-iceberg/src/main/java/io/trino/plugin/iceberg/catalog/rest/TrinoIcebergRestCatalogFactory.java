@@ -13,10 +13,12 @@
  */
 package io.trino.plugin.iceberg.catalog.rest;
 
+import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.google.inject.Inject;
+import io.trino.cache.EvictableCacheBuilder;
 import io.trino.plugin.hive.NodeVersion;
 import io.trino.plugin.iceberg.IcebergConfig;
 import io.trino.plugin.iceberg.IcebergFileSystemFactory;
@@ -28,6 +30,9 @@ import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.TypeManager;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 
 import java.net.URI;
@@ -36,6 +41,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.apache.iceberg.rest.auth.OAuth2Properties.CREDENTIAL;
 import static org.apache.iceberg.rest.auth.OAuth2Properties.TOKEN;
 
@@ -48,11 +54,16 @@ public class TrinoIcebergRestCatalogFactory
     private final URI serverUri;
     private final Optional<String> prefix;
     private final Optional<String> warehouse;
+    private final Namespace parentNamespace;
+    private final boolean nestedNamespaceEnabled;
     private final SessionType sessionType;
     private final boolean vendedCredentialsEnabled;
     private final SecurityProperties securityProperties;
     private final boolean uniqueTableLocation;
     private final TypeManager typeManager;
+    private final boolean caseInsensitiveNameMatching;
+    private final Cache<Namespace, Namespace> remoteNamespaceMappingCache;
+    private final Cache<TableIdentifier, TableIdentifier> remoteTableMappingCache;
 
     @GuardedBy("this")
     private RESTSessionCatalog icebergCatalog;
@@ -74,12 +85,23 @@ public class TrinoIcebergRestCatalogFactory
         this.serverUri = restConfig.getBaseUri();
         this.prefix = restConfig.getPrefix();
         this.warehouse = restConfig.getWarehouse();
+        this.parentNamespace = restConfig.getParentNamespace();
+        this.nestedNamespaceEnabled = restConfig.isNestedNamespaceEnabled();
         this.sessionType = restConfig.getSessionType();
         this.vendedCredentialsEnabled = restConfig.isVendedCredentialsEnabled();
         this.securityProperties = requireNonNull(securityProperties, "securityProperties is null");
         requireNonNull(icebergConfig, "icebergConfig is null");
         this.uniqueTableLocation = icebergConfig.isUniqueTableLocation();
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
+        this.caseInsensitiveNameMatching = restConfig.isCaseInsensitiveNameMatching();
+        this.remoteNamespaceMappingCache = EvictableCacheBuilder.newBuilder()
+                .expireAfterWrite(restConfig.getCaseInsensitiveNameMatchingCacheTtl().toMillis(), MILLISECONDS)
+                .shareNothingWhenDisabled()
+                .build();
+        this.remoteTableMappingCache = EvictableCacheBuilder.newBuilder()
+                .expireAfterWrite(restConfig.getCaseInsensitiveNameMatchingCacheTtl().toMillis(), MILLISECONDS)
+                .shareNothingWhenDisabled()
+                .build();
     }
 
     @Override
@@ -122,8 +144,13 @@ public class TrinoIcebergRestCatalogFactory
                 catalogName,
                 sessionType,
                 credentials,
+                parentNamespace,
+                nestedNamespaceEnabled,
                 trinoVersion,
                 typeManager,
-                uniqueTableLocation);
+                uniqueTableLocation,
+                caseInsensitiveNameMatching,
+                remoteNamespaceMappingCache,
+                remoteTableMappingCache);
     }
 }
