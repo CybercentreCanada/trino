@@ -37,54 +37,54 @@
         <artifact id="${project.groupId}:trino-bigquery:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/blackhole">
+    <!-- <artifactSet to="plugin/blackhole">
         <artifact id="${project.groupId}:trino-blackhole:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/cassandra">
+    <!-- <artifactSet to="plugin/cassandra">
         <artifact id="${project.groupId}:trino-cassandra:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/clickhouse">
+    <!-- <artifactSet to="plugin/clickhouse">
         <artifact id="${project.groupId}:trino-clickhouse:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/delta-lake">
+    <!-- <artifactSet to="plugin/delta-lake">
         <artifact id="${project.groupId}:trino-delta-lake:zip:${project.version}">
             <unpack />
         </artifact>
         <artifact id="${project.groupId}:trino-hdfs:zip:${project.version}">
             <unpack useRoot="true" />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/druid">
+    <!-- <artifactSet to="plugin/druid">
         <artifact id="${project.groupId}:trino-druid:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/elasticsearch">
+    <!-- <artifactSet to="plugin/elasticsearch">
         <artifact id="${project.groupId}:trino-elasticsearch:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/example-http">
+    <!-- <artifactSet to="plugin/example-http">
         <artifact id="${project.groupId}:trino-example-http:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/exasol">
+    <!-- <artifactSet to="plugin/exasol">
         <artifact id="${project.groupId}:trino-exasol:zip:${project.version}">
             <unpack />
         </artifact>
@@ -100,27 +100,27 @@
         <artifact id="${project.groupId}:trino-exchange-hdfs:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/faker">
+    <!-- <artifactSet to="plugin/faker">
         <artifact id="${project.groupId}:trino-faker:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/geospatial">
+    <!-- <artifactSet to="plugin/geospatial">
         <artifact id="${project.groupId}:trino-geospatial:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/google-sheets">
+    <!-- <artifactSet to="plugin/google-sheets">
         <artifact id="${project.groupId}:trino-google-sheets:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/hive">
+    <!-- <artifactSet to="plugin/hive">
         <artifact id="${project.groupId}:trino-hive:zip:${project.version}">
             <unpack />
         </artifact>
@@ -175,27 +175,27 @@
         <artifact id="${project.groupId}:trino-kafka:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/kafka-event-listener">
+    <!-- <artifactSet to="plugin/kafka-event-listener">
         <artifact id="${project.groupId}:trino-kafka-event-listener:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/kinesis">
+    <!-- <artifactSet to="plugin/kinesis">
         <artifact id="${project.groupId}:trino-kinesis:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/kudu">
+    <!-- <artifactSet to="plugin/kudu">
         <artifact id="${project.groupId}:trino-kudu:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/mariadb">
+    <!-- <artifactSet to="plugin/mariadb">
         <artifact id="${project.groupId}:trino-mariadb:zip:${project.version}">
             <unpack />
         </artifact>
@@ -241,9 +241,9 @@
         <artifact id="${project.groupId}:trino-openlineage:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/opensearch">
+    <!-- <artifactSet to="plugin/opensearch">
         <artifact id="${project.groupId}:trino-opensearch:zip:${project.version}">
             <unpack />
         </artifact>
@@ -265,9 +265,9 @@
         <artifact id="${project.groupId}:trino-phoenix5:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/pinot">
+    <!-- <artifactSet to="plugin/pinot">
         <artifact id="${project.groupId}:trino-pinot:zip:${project.version}">
             <unpack />
         </artifact>
@@ -283,15 +283,15 @@
         <artifact id="${project.groupId}:trino-prometheus:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/redis">
+    <!-- <artifactSet to="plugin/redis">
         <artifact id="${project.groupId}:trino-redis:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/redshift">
+    <!-- <artifactSet to="plugin/redshift">
         <artifact id="${project.groupId}:trino-redshift:zip:${project.version}">
             <unpack />
         </artifact>
@@ -331,15 +331,15 @@
         <artifact id="${project.groupId}:trino-sqlserver:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/teradata-functions">
+    <!-- <artifactSet to="plugin/teradata-functions">
         <artifact id="${project.groupId}:trino-teradata-functions:zip:${project.version}">
             <unpack />
         </artifact>
-    </artifactSet>
+    </artifactSet> -->
 
-    <artifactSet to="plugin/thrift">
+    <!-- <artifactSet to="plugin/thrift">
         <artifact id="${project.groupId}:trino-thrift:zip:${project.version}">
             <unpack />
         </artifact>
