@@ -9,6 +9,11 @@ variables:
   m2RepoNodePath: /datadisks/disk1/.m2/repository
   m2RepoContainerPath: /tmp/m2/repository
 
+parameters:
+- name: skipChecks
+  type: boolean
+  default: false
+
 jobs:
   - job: PrepareNode
     displayName: Prepare the node for the Container Build
@@ -58,6 +63,15 @@ jobs:
           script: |
             MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
             $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
+        condition: ne('${{ parameters.skipChecks }}', true)
+      - task: Docker@2
+        displayName: Maven build without checks
+        inputs:
+          targetType: 'inline'
+          script: |
+            MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
+            $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -Dair.check.skip-all -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
+        condition: eq('${{ parameters.skipChecks }}', true)
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
