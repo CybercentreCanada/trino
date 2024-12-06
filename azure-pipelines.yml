@@ -64,7 +64,7 @@ jobs:
             MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
             $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
         condition: ne('${{ parameters.skipChecks }}', true)
-      - task: Docker@2
+      - task: Bash@3
         displayName: Maven build without checks
         inputs:
           targetType: 'inline'
