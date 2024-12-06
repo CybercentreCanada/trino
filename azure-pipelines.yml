@@ -6,10 +6,23 @@ trigger:
 
 variables:
   containerRegistry: uchimera
+  m2RepoNodePath: /datadisks/disk1/.m2/repository
+  m2RepoContainerPath: /tmp/m2/repository
 
 jobs:
+  - job: PrepareNode
+    displayName: Prepare the node for the Container Build
+    pool: cauldron-vmss
+    steps:
+      - checkout: none
+      - bash: |
+          mkdir -p ${{ variables.m2RepoNodePath }}
+        displayName: Create required directories
+
   - job: ContainerBuild
     timeoutInMinutes: 120
+    dependsOn:
+      - PrepareNode
     displayName: Maven Build (Container)
     pool: cybertron-build-pool
     variables:
@@ -24,6 +37,8 @@ jobs:
       image: uchimera.azurecr.io/cccs/dev/trino-build:465_cccs-main_20241205164426_b11358
       options: --entrypoint="" --user=0
       endpoint: uchimera
+      volumes:
+        - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
     steps:
       - task: Bash@3
         displayName: Parse Source Control Branch Name
@@ -42,7 +57,7 @@ jobs:
           targetType: 'inline'
           script: |
             MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
-            $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true
+            $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
         inputs:
