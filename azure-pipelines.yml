@@ -6,39 +6,39 @@ trigger:
 
 variables:
   containerRegistry: uchimera
-  m2RepoNodePath: /datadisks/disk1/.m2/repository
-  m2RepoContainerPath: /tmp/m2/repository
+  # m2RepoNodePath: /datadisks/disk1/.m2/repository
+  # m2RepoContainerPath: /tmp/m2/repository
 
 jobs:
-  - job: PrepareNode
-    displayName: Prepare the node for the Container Build
-    pool: cauldron-vmss
-    steps:
-      - checkout: none
-      - bash: |
-          mkdir -p ${{ variables.m2RepoNodePath }}
-        displayName: Create required directories
+  # - job: PrepareNode
+  #   displayName: Prepare the node for the Container Build
+  #   pool: cauldron-vmss
+  #   steps:
+  #     - checkout: none
+  #     - bash: |
+  #         mkdir -p ${{ variables.m2RepoNodePath }}
+  #       displayName: Create required directories
 
   - job: ContainerBuild
     timeoutInMinutes: 120
-    dependsOn:
-      - PrepareNode
+    # dependsOn:
+    #   - PrepareNode
     displayName: Maven Build (Container)
-    pool: cauldron-vmss
+    pool: cybertron-build-pool
     variables:
       containerRegistry: uchimera
       imageRepository: cccs/trino-base
       buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
       DOCKER_BUILDKIT: 1
-      MAVEN_INSTALL_OPTS: "-Xmx8G -XX:+ExitOnOutOfMemoryError"
+      MAVEN_INSTALL_OPTS: "-Xmx4G -XX:+ExitOnOutOfMemoryError"
       MAVEN_FAST_INSTALL: "-B -V -T 1C -DskipTests -Dmaven.source.skip=true -Dair.check.skip-all"
       SKIPPED_PROJECTS: "!:trino-docs,!:trino-server-rpm,!:trino-blackhole,!:trino-exasol,!:trino-faker,!:trino-hdfs,!:trino-hive,!:trino-hudi,!:trino-ignite,!:trino-kafka,!:trino-kinesis,!:trino-ml,!:trino-phoenix5,!:trino-pinot,!:trino-snowflake,!:trino-example-http,!:trino-google-sheets,!:trino-geospatial,!:trino-druid,!:trino-exchange-hdfs,!:trino-openlineage,!:trino-jmx,!:trino-thrift-api,!:trino-thrift-testing-server,!:trino-thrift,!:trino-clickhouse,!:trino-spooling-filesystem,!:trino-opensearch,!:trino-vertica,!:trino-singlestore,!:trino-teradata-functions,!:trino-elasticsearch,!:trino-kudu,!:trino-bigquery,!:trino-testing-resources,!:trino-delta-lake,!:trino-prometheus,!:trino-cassandra,!:trino-sqlserver,!:trino-mariadb,!:trino-redis,!:trino-redshift,!:trino-example-jdbc,!:trino-proxy,!:trino-verifier,!:trino-benchmark-queries,!:trino-benchto-benchmarks,!:trino-tests,!:trino-faulttolerant-tests,!:trino-plugin-reader,!:trino-product-tests-groups,!:trino-product-tests,!:trino-product-tests-launcher,!:trino-server-dev,!:trino-test-jdbc-compatibility-old-driver,!:trino-test-jdbc-compatibility-old-server,!:trino-testing-services,!:trino-testing,!:trino-testing-containers,!:trino-testing-kafka"
     container:
       image: uchimera.azurecr.io/cccs/dev/trino-build:465_cccs-main_20241205164426_b11358
       options: --entrypoint="" --user=0
       endpoint: uchimera
-      volumes:
-        - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
+      # volumes:
+      #   - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
     steps:
       - task: Bash@3
         displayName: Parse Source Control Branch Name
@@ -47,16 +47,16 @@ jobs:
           script: |
             BRANCH_NAME=$(echo "$SYSTEM_PULLREQUEST_SOURCEBRANCH $BUILD_SOURCEBRANCH" | sed -r 's/^\s*(refs\/heads\/)?(\S*).*$/\2/' | sed 's/\//_/g')
             echo "##vso[task.setvariable variable=BRANCH_NAME]$BRANCH_NAME"
-      - task: MavenAuthenticate@0
-        displayName: Authenticate to cccs-stratus Feed
-        inputs:
-          mavenServiceConnections: cccs-stratus
+      # - task: MavenAuthenticate@0
+      #   displayName: Authenticate to cccs-stratus Feed
+      #   inputs:
+      #     mavenServiceConnections: cccs-stratus
       - task: Bash@3
         displayName: Maven build
         inputs:
           targetType: 'inline'
           script: |
-            export MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
+            MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
             $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
