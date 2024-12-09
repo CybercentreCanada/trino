@@ -47,6 +47,8 @@ import static org.apache.iceberg.rest.auth.OAuth2Properties.TOKEN;
 public class TrinoIcebergRestCatalogFactory
         implements TrinoCatalogFactory
 {
+    private static final Logger LOG = Logger.get(TrinoIcebergRestCatalogFactory.class);
+
     private final IcebergFileSystemFactory fileSystemFactory;
     private final CatalogName catalogName;
     private final String trinoVersion;
@@ -109,6 +111,7 @@ public class TrinoIcebergRestCatalogFactory
         // Creation of the RESTSessionCatalog is lazy due to required network calls
         // for authorization and config route
         if (icebergCatalog == null) {
+            LOG.warn("icebergCatalog == null, creating new RESTSessionCatalog");
             ImmutableMap.Builder<String, String> properties = ImmutableMap.builder();
             properties.put(CatalogProperties.URI, serverUri.toString());
             warehouse.ifPresent(location -> properties.put(CatalogProperties.WAREHOUSE_LOCATION, location));
