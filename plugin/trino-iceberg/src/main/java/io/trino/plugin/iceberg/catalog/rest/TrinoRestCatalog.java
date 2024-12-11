@@ -686,7 +686,9 @@ public class TrinoRestCatalog
         return switch (sessionType) {
             case NONE -> {
                 String sessionId = randomUUID().toString();
+                String source = session.getSource().orElse("default");
                 log.warn("Generated sessionId for NONE type: %s", sessionId);
+                log.warn("Source for NONE type: %s", source);
 
                 Map<String, String> properties = ImmutableMap.of();
 
