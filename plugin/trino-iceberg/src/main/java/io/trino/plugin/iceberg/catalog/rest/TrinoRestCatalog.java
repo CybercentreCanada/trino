@@ -692,7 +692,7 @@ public class TrinoRestCatalog
                 Map<String, String> credentials = session.getIdentity().getExtraCredentials();
 
                 log.warn("Properties for NONE type: %s", properties);
-                log.warn("Credentials for NONE type: %s", redactSensitiveInfo(credentials));
+                log.warn("Credentials for NONE type: %s", credentials);
 
                 yield new SessionCatalog.SessionContext(sessionId, null, credentials, properties, session.getIdentity());
             }
@@ -724,7 +724,7 @@ public class TrinoRestCatalog
                         .putAll(session.getIdentity().getExtraCredentials())
                         .put(OAuth2Properties.JWT_TOKEN_TYPE, subjectJwt)
                         .buildOrThrow();
-                log.warn("Credentials for USER type: %s", redactSensitiveInfo(credentials));
+                log.warn("Credentials for USER type: %s", credentials);
 
                 yield new SessionCatalog.SessionContext(sessionId, session.getUser(), credentials, properties, session.getIdentity());
             }
