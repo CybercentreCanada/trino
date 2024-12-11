@@ -689,7 +689,6 @@ public class TrinoRestCatalog
                 log.warn("Generated sessionId for NONE type: %s", sessionId);
 
                 Map<String, String> properties = ImmutableMap.of();
-                Map<String, String> credentials = session.getIdentity().getExtraCredentials();
 
                 log.warn("Properties for NONE type: %s", properties);
                 log.warn("Credentials for NONE type: %s", credentials);
