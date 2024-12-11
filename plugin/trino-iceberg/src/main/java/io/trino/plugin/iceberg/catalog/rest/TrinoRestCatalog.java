@@ -692,7 +692,8 @@ public class TrinoRestCatalog
             byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             UUID uuid = UUID.nameUUIDFromBytes(hashBytes);
             return uuid.toString();
-        } catch (NoSuchAlgorithmException e) {
+        }
+        catch (NoSuchAlgorithmException e) {
             throw new RuntimeException("Failed to hash credentials and source", e);
         }
     }
