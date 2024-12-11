@@ -682,16 +682,30 @@ public class TrinoRestCatalog
 
     private SessionCatalog.SessionContext convert(ConnectorSession session)
     {
+        log.warn("Converting session with type: %s", sessionType);
         return switch (sessionType) {
-            case NONE -> new SessionContext(randomUUID().toString(), null, credentials, ImmutableMap.of(), session.getIdentity());
+            case NONE -> {
+                String sessionId = randomUUID().toString();
+                log.warn("Generated sessionId for NONE type: %s", sessionId);
+
+                Map<String, String> properties = ImmutableMap.of();
+                Map<String, String> credentials = session.getIdentity().getExtraCredentials();
+
+                log.warn("Properties for NONE type: %s", properties);
+                log.warn("Credentials for NONE type: %s", redactSensitiveInfo(credentials));
+
+                yield new SessionCatalog.SessionContext(sessionId, null, credentials, properties, session.getIdentity());
+            }
             case USER -> {
                 String sessionId = format("%s-%s", session.getUser(), session.getSource().orElse("default"));
+                log.warn("Generated sessionId for USER type: %s", sessionId);
 
                 Map<String, String> properties = ImmutableMap.of(
                         "user", session.getUser(),
                         "source", session.getSource().orElse(""),
                         "trinoCatalog", catalogName.toString(),
                         "trinoVersion", trinoVersion);
+                log.warn("Properties for USER type: %s", properties);
 
                 Map<String, Object> claims = ImmutableMap.<String, Object>builder()
                         .putAll(properties)
@@ -704,11 +718,13 @@ public class TrinoRestCatalog
                         .claims(claims)
                         .json(new JacksonSerializer<>())
                         .compact();
+                log.warn("Generated subjectJwt: %s", subjectJwt);
 
                 Map<String, String> credentials = ImmutableMap.<String, String>builder()
                         .putAll(session.getIdentity().getExtraCredentials())
                         .put(OAuth2Properties.JWT_TOKEN_TYPE, subjectJwt)
                         .buildOrThrow();
+                log.warn("Credentials for USER type: %s", redactSensitiveInfo(credentials));
 
                 yield new SessionCatalog.SessionContext(sessionId, session.getUser(), credentials, properties, session.getIdentity());
             }
