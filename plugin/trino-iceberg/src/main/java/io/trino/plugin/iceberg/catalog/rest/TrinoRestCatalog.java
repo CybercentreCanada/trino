@@ -71,6 +71,9 @@ import org.apache.iceberg.view.ViewBuilder;
 import org.apache.iceberg.view.ViewRepresentation;
 import org.apache.iceberg.view.ViewVersion;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Iterator;
@@ -78,6 +81,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -680,12 +684,25 @@ public class TrinoRestCatalog
         replaceViewVersion.commit();
     }
 
+    private String hashCredentialsAndSource(Map<String, String> credentials, String source)
+    {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            String input = credentials.toString() + "|" + source;
+            byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
+            UUID uuid = UUID.nameUUIDFromBytes(hashBytes);
+            return uuid.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("Failed to hash credentials and source", e);
+        }
+    }
+
     private SessionCatalog.SessionContext convert(ConnectorSession session)
     {
         log.warn("Converting session with type: %s", sessionType);
         return switch (sessionType) {
             case NONE -> {
-                String sessionId = randomUUID().toString();
+                String sessionId = hashCredentialsAndSource(credentials, session.getSource().orElse("default"));
                 String source = session.getSource().orElse("default");
                 log.warn("Generated sessionId for NONE type: %s", sessionId);
                 log.warn("Source for NONE type: %s", source);
