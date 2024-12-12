@@ -684,11 +684,11 @@ public class TrinoRestCatalog
         replaceViewVersion.commit();
     }
 
-    private String hashCredentialsAndSource(Map<String, String> credentials, String source)
+    private String hashCredentials(Map<String, String> credentials)
     {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            String input = credentials.toString() + "|" + source;
+            String input = credentials.toString();
             byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             UUID uuid = UUID.nameUUIDFromBytes(hashBytes);
             return uuid.toString();
@@ -703,28 +703,21 @@ public class TrinoRestCatalog
         log.warn("Converting session with type: %s", sessionType);
         return switch (sessionType) {
             case NONE -> {
-                String sessionId = hashCredentialsAndSource(credentials, session.getSource().orElse("default"));
-                String source = session.getSource().orElse("default");
+                String sessionId = hashCredentials(credentials);
                 log.warn("Generated sessionId for NONE type: %s", sessionId);
-                log.warn("Source for NONE type: %s", source);
+                log.warn("session.getIdentity(): %s", session.getIdentity());
 
-                Map<String, String> properties = ImmutableMap.of();
-
-                log.warn("Properties for NONE type: %s", properties);
-                log.warn("Credentials for NONE type: %s", credentials);
-
-                yield new SessionCatalog.SessionContext(sessionId, null, credentials, properties, session.getIdentity());
+                yield new SessionCatalog.SessionContext(sessionId, null, credentials, ImmutableMap.of(), session.getIdentity());
             }
             case USER -> {
                 String sessionId = format("%s-%s", session.getUser(), session.getSource().orElse("default"));
-                log.warn("Generated sessionId for USER type: %s", sessionId);
+                log.debug("Generated sessionId for USER type: %s", sessionId);
 
                 Map<String, String> properties = ImmutableMap.of(
                         "user", session.getUser(),
                         "source", session.getSource().orElse(""),
                         "trinoCatalog", catalogName.toString(),
                         "trinoVersion", trinoVersion);
-                log.warn("Properties for USER type: %s", properties);
 
                 Map<String, Object> claims = ImmutableMap.<String, Object>builder()
                         .putAll(properties)
@@ -737,13 +730,11 @@ public class TrinoRestCatalog
                         .claims(claims)
                         .json(new JacksonSerializer<>())
                         .compact();
-                log.warn("Generated subjectJwt: %s", subjectJwt);
 
                 Map<String, String> credentials = ImmutableMap.<String, String>builder()
                         .putAll(session.getIdentity().getExtraCredentials())
                         .put(OAuth2Properties.JWT_TOKEN_TYPE, subjectJwt)
                         .buildOrThrow();
-                log.warn("Credentials for USER type: %s", credentials);
 
                 yield new SessionCatalog.SessionContext(sessionId, session.getUser(), credentials, properties, session.getIdentity());
             }
