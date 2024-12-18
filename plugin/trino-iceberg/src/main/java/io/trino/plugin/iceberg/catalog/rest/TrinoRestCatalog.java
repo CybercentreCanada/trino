@@ -703,13 +703,13 @@ public class TrinoRestCatalog
         return switch (sessionType) {
             case NONE -> {
                 String sessionId = hashCredentials(credentials);
-                log.debug("Generated sessionId for NONE sessionType: %s", sessionId);
+                log.warn("Generated sessionId for NONE sessionType: %s", sessionId);
 
                 yield new SessionCatalog.SessionContext(sessionId, null, credentials, ImmutableMap.of(), session.getIdentity());
             }
             case USER -> {
                 String sessionId = format("%s-%s", session.getUser(), session.getSource().orElse("default"));
-                log.debug("Generated sessionId for USER sessionType: %s", sessionId);
+                log.warn("Generated sessionId for USER sessionType: %s", sessionId);
 
                 Map<String, String> properties = ImmutableMap.of(
                         "user", session.getUser(),
