@@ -689,7 +689,6 @@ public class TrinoRestCatalog
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             String input = credentials.toString();
-            log.warn("credentials.toString(): %s", input);
             byte[] hashBytes = digest.digest(input.getBytes(StandardCharsets.UTF_8));
             UUID uuid = UUID.nameUUIDFromBytes(hashBytes);
             return uuid.toString();
@@ -704,13 +703,13 @@ public class TrinoRestCatalog
         return switch (sessionType) {
             case NONE -> {
                 String sessionId = hashCredentials(credentials);
-                log.warn("Generated sessionId for NONE sessionType: %s", sessionId);
+                log.debug("Generated sessionId for NONE sessionType: %s", sessionId);
 
                 yield new SessionCatalog.SessionContext(sessionId, null, credentials, ImmutableMap.of(), session.getIdentity());
             }
             case USER -> {
                 String sessionId = format("%s-%s", session.getUser(), session.getSource().orElse("default"));
-                log.warn("Generated sessionId for USER sessionType: %s", sessionId);
+                log.debug("Generated sessionId for USER sessionType: %s", sessionId);
 
                 Map<String, String> properties = ImmutableMap.of(
                         "user", session.getUser(),
