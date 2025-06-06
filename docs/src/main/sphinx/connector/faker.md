@@ -48,7 +48,7 @@ The following table details all general configuration properties:
 * - `faker.default-limit`
   - Default number of rows in a table. Defaults to `1000`.
 * - `faker.locale`
-  - Default locale for generating character-based data, specified as a IETF BCP
+  - Default locale for generating character-based data, specified as an IETF BCP
     47 language tag string. Defaults to `en`.
 * - `faker.sequence-detection-enabled`
   - If true, when creating a table using existing data, columns with the number
@@ -201,6 +201,7 @@ Faker supports the following non-character types:
 - `TIMESTAMP WITH TIME ZONE` and `TIMESTAMP(P) WITH TIME ZONE`
 - `TIME` and `TIME(P)`
 - `TIME WITH TIME ZONE` and `TIME(P) WITH TIME ZONE`
+- `ROW`
 - `IPADDRESS`
 - `UUID`
 
@@ -212,7 +213,7 @@ their data range, set the `min` and `max` column properties - see
 
 Faker does not support the following data types:
 
-- Structural types `ARRAY`, `MAP`, and `ROW`
+- Structural types `ARRAY` and `MAP`
 - `JSON`
 - Geometry
 - HyperLogLog and all digest types

@@ -51,6 +51,7 @@ import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.testing.MaterializedResult.DEFAULT_PRECISION;
 import static io.trino.testing.MaterializedResult.resultBuilder;
 import static java.util.Locale.ENGLISH;
+import static java.util.Map.entry;
 import static java.util.Objects.requireNonNull;
 import static org.apache.iceberg.MetadataColumns.DELETE_FILE_PATH;
 import static org.apache.iceberg.MetadataColumns.DELETE_FILE_POS;
@@ -133,7 +134,7 @@ public abstract class BaseIcebergSystemTables
     }
 
     @Test
-    public void testPartitionTable()
+    public void testPartitionsTable()
     {
         assertQuery("SELECT count(*) FROM test_schema.test_table", "VALUES 6");
         assertQuery("SHOW COLUMNS FROM test_schema.\"test_table$partitions\"",
@@ -161,7 +162,7 @@ public abstract class BaseIcebergSystemTables
     }
 
     @Test
-    public void testPartitionTableWithNan()
+    public void testPartitionsTableWithNan()
     {
         assertQuery("SELECT count(*) FROM test_schema.test_table_nan", "VALUES 6");
 
@@ -197,7 +198,23 @@ public abstract class BaseIcebergSystemTables
     }
 
     @Test
-    public void testPartitionTableOnDropColumn()
+    public void testPartitionsTableAfterAddColumn()
+    {
+        try (TestTable table = newTrinoTable("test_partitions_new_column", "AS SELECT 1 col")) {
+            assertThat(computeScalar("SELECT data.col FROM \"" + table.getName() + "$partitions\""))
+                    .isEqualTo(new MaterializedRow(DEFAULT_PRECISION, 1, 1, 0L, null));
+
+            assertUpdate("ALTER TABLE " + table.getName() + " ADD COLUMN new_col int");
+
+            assertThat(computeScalar("SELECT data.col FROM \"" + table.getName() + "$partitions\""))
+                    .isEqualTo(new MaterializedRow(DEFAULT_PRECISION, 1, 1, 0L, null));
+            assertThat(computeScalar("SELECT data.new_col FROM \"" + table.getName() + "$partitions\""))
+                    .isNull();
+        }
+    }
+
+    @Test
+    public void testPartitionsTableOnDropColumn()
     {
         MaterializedResult resultAfterDrop = computeActual("SELECT * from test_schema.\"test_table_drop_column$partitions\"");
         assertThat(resultAfterDrop.getRowCount()).isEqualTo(3);
@@ -315,7 +332,7 @@ public abstract class BaseIcebergSystemTables
     @Test
     void testAllManifests()
     {
-        try (TestTable table = newTrinoTable("test_all_manifests", "AS SELECT 1 x")) {
+        try (TestTable table = newTrinoTable("test_all_manifests", "(x) AS VALUES 1, 2")) {
             assertThat(query("SHOW COLUMNS FROM \"" + table.getName() + "$all_manifests\""))
                     .skippingTypesCheck()
                     .matches("VALUES " +
@@ -326,7 +343,11 @@ public abstract class BaseIcebergSystemTables
                             "('added_data_files_count', 'integer', '', '')," +
                             "('existing_data_files_count', 'integer', '', '')," +
                             "('deleted_data_files_count', 'integer', '', '')," +
-                            "('partition_summaries', 'array(row(contains_null boolean, contains_nan boolean, lower_bound varchar, upper_bound varchar))', '', '')");
+                            "('added_delete_files_count', 'integer', '', '')," +
+                            "('existing_delete_files_count', 'integer', '', '')," +
+                            "('deleted_delete_files_count', 'integer', '', '')," +
+                            "('partition_summaries', 'array(row(contains_null boolean, contains_nan boolean, lower_bound varchar, upper_bound varchar))', '', '')," +
+                            "('reference_snapshot_id', 'bigint', '', '')");
 
             assertThat((String) computeScalar("SELECT path FROM \"" + table.getName() + "$all_manifests\"")).endsWith("-m0.avro");
             assertThat((Long) computeScalar("SELECT length FROM \"" + table.getName() + "$all_manifests\"")).isPositive();
@@ -335,10 +356,15 @@ public abstract class BaseIcebergSystemTables
             assertThat((Integer) computeScalar("SELECT added_data_files_count FROM \"" + table.getName() + "$all_manifests\"")).isEqualTo(1);
             assertThat((Integer) computeScalar("SELECT existing_data_files_count FROM \"" + table.getName() + "$all_manifests\"")).isZero();
             assertThat((Integer) computeScalar("SELECT deleted_data_files_count FROM \"" + table.getName() + "$all_manifests\"")).isZero();
+            assertThat((Integer) computeScalar("SELECT added_delete_files_count FROM \"" + table.getName() + "$all_manifests\"")).isZero();
+            assertThat((Integer) computeScalar("SELECT existing_delete_files_count FROM \"" + table.getName() + "$all_manifests\"")).isZero();
+            assertThat((Integer) computeScalar("SELECT deleted_delete_files_count FROM \"" + table.getName() + "$all_manifests\"")).isZero();
             assertThat((List<?>) computeScalar("SELECT partition_summaries FROM \"" + table.getName() + "$all_manifests\"")).isEmpty();
+            assertThat((Long) computeScalar("SELECT reference_snapshot_id FROM \"" + table.getName() + "$all_manifests\"")).isPositive();
 
-            assertUpdate("DELETE FROM " + table.getName(), 1);
-            assertThat((Long) computeScalar("SELECT count(1) FROM \"" + table.getName() + "$all_manifests\"")).isEqualTo(2);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 1", 1);
+            assertThat((Long) computeScalar("SELECT count(1) FROM \"" + table.getName() + "$all_manifests\"")).isEqualTo(3);
+            assertThat((Long) computeScalar("SELECT count(1) FROM \"" + table.getName() + "$all_manifests\" WHERE added_delete_files_count > 0")).isEqualTo(1);
         }
     }
 
@@ -698,7 +724,7 @@ public abstract class BaseIcebergSystemTables
             // upper_bounds
             //noinspection unchecked
             Map<Integer, String> upperBounds = (Map<Integer, String>) deleteFile.getField(11);
-            assertThat(lowerBounds)
+            assertThat(upperBounds)
                     .hasSize(2)
                     .satisfies(_ -> assertThat(upperBounds.get(DELETE_FILE_POS.fieldId())).isEqualTo("0"))
                     .satisfies(_ -> assertThat(upperBounds.get(DELETE_FILE_PATH.fieldId())).contains(table.getName()));
@@ -767,7 +793,7 @@ public abstract class BaseIcebergSystemTables
     }
 
     @Test
-    public void testPartitionColumns()
+    public void testPartitionsColumns()
     {
         try (TestTable testTable = newTrinoTable("test_partition_columns", """
                 WITH (partitioning = ARRAY[
@@ -815,6 +841,38 @@ public abstract class BaseIcebergSystemTables
             assertThat(query("SELECT data_file.partition FROM \"" + table.getName() + "$entries\""))
                     .matches("SELECT CAST(ROW(DATE '2014-01-01') AS ROW(dt date))");
         }
+    }
+
+    @Test
+    public void testPropertiesTable()
+    {
+        try (TestTable table = newTrinoTable("test_properties", "(x BIGINT,y DOUBLE) WITH (sorted_by = ARRAY['y'])")) {
+            Table icebergTable = loadTable(table.getName());
+            Map<String, String> actualProperties = getTableProperties(table.getName());
+            if (format == PARQUET) {
+                assertThat(actualProperties).hasSize(9);
+            }
+            else {
+                assertThat(actualProperties).hasSize(10);
+                assertThat(actualProperties).contains(entry("write.%s.compression-codec".formatted(format.name().toLowerCase(ENGLISH)), "zstd"));
+            }
+            assertThat(actualProperties).contains(
+                    entry("format", "iceberg/" + format.name()),
+                    entry("provider", "iceberg"),
+                    entry("current-snapshot-id", Long.toString(icebergTable.currentSnapshot().snapshotId())),
+                    entry("location", icebergTable.location()),
+                    entry("format-version", "2"),
+                    entry("sort-order", "y ASC NULLS FIRST"),
+                    entry("write.format.default", format.name()),
+                    entry("write.parquet.compression-codec", "zstd"),
+                    entry("commit.retry.num-retries", "4"));
+        }
+    }
+
+    private Map<String, String> getTableProperties(String tableName)
+    {
+        return computeActual("SELECT key, value FROM \"" + tableName + "$properties\"").getMaterializedRows().stream()
+                .collect(toImmutableMap(row -> (String) row.getField(0), row -> (String) row.getField(1)));
     }
 
     private Long nanCount(long value)

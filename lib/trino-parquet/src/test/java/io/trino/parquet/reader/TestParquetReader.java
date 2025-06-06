@@ -23,11 +23,10 @@ import io.trino.parquet.ParquetReaderOptions;
 import io.trino.parquet.metadata.BlockMetadata;
 import io.trino.parquet.metadata.ParquetMetadata;
 import io.trino.parquet.writer.ParquetWriterOptions;
-import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
-import io.trino.spi.block.LazyBlock;
 import io.trino.spi.connector.ConnectorSession;
+import io.trino.spi.connector.SourcePage;
 import io.trino.spi.metrics.Count;
 import io.trino.spi.metrics.Metric;
 import io.trino.spi.predicate.Domain;
@@ -79,7 +78,7 @@ public class TestParquetReader
                         types,
                         columnNames,
                         generateInputPages(types, 100, 5)),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         assertThat(parquetMetadata.getBlocks().size()).isGreaterThan(1);
         // Verify file has only non-dictionary encodings as dictionary memory usage is already tested in TestFlatColumnReader#testMemoryUsage
@@ -92,16 +91,15 @@ public class TestParquetReader
         AggregatedMemoryContext memoryContext = newSimpleAggregatedMemoryContext();
         ParquetReader reader = createParquetReader(dataSource, parquetMetadata, memoryContext, types, columnNames);
 
-        Page page = reader.nextPage();
-        assertThat(page.getBlock(0)).isInstanceOf(LazyBlock.class);
+        SourcePage page = reader.nextPage();
         assertThat(memoryContext.getBytes()).isEqualTo(0);
-        page.getBlock(0).getLoadedBlock();
+        page.getBlock(0);
         // Memory usage due to reading data and decoding parquet page of 1st block
         long initialMemoryUsage = memoryContext.getBytes();
         assertThat(initialMemoryUsage).isGreaterThan(0);
 
         // Memory usage due to decoding parquet page of 2nd block
-        page.getBlock(1).getLoadedBlock();
+        page.getBlock(1);
         long currentMemoryUsage = memoryContext.getBytes();
         assertThat(currentMemoryUsage).isGreaterThan(initialMemoryUsage);
 
@@ -132,7 +130,7 @@ public class TestParquetReader
 
         ParquetDataSource dataSource = new FileParquetDataSource(
                 new File(Resources.getResource("lineitem_sorted_by_shipdate/data.parquet").toURI()),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         assertThat(parquetMetadata.getBlocks()).hasSize(2);
         // The predicate and the file are prepared so that page indexes will result in non-overlapping row ranges and eliminate the entire first row group
@@ -142,8 +140,8 @@ public class TestParquetReader
                         "l_shipdate", Domain.multipleValues(DATE, ImmutableList.of(LocalDate.of(1993, 1, 1).toEpochDay(), LocalDate.of(1997, 1, 1).toEpochDay())),
                         "l_commitdate", Domain.create(ValueSet.ofRanges(Range.greaterThan(DATE, LocalDate.of(1995, 1, 1).toEpochDay())), false)));
 
-        try (ParquetReader reader = createParquetReader(dataSource, parquetMetadata, new ParquetReaderOptions(), newSimpleAggregatedMemoryContext(), types, columnNames, predicate)) {
-            Page page = reader.nextPage();
+        try (ParquetReader reader = createParquetReader(dataSource, parquetMetadata, ParquetReaderOptions.defaultOptions(), newSimpleAggregatedMemoryContext(), types, columnNames, predicate)) {
+            SourcePage page = reader.nextPage();
             int rowsRead = 0;
             while (page != null) {
                 rowsRead += page.getPositionCount();
@@ -203,7 +201,7 @@ public class TestParquetReader
                         types,
                         columnNames,
                         generateInputPages(types, 100, 5)),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
 
         // Read both columns, 1 row group
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
@@ -230,11 +228,11 @@ public class TestParquetReader
     {
         ParquetDataSource dataSource = new FileParquetDataSource(
                 file,
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
         ConnectorSession session = TestingConnectorSession.builder().build();
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         try (ParquetReader reader = createParquetReader(dataSource, parquetMetadata, newSimpleAggregatedMemoryContext(), ImmutableList.of(columnType), columnNames)) {
-            Page page = reader.nextPage();
+            SourcePage page = reader.nextPage();
             Iterator<?> expected = expectedValues.iterator();
             while (page != null) {
                 Block block = page.getBlock(0);

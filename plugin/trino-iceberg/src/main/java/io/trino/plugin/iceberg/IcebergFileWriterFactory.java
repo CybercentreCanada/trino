@@ -45,6 +45,7 @@ import org.weakref.jmx.Managed;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,6 +54,7 @@ import java.util.stream.IntStream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static io.trino.plugin.hive.HiveCompressionCodecs.toCompressionCodec;
 import static io.trino.plugin.hive.HiveMetadata.TRINO_QUERY_ID_NAME;
 import static io.trino.plugin.hive.HiveMetadata.TRINO_VERSION_NAME;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_INVALID_METADATA;
@@ -176,7 +178,7 @@ public class IcebergFileWriterFactory
                     .setBloomFilterColumns(getParquetBloomFilterColumns(storageProperties))
                     .build();
 
-            HiveCompressionCodec hiveCompressionCodec = getCompressionCodec(session);
+            HiveCompressionCodec hiveCompressionCodec = toCompressionCodec(getCompressionCodec(session));
             return new IcebergParquetFileWriter(
                     metricsConfig,
                     outputFile,
@@ -191,7 +193,7 @@ public class IcebergFileWriterFactory
                             .orElseThrow(() -> new TrinoException(NOT_SUPPORTED, "Compression codec %s not supported for Parquet".formatted(hiveCompressionCodec))),
                     nodeVersion.toString());
         }
-        catch (IOException e) {
+        catch (IOException | UncheckedIOException e) {
             throw new TrinoException(ICEBERG_WRITER_OPEN_ERROR, "Error creating Parquet file", e);
         }
     }
@@ -226,7 +228,7 @@ public class IcebergFileWriterFactory
                         TrinoInputFile inputFile = fileSystem.newInputFile(outputPath);
                         return new TrinoOrcDataSource(inputFile, new OrcReaderOptions(), readStats);
                     }
-                    catch (IOException e) {
+                    catch (IOException | UncheckedIOException e) {
                         throw new TrinoException(ICEBERG_WRITE_VALIDATION_FAILED, e);
                     }
                 });
@@ -240,7 +242,7 @@ public class IcebergFileWriterFactory
                     fileColumnNames,
                     fileColumnTypes,
                     toOrcType(icebergSchema),
-                    getCompressionCodec(session).getOrcCompressionKind(),
+                    toCompressionCodec(getCompressionCodec(session)).getOrcCompressionKind(),
                     withBloomFilterOptions(orcWriterOptions, storageProperties)
                             .withStripeMinSize(getOrcWriterMinStripeSize(session))
                             .withStripeMaxSize(getOrcWriterMaxStripeSize(session))
@@ -257,7 +259,7 @@ public class IcebergFileWriterFactory
                     getOrcWriterValidateMode(session),
                     orcWriterStats);
         }
-        catch (IOException e) {
+        catch (IOException | UncheckedIOException e) {
             throw new TrinoException(ICEBERG_WRITER_OPEN_ERROR, "Error creating ORC file", e);
         }
     }
@@ -298,6 +300,6 @@ public class IcebergFileWriterFactory
                 rollbackAction,
                 icebergSchema,
                 columnTypes,
-                getCompressionCodec(session));
+                toCompressionCodec(getCompressionCodec(session)));
     }
 }

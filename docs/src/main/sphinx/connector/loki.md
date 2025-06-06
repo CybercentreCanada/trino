@@ -12,7 +12,7 @@ catalog with the Loki connector to run SQL queries against Loki.
 
 To connect to Loki, you need:
 
-- Loki 3.1.0 or higher.
+- Loki 3.2.0 or higher.
 - Network access from the Trino coordinator and workers to Loki. Port 3100 is
   the default port.
 
@@ -136,7 +136,7 @@ LoqQL query is a log query.
 
 ## Examples
 
-The following examples show case combinations of
+The following examples showcase combinations of
 [LogQL](https://grafana.com/docs/loki/latest/query/) queries passed through the
 table function with SQL accessing the data in the returned table. 
 

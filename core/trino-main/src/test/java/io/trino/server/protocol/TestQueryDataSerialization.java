@@ -29,13 +29,14 @@ import io.trino.client.TrinoJsonCodec;
 import io.trino.client.TypedQueryData;
 import io.trino.client.spooling.DataAttributes;
 import io.trino.client.spooling.EncodedQueryData;
-import io.trino.server.protocol.spooling.QueryDataJacksonModule;
+import io.trino.server.protocol.spooling.ServerQueryDataJacksonModule;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
+import java.util.OptionalLong;
 import java.util.Set;
 
 import static io.trino.client.ClientStandardTypes.BIGINT;
@@ -57,14 +58,14 @@ public class TestQueryDataSerialization
     private static final List<Column> COLUMNS_LIST = ImmutableList.of(new Column("_col0", "bigint", new ClientTypeSignature("bigint")));
     private static final TrinoJsonCodec<QueryResults> CLIENT_CODEC = jsonCodec(QueryResults.class);
     private static final JsonCodec<QueryResults> SERVER_CODEC = new JsonCodecFactory(new ObjectMapperProvider()
-            .withModules(Set.of(new QueryDataJacksonModule())))
+            .withModules(Set.of(new ServerQueryDataJacksonModule())))
             .jsonCodec(QueryResults.class);
 
     @Test
     public void testNullDataSerialization()
     {
         assertThat(serialize(null)).doesNotContain("data");
-        assertThat(serialize(TypedQueryData.of(null))).doesNotContain("data");
+        assertThat(serialize(QueryData.NULL)).doesNotContain("data");
     }
 
     @Test
@@ -80,7 +81,7 @@ public class TestQueryDataSerialization
     @Test
     public void testQueryDataSerialization()
     {
-        Iterable<List<Object>> values = ImmutableList.of(ImmutableList.of(1L), ImmutableList.of(5L));
+        List<List<Object>> values = ImmutableList.of(ImmutableList.of(1L), ImmutableList.of(5L));
         testRoundTrip(TypedQueryData.of(values), "[[1],[5]]");
     }
 
@@ -316,7 +317,7 @@ public class TestQueryDataSerialization
                 null,
                 ImmutableList.of(),
                 null,
-                null));
+                OptionalLong.empty()));
     }
 
     private DataAttributes dataAttributes(long currentOffset, long rowCount, int byteSize)

@@ -44,6 +44,7 @@ import io.trino.spi.predicate.TupleDomain;
 import io.trino.spiller.GenericSpillerFactory;
 import io.trino.split.PageSinkManager;
 import io.trino.split.PageSourceManager;
+import io.trino.sql.gen.CursorProcessorCompiler;
 import io.trino.sql.gen.ExpressionCompiler;
 import io.trino.sql.gen.JoinCompiler;
 import io.trino.sql.gen.JoinFilterFunctionCompiler;
@@ -90,7 +91,7 @@ public final class TaskTestUtils
 
     public static final ScheduledSplit SPLIT = new ScheduledSplit(0, TABLE_SCAN_NODE_ID, new Split(CATALOG_HANDLE, TestingSplit.createLocalSplit()));
 
-    public static final ImmutableList<SplitAssignment> EMPTY_SPLIT_ASSIGNMENTS = ImmutableList.of();
+    public static final List<SplitAssignment> EMPTY_SPLIT_ASSIGNMENTS = ImmutableList.of();
 
     public static final Symbol SYMBOL = new Symbol(BIGINT, "column");
 
@@ -160,6 +161,7 @@ public final class TaskTestUtils
                 PLANNER_CONTEXT.getTypeOperators(),
                 CatalogServiceProvider.fail());
 
+        CursorProcessorCompiler cursorProcessorCompiler = new CursorProcessorCompiler(PLANNER_CONTEXT.getFunctionManager());
         PageFunctionCompiler pageFunctionCompiler = new PageFunctionCompiler(PLANNER_CONTEXT.getFunctionManager(), 0);
         ColumnarFilterCompiler columnarFilterCompiler = new ColumnarFilterCompiler(PLANNER_CONTEXT.getFunctionManager(), 0);
         return new LocalExecutionPlanner(
@@ -170,7 +172,7 @@ public final class TaskTestUtils
                 nodePartitioningManager,
                 new PageSinkManager(CatalogServiceProvider.fail()),
                 new MockDirectExchangeClientSupplier(),
-                new ExpressionCompiler(PLANNER_CONTEXT.getFunctionManager(), pageFunctionCompiler, columnarFilterCompiler),
+                new ExpressionCompiler(cursorProcessorCompiler, pageFunctionCompiler, columnarFilterCompiler),
                 pageFunctionCompiler,
                 new JoinFilterFunctionCompiler(PLANNER_CONTEXT.getFunctionManager()),
                 new IndexJoinLookupStats(),

@@ -36,6 +36,7 @@ import io.trino.parquet.reader.ParquetReader;
 import io.trino.parquet.reader.TestingParquetDataSource;
 import io.trino.spi.Page;
 import io.trino.spi.block.Block;
+import io.trino.spi.connector.SourcePage;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.DecimalType;
@@ -128,7 +129,7 @@ public class TestParquetWriter
                         types,
                         columnNames,
                         generateInputPages(types, 100, 1000)),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         assertThat(parquetMetadata.getBlocks()).hasSize(1);
         assertThat(parquetMetadata.getBlocks().get(0).rowCount()).isEqualTo(100 * 1000);
@@ -177,7 +178,7 @@ public class TestParquetWriter
                         types,
                         columnNames,
                         generateInputPages(types, 100, 1000)),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         assertThat(parquetMetadata.getBlocks()).hasSize(1);
         assertThat(parquetMetadata.getBlocks().get(0).rowCount()).isEqualTo(100 * 1000);
@@ -257,7 +258,7 @@ public class TestParquetWriter
                         types,
                         columnNames,
                         ImmutableList.of(new Page(2, blockA, blockB))),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
 
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         BlockMetadata blockMetaData = getOnlyElement(parquetMetadata.getBlocks());
@@ -290,7 +291,7 @@ public class TestParquetWriter
                         types,
                         columnNames,
                         generateInputPages(types, 100, 100)),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
 
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         assertThat(parquetMetadata.getBlocks().size()).isGreaterThanOrEqualTo(10);
@@ -347,7 +348,7 @@ public class TestParquetWriter
                         types,
                         columnNames,
                         generateInputPages(types, 100, 100)),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
 
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         assertThat(parquetMetadata.getBlocks().size()).isGreaterThanOrEqualTo(1);
@@ -396,12 +397,13 @@ public class TestParquetWriter
                         types,
                         columnNames,
                         generateInputPages(types, 100, 10)),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
 
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         List<BlockMetadata> blocks = parquetMetadata.getBlocks();
         assertThat(blocks.size()).isGreaterThan(1);
 
+        long fileRowCountOffset = 0;
         List<RowGroup> rowGroups = parquetMetadata.getParquetMetadata().getRow_groups();
         assertThat(rowGroups.size()).isEqualTo(blocks.size());
         for (int rowGroupIndex = 0; rowGroupIndex < rowGroups.size(); rowGroupIndex++) {
@@ -409,6 +411,8 @@ public class TestParquetWriter
             assertThat(rowGroup.isSetFile_offset()).isTrue();
             BlockMetadata blockMetadata = blocks.get(rowGroupIndex);
             assertThat(blockMetadata.getStartingPos()).isEqualTo(rowGroup.getFile_offset());
+            assertThat(blockMetadata.fileRowCountOffset()).isEqualTo(fileRowCountOffset);
+            fileRowCountOffset += rowGroup.getNum_rows();
         }
     }
 
@@ -428,7 +432,7 @@ public class TestParquetWriter
                         types,
                         columnNames,
                         generateInputPages(types, 100, data)),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
 
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         // Check that bloom filters are right after each other
@@ -453,8 +457,8 @@ public class TestParquetWriter
         TupleDomain<String> predicate = TupleDomain.withColumnDomains(
                 ImmutableMap.of(
                         "columnA", Domain.singleValue(type, data.get(data.size() / 2))));
-        try (ParquetReader reader = createParquetReader(dataSource, parquetMetadata, new ParquetReaderOptions().withBloomFilter(true), newSimpleAggregatedMemoryContext(), types, columnNames, predicate)) {
-            Page page = reader.nextPage();
+        try (ParquetReader reader = createParquetReader(dataSource, parquetMetadata, ParquetReaderOptions.builder().withBloomFilter(true).build(), newSimpleAggregatedMemoryContext(), types, columnNames, predicate)) {
+            SourcePage page = reader.nextPage();
             int rowsRead = 0;
             while (page != null) {
                 rowsRead += page.getPositionCount();
@@ -463,8 +467,8 @@ public class TestParquetWriter
             assertThat(rowsRead).isCloseTo(data.size() / rowGroupCount, Percentage.withPercentage(20));
         }
 
-        try (ParquetReader reader = createParquetReader(dataSource, parquetMetadata, new ParquetReaderOptions().withBloomFilter(false), newSimpleAggregatedMemoryContext(), types, columnNames, predicate)) {
-            Page page = reader.nextPage();
+        try (ParquetReader reader = createParquetReader(dataSource, parquetMetadata, ParquetReaderOptions.builder().withBloomFilter(false).build(), newSimpleAggregatedMemoryContext(), types, columnNames, predicate)) {
+            SourcePage page = reader.nextPage();
             int rowsRead = 0;
             while (page != null) {
                 rowsRead += page.getPositionCount();
@@ -493,7 +497,7 @@ public class TestParquetWriter
                                 // Max size of dictionary page is 1024 * 1024
                                 .addAll(generateInputPages(types, 200, shuffle(new Random(42), (1024 * 1025) / Long.BYTES)))
                                 .build()),
-                new ParquetReaderOptions());
+                ParquetReaderOptions.defaultOptions());
 
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         BlockMetadata blockMetaData = getOnlyElement(parquetMetadata.getBlocks());

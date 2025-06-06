@@ -19,6 +19,7 @@ import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.trino.filesystem.s3.S3FileSystemConfig.ObjectCannedAcl;
 import io.trino.filesystem.s3.S3FileSystemConfig.S3SseType;
+import io.trino.filesystem.s3.S3FileSystemConfig.StorageClassType;
 import jakarta.validation.constraints.AssertTrue;
 import org.junit.jupiter.api.Test;
 
@@ -31,6 +32,8 @@ import static io.airlift.testing.ValidationAssertions.assertFailsValidation;
 import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static io.trino.filesystem.s3.S3FileSystemConfig.RetryMode.LEGACY;
 import static io.trino.filesystem.s3.S3FileSystemConfig.RetryMode.STANDARD;
+import static io.trino.filesystem.s3.S3FileSystemConfig.SignerType.Aws4Signer;
+import static io.trino.filesystem.s3.S3FileSystemConfig.StorageClassType.STANDARD_IA;
 import static java.util.concurrent.TimeUnit.MINUTES;
 
 public class TestS3FileSystemConfig
@@ -49,6 +52,8 @@ public class TestS3FileSystemConfig
                 .setExternalId(null)
                 .setStsEndpoint(null)
                 .setStsRegion(null)
+                .setStorageClass(StorageClassType.STANDARD)
+                .setSignerType(null)
                 .setCannedAcl(ObjectCannedAcl.NONE)
                 .setSseType(S3SseType.NONE)
                 .setRetryMode(LEGACY)
@@ -56,7 +61,7 @@ public class TestS3FileSystemConfig
                 .setSseKmsKeyId(null)
                 .setUseWebIdentityTokenCredentialsProvider(false)
                 .setSseCustomerKey(null)
-                .setStreamingPartSize(DataSize.of(16, MEGABYTE))
+                .setStreamingPartSize(DataSize.of(32, MEGABYTE))
                 .setRequesterPays(false)
                 .setMaxConnections(500)
                 .setConnectionTtl(null)
@@ -71,6 +76,7 @@ public class TestS3FileSystemConfig
                 .setHttpProxyPassword(null)
                 .setHttpProxyPreemptiveBasicProxyAuth(false)
                 .setSupportsExclusiveCreate(true)
+                .setCrossRegionAccessEnabled(false)
                 .setApplicationId("Trino"));
     }
 
@@ -88,6 +94,8 @@ public class TestS3FileSystemConfig
                 .put("s3.external-id", "myid")
                 .put("s3.sts.endpoint", "sts.example.com")
                 .put("s3.sts.region", "us-west-2")
+                .put("s3.storage-class", "STANDARD_IA")
+                .put("s3.signer-type", "Aws4Signer")
                 .put("s3.canned-acl", "BUCKET_OWNER_FULL_CONTROL")
                 .put("s3.retry-mode", "STANDARD")
                 .put("s3.max-error-retries", "12")
@@ -111,6 +119,7 @@ public class TestS3FileSystemConfig
                 .put("s3.http-proxy.preemptive-basic-auth", "true")
                 .put("s3.exclusive-create", "false")
                 .put("s3.application-id", "application id")
+                .put("s3.cross-region-access", "true")
                 .buildOrThrow();
 
         S3FileSystemConfig expected = new S3FileSystemConfig()
@@ -124,6 +133,8 @@ public class TestS3FileSystemConfig
                 .setExternalId("myid")
                 .setStsEndpoint("sts.example.com")
                 .setStsRegion("us-west-2")
+                .setStorageClass(STANDARD_IA)
+                .setSignerType(Aws4Signer)
                 .setCannedAcl(ObjectCannedAcl.BUCKET_OWNER_FULL_CONTROL)
                 .setStreamingPartSize(DataSize.of(42, MEGABYTE))
                 .setRetryMode(STANDARD)
@@ -146,6 +157,7 @@ public class TestS3FileSystemConfig
                 .setHttpProxyPassword("test")
                 .setHttpProxyPreemptiveBasicProxyAuth(true)
                 .setSupportsExclusiveCreate(false)
+                .setCrossRegionAccessEnabled(true)
                 .setApplicationId("application id");
 
         assertFullMapping(properties, expected);

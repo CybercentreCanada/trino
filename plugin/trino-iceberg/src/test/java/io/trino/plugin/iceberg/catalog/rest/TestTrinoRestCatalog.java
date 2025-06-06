@@ -31,10 +31,11 @@ import io.trino.spi.security.TrinoPrincipal;
 import io.trino.spi.type.TestingTypeManager;
 import org.apache.iceberg.rest.DelegatingRestSessionCatalog;
 import org.apache.iceberg.rest.RESTSessionCatalog;
-import org.assertj.core.util.Files;
 import org.junit.jupiter.api.Test;
 
-import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 
@@ -45,7 +46,6 @@ import static io.trino.metastore.TableInfo.ExtendedRelationType.OTHER_VIEW;
 import static io.trino.plugin.iceberg.catalog.rest.IcebergRestCatalogConfig.SessionType.NONE;
 import static io.trino.plugin.iceberg.catalog.rest.RestCatalogTestUtils.backendCatalog;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
-import static io.trino.testing.TestingConnectorSession.SESSION;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static java.util.Locale.ENGLISH;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -57,14 +57,16 @@ public class TestTrinoRestCatalog
 {
     @Override
     protected TrinoCatalog createTrinoCatalog(boolean useUniqueTableLocations)
+            throws IOException
     {
         return createTrinoRestCatalog(useUniqueTableLocations, ImmutableMap.of());
     }
 
     private static TrinoRestCatalog createTrinoRestCatalog(boolean useUniqueTableLocations, Map<String, String> properties)
+            throws IOException
     {
-        File warehouseLocation = Files.newTemporaryFolder();
-        warehouseLocation.deleteOnExit();
+        Path warehouseLocation = Files.createTempDirectory(null);
+        warehouseLocation.toFile().deleteOnExit();
 
         String catalogName = "iceberg_rest";
         RESTSessionCatalog restSessionCatalog = DelegatingRestSessionCatalog
@@ -91,6 +93,7 @@ public class TestTrinoRestCatalog
     @Test
     @Override
     public void testNonLowercaseNamespace()
+            throws Exception
     {
         TrinoCatalog catalog = createTrinoCatalog(false);
 
@@ -122,7 +125,8 @@ public class TestTrinoRestCatalog
                     false,
                     _ -> false,
                     newDirectExecutorService(),
-                    directExecutor());
+                    directExecutor(),
+                    newDirectExecutorService());
             assertThat(icebergMetadata.schemaExists(SESSION, namespace)).as("icebergMetadata.schemaExists(namespace)")
                     .isTrue();
             assertThat(icebergMetadata.schemaExists(SESSION, schema)).as("icebergMetadata.schemaExists(schema)")
@@ -138,6 +142,7 @@ public class TestTrinoRestCatalog
 
     @Test
     public void testPrefix()
+            throws Exception
     {
         TrinoCatalog catalog = createTrinoRestCatalog(false, ImmutableMap.of("prefix", "dev"));
 

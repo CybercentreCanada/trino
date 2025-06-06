@@ -16,7 +16,6 @@ package io.trino.spi.block;
 import jakarta.annotation.Nullable;
 
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.function.ObjLongConsumer;
 
 import static io.airlift.slice.SizeOf.instanceSize;
@@ -72,12 +71,6 @@ public final class LongArrayBlock
     }
 
     @Override
-    public OptionalInt fixedSizeInBytesPerPosition()
-    {
-        return OptionalInt.of(SIZE_IN_BYTES_PER_POSITION);
-    }
-
-    @Override
     public long getSizeInBytes()
     {
         return SIZE_IN_BYTES_PER_POSITION * (long) positionCount;
@@ -87,12 +80,6 @@ public final class LongArrayBlock
     public long getRegionSizeInBytes(int position, int length)
     {
         return SIZE_IN_BYTES_PER_POSITION * (long) length;
-    }
-
-    @Override
-    public long getPositionsSizeInBytes(boolean[] positions, int selectedPositionsCount)
-    {
-        return (long) SIZE_IN_BYTES_PER_POSITION * selectedPositionsCount;
     }
 
     @Override
@@ -133,6 +120,20 @@ public final class LongArrayBlock
     public boolean mayHaveNull()
     {
         return valueIsNull != null;
+    }
+
+    @Override
+    public boolean hasNull()
+    {
+        if (valueIsNull == null) {
+            return false;
+        }
+        for (int i = 0; i < positionCount; i++) {
+            if (valueIsNull[i + arrayOffset]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -195,12 +196,6 @@ public final class LongArrayBlock
             return this;
         }
         return new LongArrayBlock(0, length, newValueIsNull, newValues);
-    }
-
-    @Override
-    public String getEncodingName()
-    {
-        return LongArrayBlockEncoding.NAME;
     }
 
     @Override

@@ -27,15 +27,13 @@
   trino hard nproc 128000
   ```
 
-% These values are used in core/trino-server-rpm/src/main/resources/dist/etc/init.d/trino
-
 (requirements-java)=
 ### Java runtime environment
 
-Trino requires a 64-bit version of Java 23, with a minimum required version of
-23.0.0 and a recommendation to use the latest patch version. Earlier versions
-such as Java 8, Java 11, Java 17, Java 21 or Java 22 do not work. 
-Newer versions such as Java 24 are not supported -- they may work, but are not tested.
+Trino requires a 64-bit version of Java 24, with a minimum required version of
+24.0.1 and a recommendation to use the latest patch version. Earlier versions
+such as Java 8, Java 11, Java 17, Java 21 or Java 23 do not work.
+Newer versions such as Java 25 are not supported -- they may work, but are not tested.
 
 We recommend using the Eclipse Temurin OpenJDK distribution from
 [Adoptium](https://adoptium.net/) as the JDK for Trino, as Trino is tested
@@ -48,11 +46,21 @@ Download the Trino server tarball, {maven_download}`server`, and unpack it. The
 tarball contains a single top-level directory, `trino-server-|trino_version|`,
 which we call the *installation* directory.
 
+The default tarball contains all plugins and must be configured for use. The
+minimal `server-core` tarball, {maven_download}`server-core`, contains a minimal
+set of essential plugins, and it is therefore mostly suitable as a base for
+custom tarball creation.
+
+The [trino-packages project](https://github.com/trinodb/trino-packages) includes
+a module to create a fully configured tarball with an example configuration. The
+custom tarball is ready to use and can be further configured and adjusted to
+your needs.
+
 Trino needs a *data* directory for storing logs, etc. By default, an
 installation from the tarball uses the same location for the installation and data
 directories.
 
-We recommend creating a data directory outside of the installation directory,
+We recommend creating a data directory outside the installation directory,
 which allows it to be easily preserved when upgrading Trino. This directory path
 must be configured with the [](node-properties).
 
@@ -250,8 +258,8 @@ Further configuration can include [](/admin/logging), [](/admin/opentelemetry),
 
 Trino accesses data in a [data source](trino-concept-data-source) with a
 [connector](trino-concept-connector), which is configured in a
-[catalog](trino-concept-catalog). The connector provides all of the schemas and
-tables inside of the catalog.
+[catalog](trino-concept-catalog). The connector provides all the schemas and
+tables inside the catalog.
 
 For example, the Hive connector maps each Hive database to a schema. If the Hive
 connector is configured in the `example` catalog, and Hive contains a table
@@ -332,11 +340,11 @@ configuration files in `etc`, the data directory identical to the installation
 directory, the pid file as `var/run/launcher.pid` and log files in the `var/log`
 directory.
 
-You can change these values to adjust your Trino usage to any
-requirements, such as using a directory outside the installation directory,
-specific mount points or locations, and even using other file names. For
-example, the Trino RPM adjusts the used directories to better follow the Linux
-Filesystem Hierarchy Standard (FHS).
+You can change these values to adjust your Trino usage to any requirements, such
+as using a directory outside the installation directory, specific mount points
+or locations, and even using other file names. For example, the [Trino
+RPM](https://github.com/trinodb/trino-packages) adjusts the used directories to
+better follow the Linux Filesystem Hierarchy Standard (FHS).
 
 After starting Trino, you can find log files in the `log` directory inside
 the data directory `var`:
