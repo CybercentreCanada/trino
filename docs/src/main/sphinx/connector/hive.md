@@ -209,6 +209,13 @@ Hive connector documentation.
       in schemas `fruit` and `vegetable`
     * `*` to cache listings for all tables in all schemas
   -
+* - `hive.file-status-cache.excluded-tables`
+  - Whereas `hive.file-status-cache-tables` is an inclusion list, this is an exclusion list for the cache. 
+      * `fruit.apple,fruit.orange` to *NOT* cache listings only for tables
+        `apple` and `orange` in schema `fruit`
+      * `fruit.*,vegetable.*` to *NOT* cache listings for all tables
+        in schemas `fruit` and `vegetable`
+  -  
 * - `hive.file-status-cache.max-retained-size`
   - Maximum retained size of cached file status entries.
   - `1GB`
@@ -295,6 +302,9 @@ Hive connector documentation.
 * - `hive.max-partition-drops-per-query`
   - Maximum number of partitions to drop in a single query.
   - 100,000
+* - `hive.metastore.partition-batch-size.max`
+  - Maximum number of partitions processed in a single batch.
+  - 100
 * - `hive.single-statement-writes`
   - Enables auto-commit for all writes. This can be used to disallow
     multi-statement write transactions.
@@ -696,7 +706,7 @@ maximum value of `127`).
 
 Trino supports querying and manipulating Hive tables with the Avro storage
 format, which has the schema set based on an Avro schema file/literal. Trino is
-also capable of creating the tables in Trino by infering the schema from a
+also capable of creating the tables in Trino by inferring the schema from a
 valid Avro schema file located locally, or remotely in HDFS/Web server.
 
 To specify that the Avro schema should be used for interpreting table data, use

@@ -15,6 +15,7 @@ package io.trino.operator;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
+import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.trino.client.spooling.DataAttributes;
 import io.trino.memory.context.AggregatedMemoryContext;
@@ -38,6 +39,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -46,6 +48,7 @@ import java.util.function.ToLongFunction;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkState;
+import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static io.airlift.units.Duration.succinctDuration;
 import static io.trino.client.spooling.DataAttribute.EXPIRES_AT;
 import static io.trino.client.spooling.DataAttribute.ROWS_COUNT;
@@ -141,6 +144,8 @@ public class OutputSpoolingOperatorFactory
     static class OutputSpoolingOperator
             implements Operator
     {
+        private static final long SPOOLING_THRESHOLD = DataSize.of(2, MEGABYTE).toBytes(); // this roughly translates to 400 KB compressed segment
+
         private final SpoolingController controller;
         private final ZoneId clientZoneId;
 
@@ -177,7 +182,7 @@ public class OutputSpoolingOperatorFactory
             this.aggregatedMemoryContext = operatorContext.newAggregateUserMemoryContext();
             this.queryDataEncoder = requireNonNull(queryDataEncoder, "queryDataEncoder is null");
             this.spoolingManager = requireNonNull(spoolingManager, "spoolingManager is null");
-            this.buffer = PageBuffer.create(aggregatedMemoryContext.newLocalMemoryContext(OutputSpoolingOperator.class.getSimpleName() + ".buffer"));
+            this.buffer = PageBuffer.create();
             this.localMemoryContext = aggregatedMemoryContext.newLocalMemoryContext(OutputSpoolingOperator.class.getSimpleName());
 
             operatorContext.setInfoSupplier(new OutputSpoolingInfoSupplier(spoolingTiming, controller, inlinedEncodedBytes, spooledEncodedBytes));
@@ -210,7 +215,7 @@ public class OutputSpoolingOperatorFactory
                     buffer.add(page);
                     yield null;
                 }
-                case INLINE -> inline(page);
+                case INLINE -> inline(List.of(page));
             };
 
             if (outputPage != null) {
@@ -241,6 +246,7 @@ public class OutputSpoolingOperatorFactory
                 outputPage = outputBuffer(true);
                 if (outputPage != null) {
                     state = HAS_LAST_OUTPUT;
+                    controller.finish();
                 }
                 else {
                     state = FINISHED;
@@ -254,18 +260,21 @@ public class OutputSpoolingOperatorFactory
             return state == FINISHED;
         }
 
-        private Page outputBuffer(boolean finished)
+        private Page outputBuffer(boolean lastPage)
         {
             if (buffer.isEmpty()) {
                 return null;
             }
 
-            synchronized (buffer) {
-                return spool(buffer.removeAll(), finished);
+            if (lastPage && buffer.getSize() < SPOOLING_THRESHOLD) {
+                // If the buffer is small enough, inline it to save the overhead of spooling
+                return inline(buffer.removeAll());
             }
+
+            return spool(buffer.removeAll());
         }
 
-        private Page spool(List<Page> pages, boolean finished)
+        private Page spool(List<Page> pages)
         {
             long rows = reduce(pages, Page::getPositionCount);
             long size = reduce(pages, Page::getSizeInBytes);
@@ -274,22 +283,15 @@ public class OutputSpoolingOperatorFactory
                     operatorContext.getDriverContext().getSession().getQueryId(),
                     rows,
                     size));
-            String expiresAt = ZonedDateTime.ofInstant(segmentHandle.expirationTime(), clientZoneId).toLocalDateTime().toString();
 
             OperationTimer overallTimer = new OperationTimer(false);
             try (OutputStream output = spoolingManager.createOutputStream(segmentHandle)) {
                 DataAttributes attributes = queryDataEncoder.encodeTo(output, pages)
                         .toBuilder()
                         .set(ROWS_COUNT, rows)
-                        .set(EXPIRES_AT, expiresAt)
+                        .set(EXPIRES_AT, ZonedDateTime.ofInstant(segmentHandle.expirationTime(), clientZoneId).toLocalDateTime().toString())
                         .build();
-
                 spooledEncodedBytes.addAndGet(attributes.get(SEGMENT_SIZE, Integer.class));
-
-                if (finished) {
-                    controller.execute(SPOOL, rows, size); // final buffer
-                }
-
                 // This page is small (hundreds of bytes) so there is no point in tracking its memory usage
                 return SpooledMetadataBlock.forSpooledLocation(spoolingManager.location(segmentHandle), attributes).serialize();
             }
@@ -301,13 +303,13 @@ public class OutputSpoolingOperatorFactory
             }
         }
 
-        private Page inline(Page page)
+        private Page inline(List<Page> pages)
         {
             OperationTimer overallTimer = new OperationTimer(false);
             try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-                DataAttributes attributes = queryDataEncoder.encodeTo(output, List.of(page))
+                DataAttributes attributes = queryDataEncoder.encodeTo(output, pages)
                         .toBuilder()
-                        .set(ROWS_COUNT, (long) page.getPositionCount())
+                        .set(ROWS_COUNT, reduce(pages, Page::getPositionCount))
                         .build();
                 inlinedEncodedBytes.addAndGet(attributes.get(SEGMENT_SIZE, Integer.class));
                 return SpooledMetadataBlock.forInlineData(attributes, output.toByteArray()).serialize();
@@ -322,12 +324,9 @@ public class OutputSpoolingOperatorFactory
 
         private void updateMemoryReservation()
         {
-            if (outputPage == null) {
-                localMemoryContext.setBytes(0);
-            }
-            else {
-                localMemoryContext.setBytes(outputPage.getSizeInBytes());
-            }
+            localMemoryContext.setBytes(buffer.getSize() + Optional.ofNullable(outputPage)
+                    .map(Page::getRetainedSizeInBytes)
+                    .orElse(0L));
         }
 
         static long reduce(List<Page> page, ToLongFunction<Page> reduce)
@@ -349,22 +348,19 @@ public class OutputSpoolingOperatorFactory
     private static class PageBuffer
     {
         private final List<Page> buffer = new ArrayList<>();
-        private final LocalMemoryContext memoryContext;
 
-        private PageBuffer(LocalMemoryContext memoryContext)
+        private PageBuffer()
         {
-            this.memoryContext = requireNonNull(memoryContext, "memoryContext is null");
         }
 
-        public static PageBuffer create(LocalMemoryContext memoryContext)
+        public static PageBuffer create()
         {
-            return new PageBuffer(memoryContext);
+            return new PageBuffer();
         }
 
-        public void add(Page page)
+        public synchronized void add(Page page)
         {
             buffer.add(page);
-            memoryContext.setBytes(memoryContext.getBytes() + page.getRetainedSizeInBytes());
         }
 
         public boolean isEmpty()
@@ -372,15 +368,18 @@ public class OutputSpoolingOperatorFactory
             return buffer.isEmpty();
         }
 
-        public List<Page> removeAll()
+        public synchronized List<Page> removeAll()
         {
-            List<Page> pages;
-            synchronized (buffer) {
-                pages = ImmutableList.copyOf(buffer);
-                buffer.clear();
-                memoryContext.setBytes(0);
-            }
+            List<Page> pages = ImmutableList.copyOf(buffer);
+            buffer.clear();
             return pages;
+        }
+
+        public synchronized long getSize()
+        {
+            return buffer.stream()
+                    .mapToLong(Page::getSizeInBytes)
+                    .sum();
         }
     }
 

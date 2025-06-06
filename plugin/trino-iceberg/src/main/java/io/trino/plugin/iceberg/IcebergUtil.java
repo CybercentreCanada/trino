@@ -79,6 +79,7 @@ import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.types.Types.StructType;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.lang.invoke.MethodHandle;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -119,7 +120,6 @@ import static io.trino.plugin.iceberg.IcebergColumnHandle.partitionColumnHandle;
 import static io.trino.plugin.iceberg.IcebergColumnHandle.partitionColumnMetadata;
 import static io.trino.plugin.iceberg.IcebergColumnHandle.pathColumnHandle;
 import static io.trino.plugin.iceberg.IcebergColumnHandle.pathColumnMetadata;
-import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_BAD_DATA;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_FILESYSTEM_ERROR;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_INVALID_METADATA;
 import static io.trino.plugin.iceberg.IcebergErrorCode.ICEBERG_INVALID_PARTITION_VALUE;
@@ -421,7 +421,7 @@ public final class IcebergUtil
     {
         NestedField fieldToUpdate = schema.findField(columnName);
         checkArgument(fieldToUpdate != null, "Field %s does not exist", columnName);
-        NestedField updatedField = NestedField.of(fieldToUpdate.fieldId(), fieldToUpdate.isOptional(), fieldToUpdate.name(), fieldToUpdate.type(), comment);
+        NestedField updatedField = NestedField.from(fieldToUpdate).withDoc(comment).build();
         List<NestedField> newFields = schema.columns().stream()
                 .map(field -> (field.fieldId() == updatedField.fieldId()) ? updatedField : field)
                 .toList();
@@ -492,7 +492,7 @@ public final class IcebergUtil
 
         if (type.isNestedType()) {
             return primitiveFields(type.asNestedType().fields())
-                    .map(field -> Types.NestedField.of(field.fieldId(), field.isOptional(), nestedField.name() + "." + field.name(), field.type(), field.doc()));
+                    .map(field -> Types.NestedField.from(field).withName(nestedField.name() + "." + field.name()).build());
         }
 
         throw new IllegalStateException("Unsupported field type: " + nestedField);
@@ -821,7 +821,13 @@ public final class IcebergUtil
             if (!column.isHidden()) {
                 int index = icebergColumns.size() + 1;
                 org.apache.iceberg.types.Type type = toIcebergTypeForNewColumn(column.getType(), nextFieldId);
-                NestedField field = NestedField.of(index, column.isNullable(), column.getName(), type, column.getComment());
+                NestedField field = NestedField.builder()
+                        .withId(index)
+                        .isOptional(column.isNullable())
+                        .withName(column.getName())
+                        .ofType(type)
+                        .withDoc(column.getComment())
+                        .build();
                 icebergColumns.add(field);
             }
         }
@@ -836,7 +842,7 @@ public final class IcebergUtil
         for (ViewColumn column : columns) {
             Type trinoType = typeManager.getType(column.getType());
             org.apache.iceberg.types.Type type = toIcebergTypeForNewColumn(trinoType, nextFieldId);
-            NestedField field = NestedField.of(nextFieldId.getAndIncrement(), false, column.getName(), type, column.getComment().orElse(null));
+            NestedField field = NestedField.required(nextFieldId.getAndIncrement(), column.getName(), type, column.getComment().orElse(null));
             icebergColumns.add(field);
         }
         org.apache.iceberg.types.Type icebergSchema = StructType.of(icebergColumns);
@@ -1079,7 +1085,7 @@ public final class IcebergUtil
         if (matcher.matches()) {
             return parseInt(matcher.group("version"));
         }
-        throw new TrinoException(ICEBERG_BAD_DATA, "Invalid metadata file name: " + metadataFileName);
+        throw new TrinoException(ICEBERG_INVALID_METADATA, "Invalid metadata file name: " + metadataFileName);
     }
 
     public static String fixBrokenMetadataLocation(String location)
@@ -1143,7 +1149,7 @@ public final class IcebergUtil
                         latestMetadataLocations));
             }
         }
-        catch (IOException e) {
+        catch (IOException | UncheckedIOException e) {
             throw new TrinoException(ICEBERG_FILESYSTEM_ERROR, "Failed checking table location: " + location, e);
         }
         return getOnlyElement(latestMetadataLocations).toString();
@@ -1188,7 +1194,7 @@ public final class IcebergUtil
             TrinoInputFile inputFile = fileSystem.newInputFile(Location.of(path));
             return inputFile.lastModified().toEpochMilli();
         }
-        catch (IOException e) {
+        catch (IOException | UncheckedIOException e) {
             throw new TrinoException(ICEBERG_FILESYSTEM_ERROR, "Failed to get file modification time: " + path, e);
         }
     }

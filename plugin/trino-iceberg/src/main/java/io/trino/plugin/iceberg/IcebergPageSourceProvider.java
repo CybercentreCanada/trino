@@ -128,6 +128,8 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Maps.uniqueIndex;
 import static io.airlift.slice.SizeOf.SIZE_OF_LONG;
+import static io.airlift.slice.SizeOf.instanceSize;
+import static io.airlift.slice.SizeOf.sizeOf;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static io.trino.orc.OrcReader.INITIAL_BATCH_SIZE;
@@ -532,7 +534,7 @@ public class IcebergPageSourceProvider
                     partitionSpecId,
                     partitionData,
                     dataColumns,
-                    parquetReaderOptions
+                    ParquetReaderOptions.builder(parquetReaderOptions)
                             .withMaxReadBlockSize(getParquetMaxReadBlockSize(session))
                             .withMaxReadBlockRowCount(getParquetMaxReadBlockRowCount(session))
                             .withSmallFileThreshold(getParquetSmallFileThreshold(session))
@@ -540,7 +542,8 @@ public class IcebergPageSourceProvider
                             .withBloomFilter(useParquetBloomFilter(session))
                             // TODO https://github.com/trinodb/trino/issues/11000
                             .withUseColumnIndex(false)
-                            .withVectorizedDecodingEnabled(isParquetVectorizedDecodingEnabled(session)),
+                            .withVectorizedDecodingEnabled(isParquetVectorizedDecodingEnabled(session))
+                            .build(),
                     predicate,
                     fileFormatDataSourceStats,
                     nameMapping,
@@ -1102,7 +1105,7 @@ public class IcebergPageSourceProvider
                 fileModifiedTime = OptionalLong.of(inputFile.lastModified().toEpochMilli());
             }
         }
-        catch (IOException e) {
+        catch (IOException | UncheckedIOException e) {
             throw new TrinoException(ICEBERG_CANNOT_OPEN_SPLIT, e);
         }
 
@@ -1187,7 +1190,7 @@ public class IcebergPageSourceProvider
                     Optional.empty(),
                     Optional.empty());
         }
-        catch (IOException e) {
+        catch (IOException | UncheckedIOException e) {
             throw new TrinoException(ICEBERG_CANNOT_OPEN_SPLIT, e);
         }
     }
@@ -1514,6 +1517,8 @@ public class IcebergPageSourceProvider
     private record PrefixColumnsSourcePage(SourcePage sourcePage, int channelCount, int[] channels)
             implements SourcePage
     {
+        private static final long INSTANCE_SIZE = instanceSize(PrefixColumnsSourcePage.class);
+
         private PrefixColumnsSourcePage
         {
             requireNonNull(sourcePage, "sourcePage is null");
@@ -1542,12 +1547,16 @@ public class IcebergPageSourceProvider
         @Override
         public long getRetainedSizeInBytes()
         {
-            return sourcePage.getRetainedSizeInBytes();
+            return INSTANCE_SIZE +
+                    sizeOf(channels) +
+                    sourcePage.getRetainedSizeInBytes();
         }
 
         @Override
         public void retainedBytesForEachPart(ObjLongConsumer<Object> consumer)
         {
+            consumer.accept(this, INSTANCE_SIZE);
+            consumer.accept(channels, sizeOf(channels));
             sourcePage.retainedBytesForEachPart(consumer);
         }
 

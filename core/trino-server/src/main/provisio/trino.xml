@@ -83,6 +83,7 @@
     </artifactSet>
 -->
 
+<<<<<<< HEAD
 <!--
     <artifactSet to="plugin/example-http">
         <artifact id="${project.groupId}:trino-example-http:zip:${project.version}">
@@ -92,6 +93,8 @@
 -->
 
 <!--
+=======
+>>>>>>> tags/476
     <artifactSet to="plugin/exasol">
         <artifact id="${project.groupId}:trino-exasol:zip:${project.version}">
             <unpack />

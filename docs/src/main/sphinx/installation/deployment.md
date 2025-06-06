@@ -30,10 +30,10 @@
 (requirements-java)=
 ### Java runtime environment
 
-Trino requires a 64-bit version of Java 23, with a minimum required version of
-23.0.0 and a recommendation to use the latest patch version. Earlier versions
-such as Java 8, Java 11, Java 17, Java 21 or Java 22 do not work. 
-Newer versions such as Java 24 are not supported -- they may work, but are not tested.
+Trino requires a 64-bit version of Java 24, with a minimum required version of
+24.0.1 and a recommendation to use the latest patch version. Earlier versions
+such as Java 8, Java 11, Java 17, Java 21 or Java 23 do not work.
+Newer versions such as Java 25 are not supported -- they may work, but are not tested.
 
 We recommend using the Eclipse Temurin OpenJDK distribution from
 [Adoptium](https://adoptium.net/) as the JDK for Trino, as Trino is tested
@@ -60,7 +60,7 @@ Trino needs a *data* directory for storing logs, etc. By default, an
 installation from the tarball uses the same location for the installation and data
 directories.
 
-We recommend creating a data directory outside of the installation directory,
+We recommend creating a data directory outside the installation directory,
 which allows it to be easily preserved when upgrading Trino. This directory path
 must be configured with the [](node-properties).
 
@@ -258,8 +258,8 @@ Further configuration can include [](/admin/logging), [](/admin/opentelemetry),
 
 Trino accesses data in a [data source](trino-concept-data-source) with a
 [connector](trino-concept-connector), which is configured in a
-[catalog](trino-concept-catalog). The connector provides all of the schemas and
-tables inside of the catalog.
+[catalog](trino-concept-catalog). The connector provides all the schemas and
+tables inside the catalog.
 
 For example, the Hive connector maps each Hive database to a schema. If the Hive
 connector is configured in the `example` catalog, and Hive contains a table
