@@ -38,6 +38,7 @@
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-aws</artifactId>
+            <version>${dep.iceberg.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>org.jspecify</groupId>
