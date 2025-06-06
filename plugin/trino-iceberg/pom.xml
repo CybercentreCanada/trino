@@ -37,6 +37,12 @@
 
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-aws</artifactId>
+            <version>${dep.iceberg.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
         </dependency>
 
@@ -54,7 +60,6 @@
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-snowflake</artifactId>
-            <version>${dep.iceberg.version}</version>
         </dependency>
 
         <dependency>
@@ -237,40 +242,6 @@
         </dependency>
 
         <dependency>
-<<<<<<< HEAD
-=======
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-api</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-aws</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-nessie</artifactId>
-            <version>${dep.iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-parquet</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-snowflake</artifactId>
-        </dependency>
-
-        <dependency>
->>>>>>> tags/475
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-column</artifactId>
         </dependency>
@@ -401,7 +372,6 @@
         </dependency>
 
         <dependency>
-<<<<<<< HEAD
             <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-bundled-guava</artifactId>
             <version>${dep.iceberg.version}</version>
@@ -409,14 +379,6 @@
         </dependency>
 
         <dependency>
-            <groupId>com.amazonaws</groupId>
-            <artifactId>aws-java-sdk-s3</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-=======
->>>>>>> tags/475
             <groupId>io.airlift</groupId>
             <artifactId>http-client</artifactId>
             <scope>runtime</scope>
@@ -484,15 +446,15 @@
         </dependency>
 
         <dependency>
-            <groupId>io.airlift</groupId>
-            <artifactId>configuration-testing</artifactId>
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-core</artifactId>
+            <classifier>tests</classifier>
             <scope>test</scope>
         </dependency>
 
         <dependency>
-            <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-            <classifier>tests</classifier>
+            <groupId>io.airlift</groupId>
+            <artifactId>configuration-testing</artifactId>
             <scope>test</scope>
         </dependency>
 

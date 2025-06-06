@@ -11,7 +11,7 @@ variables:
   containerRegistry: uchimera
   imageRepository: cccs/dev/trino-build
   buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
-  baseImageTag: 23-jdk-noble
+  baseImageTag: 24-jdk-noble
 
 pool:
   vmImage: ubuntu-latest
@@ -35,6 +35,8 @@ steps:
       command: build
       containerRegistry: ${{ variables.containerRegistry }}
       repository: ${{ variables.imageRepository }}
+      Dockerfile: cccs-build/Dockerfile
+      buildContext: cccs-build
       arguments: --build-arg TRINO_VERSION=$(TRINO_VERSION) --build-arg BASE_IMAGE_TAG=$(baseImageTag)
       tags: |
         $(TRINO_VERSION)_$(BRANCH_NAME)
