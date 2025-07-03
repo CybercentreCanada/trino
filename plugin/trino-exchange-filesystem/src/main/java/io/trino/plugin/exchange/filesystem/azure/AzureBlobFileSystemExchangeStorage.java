@@ -275,7 +275,8 @@ public class AzureBlobFileSystemExchangeStorage
                 .collect(toImmutableList()));
     }
 
-    private ListenableFuture<List<Void>> deleteObjectsOrdered(List<String> blobUrls) {
+    private ListenableFuture<List<Void>> deleteObjectsOrdered(List<String> blobUrls)
+    {
         BlobBatchAsyncClient blobBatchAsyncClient = new BlobBatchClientBuilder(blobServiceAsyncClient).buildAsyncClient();
 
         // Sort in reverse lex order: children before parents
@@ -298,18 +299,18 @@ public class AzureBlobFileSystemExchangeStorage
                     batch.forEach(blob -> log.info(" - %s", blob));
 
                     ListenableFuture<Void> batchFuture = Futures.catchingAsync(
-                        toListenableFuture(
-                            blobBatchAsyncClient
-                                .deleteBlobs(batch, DeleteSnapshotsOptionType.INCLUDE)
-                                .then()
-                                .toFuture()
-                        ),
-                        Throwable.class,
-                        ex -> {
-                            log.error("Error deleting batch of blobs", ex);
-                            throw ex;
-                        },
-                        MoreExecutors.directExecutor()
+                            toListenableFuture(
+                                blobBatchAsyncClient
+                                    .deleteBlobs(batch, DeleteSnapshotsOptionType.INCLUDE)
+                                    .then()
+                                    .toFuture()
+                            ),
+                            Throwable.class,
+                            ex -> {
+                                log.error("Error deleting batch of blobs", ex);
+                                throw ex;
+                            },
+                            MoreExecutors.directExecutor()
                     );
 
                     return Futures.transform(
