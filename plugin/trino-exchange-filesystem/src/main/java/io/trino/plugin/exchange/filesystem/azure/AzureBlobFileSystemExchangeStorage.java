@@ -206,12 +206,14 @@ public class AzureBlobFileSystemExchangeStorage
 
         Futures.addCallback(finalResult, new FutureCallback<Void>() {
             @Override
-            public void onSuccess(Void result) {
+            public void onSuccess(Void result)
+            {
                 log.info("Successfully deleted all blobs for directories: %s", directories);
             }
 
             @Override
-            public void onFailure(Throwable t) {
+            public void onFailure(Throwable t)
+            {
                 log.warn(t, "Failed to delete blobs for directories: %s", directories);
             }
         }, directExecutor());
