@@ -66,6 +66,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -184,7 +185,7 @@ public class AzureBlobFileSystemExchangeStorage
                                 for (BlobItem blobItem : pagedResponse.getValue()) {
                                     String blobName = blobItem.getName();
                                     log.info("Found blob for deletion: %s", blobName);
-                                    allBlobs.add(blobItem);
+                                    allBlobs.add(blobName);
                                 }
                             }
                         }
@@ -192,7 +193,7 @@ public class AzureBlobFileSystemExchangeStorage
                         Set<String> directoryShapedBlobs = findDirectoryShapedBlobs(allBlobs);
                         List<String> regularBlobs = allBlobs.stream()
                                 .filter(blob -> !directoryShapedBlobs.contains(blob))
-                                .collect(toList());
+                                .toList();
                         List<String> toDeleteInOrder = new ArrayList<>(regularBlobs);
                         toDeleteInOrder.addAll(directoryShapedBlobs);
                         toDeleteInOrder.forEach(blob -> log.info("Deleting blob: %s", blobContainerAsyncClient.getBlobAsyncClient(blob).getBlobUrl()));
