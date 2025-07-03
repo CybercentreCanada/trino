@@ -36,6 +36,7 @@ import com.google.common.util.concurrent.FluentFuture;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.errorprone.annotations.ThreadSafe;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.google.inject.Inject;
@@ -274,7 +275,7 @@ public class AzureBlobFileSystemExchangeStorage
                 .collect(toImmutableList()));
     }
 
-    private ListenableFuture<Void> deleteObjectsOrdered(List<String> blobUrls) {
+    private ListenableFuture<List<Void>> deleteObjectsOrdered(List<String> blobUrls) {
         BlobBatchAsyncClient blobBatchAsyncClient = new BlobBatchClientBuilder(blobServiceAsyncClient).buildAsyncClient();
 
         // Sort in reverse lex order: children before parents
