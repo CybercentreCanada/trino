@@ -18,6 +18,7 @@ import com.azure.core.http.policy.HttpLogOptions;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.core.util.BinaryData;
 import com.azure.identity.DefaultAzureCredentialBuilder;
+import com.azure.storage.blob.BlobAsyncClient;
 import com.azure.storage.blob.BlobContainerAsyncClient;
 import com.azure.storage.blob.BlobServiceAsyncClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
@@ -281,7 +282,7 @@ public class AzureBlobFileSystemExchangeStorage
                 .collect(toImmutableList()));
     }
 
-    private ListenableFuture<List<Void>> deleteObjectsInOrder(List<String> blobUrls, String containerName)
+    private ListenableFuture<List<Void>> deleteObjectsOrdered(List<String> blobUrls, String containerName)
     {
         BlobContainerAsyncClient blobContainerAsyncClient = blobServiceAsyncClient.getBlobContainerAsyncClient(containerName);
 
@@ -294,7 +295,7 @@ public class AzureBlobFileSystemExchangeStorage
         ListenableFuture<Void> chain = Futures.immediateFuture(null);
 
         for (String blobUrl : sortedUrls) {
-            String blobName = getBlobNameFromUrl(blobUrl);
+            String blobName = blobUrl.substring(blobUrl.indexOf(containerName) + containerName.length() + 1);
             BlobAsyncClient blobClient = blobContainerAsyncClient.getBlobAsyncClient(blobName);
 
             log.info("Deleting blob: %s", blobUrl);
