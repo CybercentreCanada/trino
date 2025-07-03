@@ -281,72 +281,71 @@ public class AzureBlobFileSystemExchangeStorage
                 .collect(toImmutableList()));
     }
 
-    private ListenableFuture<List<Void>> deleteObjectsOrdered(List<String> blobUrls, String containerName)
+    private ListenableFuture<List<Void>> deleteObjectsInOrder(List<String> blobUrls, String containerName)
     {
-        BlobBatchAsyncClient blobBatchAsyncClient = new BlobBatchClientBuilder(blobServiceAsyncClient).buildAsyncClient();
         BlobContainerAsyncClient blobContainerAsyncClient = blobServiceAsyncClient.getBlobContainerAsyncClient(containerName);
 
         // Sort in reverse lex order: children before parents
         List<String> sortedUrls = blobUrls.stream()
                 .sorted(Comparator.reverseOrder())
                 .collect(toImmutableList());
-        sortedUrls.forEach(url -> log.info("Deleting blob: %s", url));
 
-        // Partition into batches of max 256
-        List<List<String>> batches = Lists.partition(sortedUrls, 256);
-        List<ListenableFuture<Void>> batchFutures = new ArrayList<>();
+        List<ListenableFuture<Void>> futures = new ArrayList<>();
         ListenableFuture<Void> chain = Futures.immediateFuture(null);
 
-        for (List<String> batch : batches) {
-            log.info("Deleting batch of %d blobs", batch.size());
-            batch.forEach(url -> log.info(" - %s", url));
+        for (String blobUrl : sortedUrls) {
+            String blobName = getBlobNameFromUrl(blobUrl);
+            BlobAsyncClient blobClient = blobContainerAsyncClient.getBlobAsyncClient(blobName);
+
+            log.info("Deleting blob: %s", blobUrl);
 
             chain = Futures.transformAsync(
                 chain,
                 ignored -> {
-                    ListenableFuture<Void> batchFuture = Futures.catchingAsync(
+                    return Futures.catchingAsync(
                         toListenableFuture(
-                            blobBatchAsyncClient
-                                .deleteBlobs(batch, DeleteSnapshotsOptionType.INCLUDE)
-                                .then()
+                            blobClient
+                                .deleteWithResponse(DeleteSnapshotsOptionType.INCLUDE)
                                 .toFuture()
+                                .thenApply(response -> {
+                                    log.info("Successfully deleted:  %s", blobUrl);
+                                    return null;
+                                })
                         ),
                         Throwable.class,
                         ex -> {
-                            log.error("Error deleting batch of blobs", ex);
+                            log.error("Failed to delete blob: %s", blobUrl, ex);
 
-                            if (ex instanceof BlobBatchStorageException) {
-                                BlobBatchStorageException batchEx = (BlobBatchStorageException) ex;
-                                for (BlobStorageException failedOp : batchEx.getBatchExceptions()) {
-                                    log.error(String.format(
-                                        "Blob delete failed: StatusCode=%s, ErrorCode=%s, Message=%s",
-                                        failedOp.getStatusCode(),
-                                        failedOp.getErrorCode(),
-                                        failedOp.getServiceMessage()));
-                                    blobContainerAsyncClient
-                                        .listBlobs()
-                                        .subscribe(blobItem -> log.info("Blob still exists after delete attempt: " + blobItem.getName()));
-                                }
+                            if (ex instanceof BlobStorageException blobEx) {
+                                log.error(String.format(
+                                    "StatusCode=%s, ErrorCode=%s, Message=%s",
+                                    blobEx.getStatusCode(),
+                                    blobEx.getErrorCode(),
+                                    blobEx.getServiceMessage()));
                             }
 
                             Throwable cause = ex.getCause();
                             while (cause != null) {
-                                log.error("Cause: {}", cause.toString());
+                                log.error("Cause:  %s", cause.toString());
                                 cause = cause.getCause();
                             }
 
-                            return Futures.immediateFailedFuture(new IOException("Failed batch delete", ex));
+                            // Optional: list remaining blobs
+                            blobContainerAsyncClient
+                                .listBlobs()
+                                .subscribe(blobItem -> log.info("Blob still exists: %s", blobItem.getName()));
+
+                            return Futures.immediateFailedFuture(new IOException("Failed single blob delete", ex));
                         },
-                        MoreExecutors.directExecutor()
+                        directExecutor()
                     );
-                    batchFutures.add(batchFuture);
-                    return batchFuture;
                 },
-                MoreExecutors.directExecutor()
+                directExecutor()
             );
+            futures.add(chain);
         }
 
-        return Futures.allAsList(batchFutures);
+        return Futures.allAsList(futures);
     }
 
     // URI format: abfs[s]://<container_name>@<account_name>.dfs.core.windows.net/<path>/<file_name>
