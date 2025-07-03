@@ -308,7 +308,7 @@ public class AzureBlobFileSystemExchangeStorage
                             Throwable.class,
                             ex -> {
                                 log.error("Error deleting batch of blobs", ex);
-                                throw ex;
+                                throw new RuntimeException(ex);
                             },
                             MoreExecutors.directExecutor()
                     );
