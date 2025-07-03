@@ -307,6 +307,23 @@ public class AzureBlobFileSystemExchangeStorage
                         Throwable.class,
                         ex -> {
                             log.error("Error deleting batch of blobs", ex);
+
+                            if (ex instanceof BlobBatchStorageException) {
+                                BlobBatchStorageException batchEx = (BlobBatchStorageException) ex;
+                                for (BlobStorageException failedOp : batchEx.getBatchExceptions()) {
+                                    log.error("Blob delete failed: StatusCode={}, ErrorCode={}, Message={}",
+                                        failedOp.getStatusCode(),
+                                        failedOp.getErrorCode(),
+                                        failedOp.getServiceMessage());
+                                }
+                            }
+
+                            Throwable cause = ex.getCause();
+                            while (cause != null) {
+                                log.error("Cause: {}", cause.toString());
+                                cause = cause.getCause();
+                            }
+
                             return Futures.immediateFailedFuture(new IOException("Failed batch delete", ex));
                         },
                         MoreExecutors.directExecutor()
