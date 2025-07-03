@@ -13,6 +13,8 @@
  */
 package io.trino.plugin.exchange.filesystem.azure;
 
+import com.azure.core.http.policy.HttpLogDetailLevel;
+import com.azure.core.http.policy.HttpLogOptions;
 import com.azure.core.http.rest.PagedResponse;
 import com.azure.core.util.BinaryData;
 import com.azure.identity.DefaultAzureCredentialBuilder;
@@ -108,8 +110,10 @@ public class AzureBlobFileSystemExchangeStorage
     {
         this.blockSize = toIntExact(config.getAzureStorageBlockSize().toBytes());
 
+        HttpLogOptions logOptions = new HttpLogOptions().setLogLevel(HttpLogDetailLevel.BODY_AND_HEADERS);
         BlobServiceClientBuilder blobServiceClientBuilder = new BlobServiceClientBuilder()
-                .retryOptions(new RequestRetryOptions(RetryPolicyType.EXPONENTIAL, config.getMaxErrorRetries(), (Integer) null, null, null, null));
+                .retryOptions(new RequestRetryOptions(RetryPolicyType.EXPONENTIAL, config.getMaxErrorRetries(), (Integer) null, null, null, null))
+                .httpLogOptions(logOptions);
         Optional<String> connectionString = config.getAzureStorageConnectionString();
         Optional<String> endpoint = config.getAzureStorageEndpoint();
 
@@ -318,6 +322,9 @@ public class AzureBlobFileSystemExchangeStorage
                                         failedOp.getStatusCode(),
                                         failedOp.getErrorCode(),
                                         failedOp.getServiceMessage()));
+                                    blobContainerAsyncClient
+                                        .listBlobs()
+                                        .subscribe(blobItem -> log.info("Blob still exists after delete attempt: " + blobItem.getName()));
                                 }
                             }
 
