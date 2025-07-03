@@ -192,7 +192,7 @@ public class AzureBlobFileSystemExchangeStorage
             deleteObjectsFutures.add(Futures.transformAsync(
                     Futures.allAsList(containerToListObjectsFutures.get(containerName)),
                     nestedPagedResponseList -> {
-                        ImmutableList.Builder<String> blobsToDelete = ImmutableList.builder();
+                        ImmutableList.Builder<BlobIdentifier> blobsToDelete = ImmutableList.builder();
                         for (List<PagedResponse<BlobItem>> pagedResponseList : nestedPagedResponseList) {
                             for (PagedResponse<BlobItem> pagedResponse : pagedResponseList) {
                                 pagedResponse.getValue().forEach(blobItem -> {
@@ -288,8 +288,6 @@ public class AzureBlobFileSystemExchangeStorage
 
     private ListenableFuture<List<Void>> deleteObjectsOrdered(List<BlobIdentifier> blobs)
     {
-        BlobContainerAsyncClient blobContainerAsyncClient = blobServiceAsyncClient.getBlobContainerAsyncClient(containerName);
-
         // Sort in reverse lex order: children before parents
         List<BlobIdentifier> sortedBlobs = blobs.stream()
             .sorted(Comparator.comparing(BlobIdentifier::blobName).reversed())
@@ -305,7 +303,7 @@ public class AzureBlobFileSystemExchangeStorage
             BlobContainerAsyncClient blobContainerAsyncClient = blobServiceAsyncClient.getBlobContainerAsyncClient(containerName);
             BlobAsyncClient blobClient = blobContainerAsyncClient.getBlobAsyncClient(blobName);
 
-            log.info("Deleting blob: %s", blobUrl);
+            log.info("Deleting blob: %s", blobName);
 
             chain = Futures.transformAsync(
                 chain,
