@@ -178,21 +178,25 @@ public class AzureBlobFileSystemExchangeStorage
             deleteObjectsFutures.add(Futures.transformAsync(
                     Futures.allAsList(containerToListObjectsFutures.get(containerName)),
                     nestedPagedResponseList -> {
-                        ImmutableList.Builder<String> blobUrls = ImmutableList.builder();
+                        List<String> allBlobs = new ArrayList<>();
                         for (List<PagedResponse<BlobItem>> pagedResponseList : nestedPagedResponseList) {
                             for (PagedResponse<BlobItem> pagedResponse : pagedResponseList) {
                                 for (BlobItem blobItem : pagedResponse.getValue()) {
                                     String blobName = blobItem.getName();
-                                    String blobUrl = blobContainerAsyncClient.getBlobAsyncClient(blobName).getBlobUrl();
                                     log.info("Found blob for deletion: %s", blobName);
-                                    blobUrls.add(blobUrl);
+                                    allBlobs.add(blobItem);
                                 }
                             }
                         }
-                        List<String> urlsToDelete = blobUrls.build();
-                        log.info("Total blobs to delete in container %s: %d", containerName, urlsToDelete.size());
-                        urlsToDelete.forEach(url -> log.info("Deleting blob: %s", url));
-                        return deleteObjects(urlsToDelete);
+                        // Partition: delete regular blobs first then directories
+                        Set<String> directoryShapedBlobs = findDirectoryShapedBlobs(allBlobs);
+                        List<String> regularBlobs = allBlobs.stream()
+                                .filter(blob -> !directoryShapedBlobs.contains(blob))
+                                .collect(toList());
+                        List<String> toDeleteInOrder = new ArrayList<>(regularBlobs);
+                        toDeleteInOrder.addAll(directoryShapedBlobs);
+                        toDeleteInOrder.forEach(blob -> log.info("Deleting blob: %s", blobContainerAsyncClient.getBlobAsyncClient(blob).getBlobUrl()));
+                        return deleteObjects(toDeleteInOrder);
                     },
                     directExecutor()));
         }
@@ -296,6 +300,24 @@ public class AzureBlobFileSystemExchangeStorage
     private static boolean isDirectory(URI uri)
     {
         return uri.toString().endsWith(PATH_SEPARATOR);
+    }
+
+    private Set<String> findDirectoryShapedBlobs(List<String> allBlobNames)
+    {
+        Set<String> directories = new HashSet<>();
+        Set<String> all = new HashSet<>(allBlobNames);
+
+        for (String blob : allBlobNames) {
+            int idx = blob.lastIndexOf('/');
+            while (idx > 0) {
+                String prefix = blob.substring(0, idx);
+                if (all.contains(prefix)) {
+                    directories.add(prefix);
+                }
+                idx = prefix.lastIndexOf('/');
+            }
+        }
+        return directories;
     }
 
     @ThreadSafe
