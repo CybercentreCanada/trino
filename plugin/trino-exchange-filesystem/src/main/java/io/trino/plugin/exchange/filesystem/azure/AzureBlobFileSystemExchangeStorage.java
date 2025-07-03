@@ -197,7 +197,7 @@ public class AzureBlobFileSystemExchangeStorage
                                 });
                             }
                         }
-                        return deleteObjectsOrdered(blobUrls.build());
+                        return deleteObjectsOrdered(blobUrls.build(), containerName);
                     },
                     directExecutor()));
         }
@@ -281,9 +281,10 @@ public class AzureBlobFileSystemExchangeStorage
                 .collect(toImmutableList()));
     }
 
-    private ListenableFuture<List<Void>> deleteObjectsOrdered(List<String> blobUrls)
+    private ListenableFuture<List<Void>> deleteObjectsOrdered(List<String> blobUrls, String containerName)
     {
         BlobBatchAsyncClient blobBatchAsyncClient = new BlobBatchClientBuilder(blobServiceAsyncClient).buildAsyncClient();
+        BlobContainerAsyncClient blobContainerAsyncClient = blobServiceAsyncClient.getBlobContainerAsyncClient(containerName);
 
         // Sort in reverse lex order: children before parents
         List<String> sortedUrls = blobUrls.stream()
