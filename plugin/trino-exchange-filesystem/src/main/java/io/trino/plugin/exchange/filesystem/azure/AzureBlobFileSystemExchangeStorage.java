@@ -106,6 +106,10 @@ public class AzureBlobFileSystemExchangeStorage
     private final int blockSize;
     private final BlobServiceAsyncClient blobServiceAsyncClient;
 
+    public record BlobIdentifier(String container, String blobName)
+    {
+    }
+
     @Inject
     public AzureBlobFileSystemExchangeStorage(ExchangeAzureConfig config)
     {
@@ -188,17 +192,17 @@ public class AzureBlobFileSystemExchangeStorage
             deleteObjectsFutures.add(Futures.transformAsync(
                     Futures.allAsList(containerToListObjectsFutures.get(containerName)),
                     nestedPagedResponseList -> {
-                        ImmutableList.Builder<String> blobUrls = ImmutableList.builder();
+                        ImmutableList.Builder<String> blobsToDelete = ImmutableList.builder();
                         for (List<PagedResponse<BlobItem>> pagedResponseList : nestedPagedResponseList) {
                             for (PagedResponse<BlobItem> pagedResponse : pagedResponseList) {
                                 pagedResponse.getValue().forEach(blobItem -> {
                                     String blobName = blobItem.getName();
                                     log.info("Found blob for deletion: %s", blobItem.getName());
-                                    blobUrls.add(blobContainerAsyncClient.getBlobAsyncClient(blobName).getBlobUrl());
+                                    blobsToDelete.add(new BlobIdentifier(containerName, blobItem.getName()));
                                 });
                             }
                         }
-                        return deleteObjectsOrdered(blobUrls.build(), containerName);
+                        return deleteObjectsOrdered(blobsToDelete.build());
                     },
                     directExecutor()));
         }
@@ -282,20 +286,23 @@ public class AzureBlobFileSystemExchangeStorage
                 .collect(toImmutableList()));
     }
 
-    private ListenableFuture<List<Void>> deleteObjectsOrdered(List<String> blobUrls, String containerName)
+    private ListenableFuture<List<Void>> deleteObjectsOrdered(List<BlobIdentifier> blobs)
     {
         BlobContainerAsyncClient blobContainerAsyncClient = blobServiceAsyncClient.getBlobContainerAsyncClient(containerName);
 
         // Sort in reverse lex order: children before parents
-        List<String> sortedUrls = blobUrls.stream()
-                .sorted(Comparator.reverseOrder())
-                .collect(toImmutableList());
+        List<BlobIdentifier> sortedBlobs = blobs.stream()
+            .sorted(Comparator.comparing(BlobIdentifier::blobName).reversed())
+            .collect(toImmutableList());
 
         List<ListenableFuture<Void>> futures = new ArrayList<>();
         ListenableFuture<Void> chain = Futures.immediateFuture(null);
 
-        for (String blobUrl : sortedUrls) {
-            String blobName = blobUrl.substring(blobUrl.indexOf(containerName) + containerName.length() + 1);
+        for (BlobIdentifier blob : sortedBlobs) {
+            String containerName = blob.container();
+            String blobName = blob.blobName();
+
+            BlobContainerAsyncClient blobContainerAsyncClient = blobServiceAsyncClient.getBlobContainerAsyncClient(containerName);
             BlobAsyncClient blobClient = blobContainerAsyncClient.getBlobAsyncClient(blobName);
 
             log.info("Deleting blob: %s", blobUrl);
@@ -309,13 +316,13 @@ public class AzureBlobFileSystemExchangeStorage
                                 .deleteWithResponse(DeleteSnapshotsOptionType.INCLUDE, null)
                                 .toFuture()
                                 .thenApply(response -> {
-                                    log.info("Successfully deleted:  %s", blobUrl);
+                                    log.info("Successfully deleted: %s/%s", containerName, blobName);
                                     return null;
                                 })
                         ),
                         Throwable.class,
                         ex -> {
-                            log.error("Failed to delete blob: %s", blobUrl, ex);
+                            log.error("Failed to delete blob: %s/%s", containerName, blobName, ex);
 
                             if (ex instanceof BlobStorageException blobEx) {
                                 log.error(String.format(
