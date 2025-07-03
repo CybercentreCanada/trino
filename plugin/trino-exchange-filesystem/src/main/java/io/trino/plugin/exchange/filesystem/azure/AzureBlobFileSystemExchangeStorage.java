@@ -63,6 +63,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -165,7 +166,6 @@ public class AzureBlobFileSystemExchangeStorage
     public ListenableFuture<Void> deleteRecursively(List<URI> directories)
     {
         ImmutableMultimap.Builder<String, ListenableFuture<List<PagedResponse<BlobItem>>>> containerToListObjectsFuturesBuilder = ImmutableMultimap.builder();
-
         directories.forEach(dir -> {
             log.info("Recursively deleting directory: %s", dir);
             containerToListObjectsFuturesBuilder.put(
@@ -180,25 +180,17 @@ public class AzureBlobFileSystemExchangeStorage
             deleteObjectsFutures.add(Futures.transformAsync(
                     Futures.allAsList(containerToListObjectsFutures.get(containerName)),
                     nestedPagedResponseList -> {
-                        List<String> allBlobs = new ArrayList<>();
+                        ImmutableList.Builder<String> blobUrls = ImmutableList.builder();
                         for (List<PagedResponse<BlobItem>> pagedResponseList : nestedPagedResponseList) {
                             for (PagedResponse<BlobItem> pagedResponse : pagedResponseList) {
-                                for (BlobItem blobItem : pagedResponse.getValue()) {
+                                pagedResponse.getValue().forEach(blobItem -> {
                                     String blobName = blobItem.getName();
-                                    log.info("Found blob for deletion: %s", blobName);
-                                    allBlobs.add(blobName);
-                                }
+                                    log.info("Found blob for deletion: %s", blobItem.getName());
+                                    blobUrls.add(blobContainerAsyncClient.getBlobAsyncClient(blobName).getBlobUrl());
+                                });
                             }
                         }
-                        // Partition: delete regular blobs first then directories
-                        Set<String> directoryShapedBlobs = findDirectoryShapedBlobs(allBlobs);
-                        List<String> regularBlobs = allBlobs.stream()
-                                .filter(blob -> !directoryShapedBlobs.contains(blob))
-                                .toList();
-                        List<String> toDeleteInOrder = new ArrayList<>(regularBlobs);
-                        toDeleteInOrder.addAll(directoryShapedBlobs);
-                        toDeleteInOrder.forEach(blob -> log.info("Deleting blob: %s", blobContainerAsyncClient.getBlobAsyncClient(blob).getBlobUrl()));
-                        return deleteObjects(toDeleteInOrder);
+                        return deleteObjectsOrdered(blobUrls.build());
                     },
                     directExecutor()));
         }
@@ -280,6 +272,36 @@ public class AzureBlobFileSystemExchangeStorage
         return Futures.allAsList(Lists.partition(blobUrls, 256).stream()
                 .map(list -> toListenableFuture(blobBatchAsyncClient.deleteBlobs(list, DeleteSnapshotsOptionType.INCLUDE).then().toFuture()))
                 .collect(toImmutableList()));
+    }
+
+    private ListenableFuture<Void> deleteObjectsOrdered(List<String> blobUrls) {
+        BlobBatchAsyncClient blobBatchAsyncClient = new BlobBatchClientBuilder(blobServiceAsyncClient).buildAsyncClient();
+
+        // Sort in reverse lex order: children before parents
+        List<String> sortedUrls = blobUrls.stream()
+                .sorted(Comparator.reverseOrder())
+                .collect(toImmutableList());
+        sortedUrls.forEach(url -> log.info("Deleting blob: %s", url));
+
+        // Partition into batches of max 256
+        List<List<String>> batches = Lists.partition(sortedUrls, 256);
+
+        // Chain futures to delete batches sequentially
+        ListenableFuture<Void> futureChain = Futures.immediateFuture(null);
+
+        for (List<String> batch : batches) {
+            futureChain = Futures.transformAsync(
+                    futureChain,
+                    ignored -> toListenableFuture(
+                            blobBatchAsyncClient
+                                    .deleteBlobs(batch, DeleteSnapshotsOptionType.INCLUDE)
+                                    .then()
+                                    .toFuture()
+                    ),
+                    MoreExecutors.directExecutor());
+        }
+
+        return futureChain;
     }
 
     // URI format: abfs[s]://<container_name>@<account_name>.dfs.core.windows.net/<path>/<file_name>
