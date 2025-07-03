@@ -313,10 +313,11 @@ public class AzureBlobFileSystemExchangeStorage
                             if (ex instanceof BlobBatchStorageException) {
                                 BlobBatchStorageException batchEx = (BlobBatchStorageException) ex;
                                 for (BlobStorageException failedOp : batchEx.getBatchExceptions()) {
-                                    log.error("Blob delete failed: StatusCode={}, ErrorCode={}, Message={}",
+                                    log.error(String.format(
+                                        "Blob delete failed: StatusCode=%s, ErrorCode=%s, Message=%s",
                                         failedOp.getStatusCode(),
                                         failedOp.getErrorCode(),
-                                        failedOp.getServiceMessage());
+                                        failedOp.getServiceMessage()));
                                 }
                             }
 
