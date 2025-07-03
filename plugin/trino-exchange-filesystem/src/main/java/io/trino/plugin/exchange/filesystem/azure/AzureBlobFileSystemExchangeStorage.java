@@ -39,6 +39,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.errorprone.annotations.ThreadSafe;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import com.google.inject.Inject;
+import io.airlift.log.Logger;
 import io.airlift.slice.SizeOf;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceInput;
@@ -91,6 +92,8 @@ import static java.util.Objects.requireNonNullElseGet;
 public class AzureBlobFileSystemExchangeStorage
         implements FileSystemExchangeStorage
 {
+    private static final Logger log = Logger.get(AzureBlobFileSystemExchangeStorage.class);
+
     private final int blockSize;
     private final BlobServiceAsyncClient blobServiceAsyncClient;
 
