@@ -160,9 +160,13 @@ public class AzureBlobFileSystemExchangeStorage
     public ListenableFuture<Void> deleteRecursively(List<URI> directories)
     {
         ImmutableMultimap.Builder<String, ListenableFuture<List<PagedResponse<BlobItem>>>> containerToListObjectsFuturesBuilder = ImmutableMultimap.builder();
-        directories.forEach(dir -> containerToListObjectsFuturesBuilder.put(
-                getContainerName(dir),
-                listObjectsRecursively(dir)));
+
+        directories.forEach(dir -> {
+            log.info("Recursively deleting directory: %s", dir);
+            containerToListObjectsFuturesBuilder.put(
+                    getContainerName(dir),
+                    listObjectsRecursively(dir));
+        });
         Multimap<String, ListenableFuture<List<PagedResponse<BlobItem>>>> containerToListObjectsFutures = containerToListObjectsFuturesBuilder.build();
 
         ImmutableList.Builder<ListenableFuture<List<Void>>> deleteObjectsFutures = ImmutableList.builder();
@@ -174,17 +178,37 @@ public class AzureBlobFileSystemExchangeStorage
                         ImmutableList.Builder<String> blobUrls = ImmutableList.builder();
                         for (List<PagedResponse<BlobItem>> pagedResponseList : nestedPagedResponseList) {
                             for (PagedResponse<BlobItem> pagedResponse : pagedResponseList) {
-                                pagedResponse.getValue().forEach(blobItem -> {
-                                    blobUrls.add(blobContainerAsyncClient.getBlobAsyncClient(blobItem.getName()).getBlobUrl());
-                                });
+                                for (BlobItem blobItem : pagedResponse.getValue()) {
+                                    String blobName = blobItem.getName();
+                                    String blobUrl = blobContainerAsyncClient.getBlobAsyncClient(blobName).getBlobUrl();
+                                    log.info("Found blob for deletion: %s", blobName);
+                                    blobUrls.add(blobUrl);
+                                }
                             }
                         }
-                        return deleteObjects(blobUrls.build());
+                        List<String> urlsToDelete = blobUrls.build();
+                        log.info("Total blobs to delete in container %s: %d", containerName, urlsToDelete.size());
+                        urlsToDelete.forEach(url -> log.info("Deleting blob: %s", url));
+                        return deleteObjects(urlsToDelete);
                     },
                     directExecutor()));
         }
 
-        return translateFailures(Futures.allAsList(deleteObjectsFutures.build()));
+        ListenableFuture<Void> finalResult = translateFailures(Futures.allAsList(deleteObjectsFutures.build()));
+
+        Futures.addCallback(finalResult, new FutureCallback<Void>() {
+            @Override
+            public void onSuccess(Void result) {
+                log.info("Successfully deleted all blobs for directories: %s", directories);
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                log.warn(t, "Failed to delete blobs for directories: %s", directories);
+            }
+        }, directExecutor());
+
+        return finalResult;
     }
 
     @Override
