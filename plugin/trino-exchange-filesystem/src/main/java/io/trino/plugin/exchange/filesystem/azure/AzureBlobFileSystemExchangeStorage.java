@@ -306,7 +306,7 @@ public class AzureBlobFileSystemExchangeStorage
                     return Futures.catchingAsync(
                         toListenableFuture(
                             blobClient
-                                .deleteWithResponse(DeleteSnapshotsOptionType.INCLUDE)
+                                .deleteWithResponse(DeleteSnapshotsOptionType.INCLUDE, null)
                                 .toFuture()
                                 .thenApply(response -> {
                                     log.info("Successfully deleted:  %s", blobUrl);
