@@ -287,22 +287,28 @@ public class AzureBlobFileSystemExchangeStorage
         // Partition into batches of max 256
         List<List<String>> batches = Lists.partition(sortedUrls, 256);
 
-        // Chain futures to delete batches sequentially
-        ListenableFuture<Void> futureChain = Futures.immediateFuture(null);
+        // Chain batch deletions in order, collecting results
+        List<ListenableFuture<Void>> batchFutures = new ArrayList<>();
+        ListenableFuture<Void> chain = Futures.immediateFuture(null);
 
         for (List<String> batch : batches) {
-            futureChain = Futures.transformAsync(
-                    futureChain,
-                    ignored -> toListenableFuture(
-                            blobBatchAsyncClient
-                                    .deleteBlobs(batch, DeleteSnapshotsOptionType.INCLUDE)
-                                    .then()
-                                    .toFuture()
-                    ),
-                    MoreExecutors.directExecutor());
+            chain = Futures.transformAsync(
+                    chain,
+                    ignored -> {
+                        ListenableFuture<Void> batchFuture = toListenableFuture(
+                                blobBatchAsyncClient
+                                        .deleteBlobs(batch, DeleteSnapshotsOptionType.INCLUDE)
+                                        .then()
+                                        .toFuture()
+                        );
+                        batchFutures.add(batchFuture);
+                        return batchFuture;
+                    },
+                    MoreExecutors.directExecutor()
+            );
         }
 
-        return futureChain;
+        return Futures.allAsList(batchFutures);
     }
 
     // URI format: abfs[s]://<container_name>@<account_name>.dfs.core.windows.net/<path>/<file_name>
