@@ -287,53 +287,39 @@ public class AzureBlobFileSystemExchangeStorage
 
         // Partition into batches of max 256
         List<List<String>> batches = Lists.partition(sortedUrls, 256);
-
-        List<List<Void>> batchResults = new ArrayList<>();
+        List<ListenableFuture<Void>> batchFutures = new ArrayList<>();
         ListenableFuture<Void> chain = Futures.immediateFuture(null);
 
         for (List<String> batch : batches) {
+            log.info("Deleting batch of %d blobs", batch.size());
+            batch.forEach(url -> log.info(" - %s", url));
+
             chain = Futures.transformAsync(
                 chain,
                 ignored -> {
-                    log.info("Deleting batch of %d blobs", batch.size());
-                    batch.forEach(blob -> log.info(" - %s", blob));
-
                     ListenableFuture<Void> batchFuture = Futures.catchingAsync(
-                            toListenableFuture(
-                                blobBatchAsyncClient
-                                    .deleteBlobs(batch, DeleteSnapshotsOptionType.INCLUDE)
-                                    .then()
-                                    .toFuture()
-                            ),
-                            Throwable.class,
-                            ex -> {
-                                log.error("Error deleting batch of blobs", ex);
-                                throw new RuntimeException(ex);
-                            },
-                            MoreExecutors.directExecutor()
-                    );
-
-                    return Futures.transform(
-                        batchFuture,
-                        result -> {
-                            // Add a placeholder Void result
-                            batchResults.add(List.of(result));
-                            return null;
+                        toListenableFuture(
+                            blobBatchAsyncClient
+                                .deleteBlobs(batch, DeleteSnapshotsOptionType.INCLUDE)
+                                .then()
+                                .toFuture()
+                        ),
+                        Throwable.class,
+                        ex -> {
+                            log.error("Error deleting batch of blobs", ex);
+                            return Futures.immediateFailedFuture(new IOException("Failed batch delete", ex));
                         },
                         MoreExecutors.directExecutor()
                     );
+                    batchFutures.add(batchFuture);
+                    return batchFuture;
                 },
                 MoreExecutors.directExecutor()
             );
         }
 
-        // Flatten results and return a List<Void> matching original return type
-        return Futures.transform(
-            chain,
-            ignored -> batchResults.stream().flatMap(List::stream).collect(toImmutableList()),
-            MoreExecutors.directExecutor()
-        );
-}
+        return Futures.allAsList(batchFutures);
+    }
 
     // URI format: abfs[s]://<container_name>@<account_name>.dfs.core.windows.net/<path>/<file_name>
     private static String getContainerName(URI uri)
