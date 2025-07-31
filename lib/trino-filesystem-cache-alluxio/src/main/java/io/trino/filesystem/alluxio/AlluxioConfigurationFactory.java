@@ -16,6 +16,7 @@ package io.trino.filesystem.alluxio;
 import alluxio.conf.AlluxioConfiguration;
 import alluxio.conf.AlluxioProperties;
 import alluxio.conf.InstancedConfiguration;
+import alluxio.conf.PropertyKey;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import io.airlift.log.Logger;
@@ -115,7 +116,17 @@ public class AlluxioConfigurationFactory
             try (var reader = Files.newBufferedReader(CONFIG_PATH)) {
                 Properties siteProps = new Properties();
                 siteProps.load(reader);
-                siteProps.forEach((k, v) -> alluxioProperties.setRawProperty(k.toString(), v.toString()));
+                for (var entry : siteProps.entrySet()) {
+                    String key = entry.getKey().toString();
+                    String value = entry.getValue().toString();
+                    try {
+                        PropertyKey propertyKey = PropertyKey.fromString(key);
+                        alluxioProperties.set(propertyKey, value);
+                    }
+                    catch (IllegalArgumentException e) {
+                        log.warn("Skipping unknown Alluxio property: %s", key);
+                    }
+                }
             }
             catch (IOException e) {
                 log.warn(e, "Failed to load Alluxio config from %s", CONFIG_PATH);
