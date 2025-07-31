@@ -18,13 +18,16 @@ import alluxio.conf.AlluxioProperties;
 import alluxio.conf.InstancedConfiguration;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static alluxio.conf.PropertyKey.USER_CLIENT_CACHE_DIRS;
@@ -42,6 +45,9 @@ import static java.lang.String.join;
 
 public class AlluxioConfigurationFactory
 {
+    private static final Logger log = Logger.get(AlluxioConfigurationFactory.class);
+    private static final Path CONFIG_PATH = Path.of("/opt/alluxio/conf/alluxio-site.properties");
+
     private AlluxioConfigurationFactory() {}
 
     public static AlluxioConfiguration create(AlluxioFileSystemCacheConfig config)
@@ -67,6 +73,7 @@ public class AlluxioConfigurationFactory
             alluxioProperties.set(USER_CLIENT_CACHE_TTL_THRESHOLD_SECONDS, ttl.orElseThrow().roundTo(TimeUnit.SECONDS));
             alluxioProperties.set(USER_CLIENT_CACHE_TTL_ENABLED, true);
         }
+        loadFromSiteProperties(alluxioProperties);
         return new InstancedConfiguration(alluxioProperties);
     }
 
@@ -100,5 +107,20 @@ public class AlluxioConfigurationFactory
             maxCacheSizes.add(DataSize.of(Math.round(cachePercentages.get(i) / 100.0 * cacheDiskSizes.get(i)), DataSize.Unit.BYTE));
         }
         return maxCacheSizes.build();
+    }
+
+    private static void loadFromSiteProperties(AlluxioProperties alluxioProperties)
+    {
+        if (Files.isRegularFile(CONFIG_PATH)) {
+            try (var reader = Files.newBufferedReader(CONFIG_PATH)) {
+                Properties siteProps = new Properties();
+                siteProps.load(reader);
+                siteProps.forEach((k, v) -> alluxioProperties.setRawProperty(k.toString(), v.toString()));
+            }
+            catch (IOException e) {
+                log.warn(e, "Failed to load Alluxio config from %s", CONFIG_PATH);
+                throw new RuntimeException("Failed to load alluxio-site.properties", e);
+            }
+        }
     }
 }
