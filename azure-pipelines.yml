@@ -57,13 +57,6 @@ jobs:
         inputs:
           mavenServiceConnections: cccs-stratus
       - task: Bash@3
-        displayName: debug
-        inputs:
-          targetType: 'inline'
-          script: |
-            node --version
-            yarn --version
-      - task: Bash@3
         displayName: Maven build
         inputs:
           targetType: 'inline'
@@ -71,6 +64,15 @@ jobs:
             MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
             $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
         condition: ne('${{ parameters.skipChecks }}', true)
+      - script: |
+          echo "==== Dumping Flow logs ===="
+          find /tmp/flow -name "*.log" | while read file; do
+            echo "--- START: $file ---"
+            cat "$file"
+            echo "--- END: $file ---"
+          done
+        displayName: "Dump Flow logs to console"
+        condition: always()
       - task: Bash@3
         displayName: Maven build without checks
         inputs:
