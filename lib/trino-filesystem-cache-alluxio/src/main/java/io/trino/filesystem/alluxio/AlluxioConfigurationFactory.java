@@ -129,13 +129,12 @@ public class AlluxioConfigurationFactory
                     }
                 }
 
-                log.info("AlluxioProperties after loading:");
+                log.debug("AlluxioProperties after loading:");
                 alluxioProperties.forEach((key, value) -> {
-                    log.info("Property: %s = %s", key.getName(), value);
+                    log.debug("Property: %s = %s", key.getName(), value);
                 });
             }
             catch (IOException e) {
-                log.warn(e, "Failed to load Alluxio config from %s", CONFIG_PATH);
                 throw new RuntimeException("Failed to load alluxio-site.properties", e);
             }
         }
