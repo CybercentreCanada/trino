@@ -122,16 +122,16 @@ public class AlluxioConfigurationFactory
                     try {
                         PropertyKey propertyKey = PropertyKey.fromString(key);
                         alluxioProperties.set(propertyKey, value);
-                        log.info("Set Alluxio property: {} = {}", key, value);
+                        log.info("Set Alluxio property: %s = %s", key, value);
                     }
                     catch (IllegalArgumentException e) {
-                        log.warn("Skipping unknown Alluxio property: {}", key, e);
+                        log.warn("Skipping unknown Alluxio property: %s", key, e);
                     }
                 }
 
                 log.info("AlluxioProperties after loading:");
                 alluxioProperties.forEach((key, value) -> {
-                    log.info("Property: {} = {}", key.getName(), value);
+                    log.info("Property: %s = %s", key.getName(), value);
                 });
             }
             catch (IOException e) {
