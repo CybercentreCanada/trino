@@ -16,7 +16,6 @@ package io.trino.filesystem.alluxio;
 import alluxio.conf.AlluxioConfiguration;
 import alluxio.conf.AlluxioProperties;
 import alluxio.conf.InstancedConfiguration;
-import alluxio.conf.PropertyKey;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 import io.airlift.log.Logger;
