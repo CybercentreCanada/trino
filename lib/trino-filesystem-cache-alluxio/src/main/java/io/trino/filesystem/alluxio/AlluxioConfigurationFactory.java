@@ -119,13 +119,7 @@ public class AlluxioConfigurationFactory
                 for (var entry : siteProps.entrySet()) {
                     String key = entry.getKey().toString();
                     String value = entry.getValue().toString();
-                    try {
-                        PropertyKey propertyKey = PropertyKey.fromString(key);
-                        alluxioProperties.set(propertyKey, value);
-                    }
-                    catch (IllegalArgumentException e) {
-                        log.warn("Skipping unknown Alluxio property: %s", key);
-                    }
+                    alluxioProperties.set(key, value);
                 }
             }
             catch (IOException e) {
