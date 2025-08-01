@@ -19,6 +19,7 @@ import alluxio.conf.InstancedConfiguration;
 import alluxio.conf.PropertyKey;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 
@@ -45,6 +46,7 @@ import static java.lang.String.join;
 
 public class AlluxioConfigurationFactory
 {
+    private static final Logger log = Logger.get(AlluxioConfigurationFactory.class);
     private static final Path CONFIG_PATH = Path.of("/opt/alluxio/conf/alluxio-site.properties");
 
     private AlluxioConfigurationFactory() {}
@@ -122,10 +124,12 @@ public class AlluxioConfigurationFactory
                         alluxioProperties.set(propertyKey, value);
                     }
                     catch (IllegalArgumentException e) {
+                        log.warn("Skipping unknown Alluxio property: %s", key);
                     }
                 }
             }
             catch (IOException e) {
+                log.warn(e, "Failed to load Alluxio config from %s", CONFIG_PATH);
                 throw new RuntimeException("Failed to load alluxio-site.properties", e);
             }
         }
