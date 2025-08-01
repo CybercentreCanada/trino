@@ -122,7 +122,6 @@ public class AlluxioConfigurationFactory
                         alluxioProperties.set(propertyKey, value);
                     }
                     catch (IllegalArgumentException e) {
-                        log.warn("Skipping unknown Alluxio property: %s", key);
                     }
                 }
             }
