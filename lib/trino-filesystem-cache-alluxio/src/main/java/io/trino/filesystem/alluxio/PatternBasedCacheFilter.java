@@ -15,6 +15,9 @@ package io.trino.filesystem.alluxio;
 
 import alluxio.client.file.URIStatus;
 import alluxio.conf.AlluxioConfiguration;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
+import io.airlift.log.Logger;
 
 import java.io.FileReader;
 import java.util.Collections;
@@ -23,11 +26,9 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
-import io.airlift.log.Logger;
-
-public class PatternBasedCacheFilter implements CacheFilter {
+public class PatternBasedCacheFilter
+        implements CacheFilter
+{
     private static final Logger LOG = Logger.get(PatternBasedCacheFilter.class);
 
     public enum FilterType
@@ -61,7 +62,8 @@ public class PatternBasedCacheFilter implements CacheFilter {
 
             if (patternStrs == null) {
                 patterns = Collections.emptyList();
-            } else {
+            }
+            else {
                 patterns = patternStrs.stream()
                     .map(Pattern::compile)
                     .collect(Collectors.toList());
@@ -74,7 +76,8 @@ public class PatternBasedCacheFilter implements CacheFilter {
                     LOG.info("  - %s", p.pattern());
                 }
             }
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             throw new RuntimeException("Failed to initialize PatternBasedCacheFilter", e);
         }
     }
