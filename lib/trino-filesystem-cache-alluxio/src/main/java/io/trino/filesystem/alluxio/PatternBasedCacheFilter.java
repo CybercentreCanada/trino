@@ -47,37 +47,41 @@ public class PatternBasedCacheFilter
         LOG.debug("Initializing PatternBasedCacheFilter with config file: %s", cacheConfigFile);
 
         try {
-            Map<String, Object> config = new Gson().fromJson(
-                new FileReader(cacheConfigFile),
-                new TypeToken<Map<String, Object>>() {}.getType());
+            Path configPath = Paths.get(cacheConfigFile);
+            try (BufferedReader reader = Files.newBufferedReader(configPath)) {
+                Map<String, Object> config = new Gson().fromJson(
+                    reader,
+                    new TypeToken<Map<String, Object>>() {}.getType()
+                );
 
-            String filterTypeStr = (String) config.get("filterType");
-            if (filterTypeStr == null) {
-                throw new IllegalArgumentException("Missing 'filterType' in cache filter config.");
-            }
+                String filterTypeStr = (String) config.get("filterType");
+                if (filterTypeStr == null) {
+                    throw new IllegalArgumentException("Missing 'filterType' in cache filter config.");
+                }
 
-            filterType = FilterType.valueOf(filterTypeStr.toUpperCase());
+                filterType = FilterType.valueOf(filterTypeStr.toUpperCase());
 
-            List<String> patternStrs = (List<String>) config.get("regxPatternStrList");
+                List<String> patternStrs = (List<String>) config.get("regxPatternStrList");
 
-            if ((filterType == FilterType.ALLOW_LIST || filterType == FilterType.BLOCK_LIST) && (patternStrs == null || patternStrs.isEmpty())) {
-                throw new IllegalArgumentException("'regxPatternStrList' must be provided for ALLOW_LIST or BLOCK_LIST.");
-            }
+                if ((filterType == FilterType.ALLOW_LIST || filterType == FilterType.BLOCK_LIST) && (patternStrs == null || patternStrs.isEmpty())) {
+                    throw new IllegalArgumentException("'regxPatternStrList' must be provided for ALLOW_LIST or BLOCK_LIST.");
+                }
 
-            if (patternStrs == null) {
-                patterns = Collections.emptyList();
-            }
-            else {
-                patterns = patternStrs.stream()
-                    .map(Pattern::compile)
-                    .collect(Collectors.toList());
-            }
+                if (patternStrs == null) {
+                    patterns = Collections.emptyList();
+                }
+                else {
+                    patterns = patternStrs.stream()
+                        .map(Pattern::compile)
+                        .collect(Collectors.toList());
+                }
 
-            LOG.info("Cache Filter initialized with filterType: %s", filterType);
-            if (!patterns.isEmpty()) {
-                LOG.info("Cache Filter regex patterns:");
-                for (Pattern p : patterns) {
-                    LOG.info("  - %s", p.pattern());
+                LOG.info("Cache Filter initialized with filterType: %s", filterType);
+                if (!patterns.isEmpty()) {
+                    LOG.info("Cache Filter regex patterns:");
+                    for (Pattern p : patterns) {
+                        LOG.info("  - %s", p.pattern());
+                    }
                 }
             }
         }
