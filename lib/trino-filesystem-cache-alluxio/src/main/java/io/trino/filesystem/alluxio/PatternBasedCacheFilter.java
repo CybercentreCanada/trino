@@ -14,6 +14,7 @@
 package io.trino.filesystem.alluxio;
 
 import alluxio.client.file.URIStatus;
+import alluxio.client.file.cache.filter.CacheFilter;
 import alluxio.conf.AlluxioConfiguration;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
