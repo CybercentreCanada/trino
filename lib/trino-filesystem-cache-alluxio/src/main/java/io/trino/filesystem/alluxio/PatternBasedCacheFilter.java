@@ -38,13 +38,16 @@ public class PatternBasedCacheFilter
         BLOCK_LIST
     }
 
+    private final FilterType filterType;
+    private final List<Pattern> patterns;
+
     public PatternBasedCacheFilter(AlluxioConfiguration conf, String cacheConfigFile)
     {
-        LOG.debug("Initializing PatternBasedCacheFilter with config file: %s", configFilePath);
+        LOG.debug("Initializing PatternBasedCacheFilter with config file: %s", cacheConfigFile);
 
         try {
             Map<String, Object> config = new Gson().fromJson(
-                new FileReader(configFilePath),
+                new FileReader(cacheConfigFile),
                 new TypeToken<Map<String, Object>>() {}.getType());
 
             String filterTypeStr = (String) config.get("filterType");
