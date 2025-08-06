@@ -20,12 +20,14 @@ import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import io.airlift.log.Logger;
 
-import java.io.FileReader;
+import java.io.BufferedReader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class PatternBasedCacheFilter
         implements CacheFilter
@@ -50,9 +52,8 @@ public class PatternBasedCacheFilter
             Path configPath = Paths.get(cacheConfigFile);
             try (BufferedReader reader = Files.newBufferedReader(configPath)) {
                 Map<String, Object> config = new Gson().fromJson(
-                    reader,
-                    new TypeToken<Map<String, Object>>() {}.getType()
-                );
+                        reader,
+                        new TypeToken<Map<String, Object>>() {}.getType());
 
                 String filterTypeStr = (String) config.get("filterType");
                 if (filterTypeStr == null) {
