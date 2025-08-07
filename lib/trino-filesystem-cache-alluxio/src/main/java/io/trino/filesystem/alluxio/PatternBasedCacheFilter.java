@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 public class PatternBasedCacheFilter
         implements CacheFilter
 {
-    private static final Logger LOG = Logger.get(PatternBasedCacheFilter.class);
+    private static final Logger log = Logger.get(PatternBasedCacheFilter.class);
 
     public enum FilterType
     {
@@ -47,7 +47,7 @@ public class PatternBasedCacheFilter
 
     public PatternBasedCacheFilter(AlluxioConfiguration conf, String cacheConfigFile)
     {
-        LOG.debug("Initializing PatternBasedCacheFilter with config file: %s", cacheConfigFile);
+        log.debug("Initializing PatternBasedCacheFilter with config file: %s", cacheConfigFile);
 
         try {
             Path configPath = Paths.get(cacheConfigFile);
@@ -78,11 +78,11 @@ public class PatternBasedCacheFilter
                         .collect(Collectors.toList());
                 }
 
-                LOG.info("Cache Filter initialized with filterType: %s", filterType);
+                log.info("Cache Filter initialized with filterType: %s", filterType);
                 if (!patterns.isEmpty()) {
-                    LOG.info("Cache Filter regex patterns:");
+                    log.info("Cache Filter regex patterns:");
                     for (Pattern p : patterns) {
-                        LOG.info("  - %s", p.pattern());
+                        log.info("  - %s", p.pattern());
                     }
                 }
             }
@@ -98,7 +98,7 @@ public class PatternBasedCacheFilter
         String path = uriStatus.getPath();
 
         if (filterType == FilterType.CACHE_ALL) {
-            LOG.debug("CACHE_ALL enabled, caching path: %s", path);
+            log.debug("CACHE_ALL enabled, caching path: %s", path);
             return true;
         }
 
@@ -106,10 +106,10 @@ public class PatternBasedCacheFilter
 
         switch (filterType) {
             case ALLOW_LIST:
-                LOG.debug("ALLOW_LIST filter match for path %s: %s", path, matches);
+                log.debug("ALLOW_LIST filter match for path %s: %s", path, matches);
                 return matches;
             case BLOCK_LIST:
-                LOG.debug("BLOCK_LIST filter match for path %s: %s", path, matches);
+                log.debug("BLOCK_LIST filter match for path %s: %s", path, matches);
                 return !matches;
             default:
                 throw new IllegalStateException("Unsupported filter type: " + filterType);

@@ -42,7 +42,7 @@ import static java.util.Objects.requireNonNull;
 public class AlluxioFileSystemCache
         implements TrinoFileSystemCache
 {
-    private static final Logger LOG = Logger.get(AlluxioFileSystemCache.class);
+    private static final Logger log = Logger.get(AlluxioFileSystemCache.class);
 
     private final Tracer tracer;
     private final DataSize pageSize;
