@@ -16,6 +16,7 @@ package io.trino.filesystem.alluxio;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.airlift.log.Logger;
+import io.trino.filesystem.Location;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
