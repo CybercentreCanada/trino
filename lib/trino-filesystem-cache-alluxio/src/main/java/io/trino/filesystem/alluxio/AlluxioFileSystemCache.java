@@ -54,7 +54,7 @@ public class AlluxioFileSystemCache
     private final AlluxioConfiguration config;
     private final AlluxioCacheStats statistics;
     private final AlluxioAccessStats accessStatistics;
-    private final ScheduledExecutorService accessStatisticsExecutor;
+    private final ScheduledThreadPoolExecutor accessStatisticsExecutor = new ScheduledThreadPoolExecutor(1, daemonThreadsNamed("alluxio-access-stats"));
     private final HashFunction hashFunction = Hashing.murmur3_128();
 
     @Inject
@@ -69,11 +69,14 @@ public class AlluxioFileSystemCache
         this.statistics = requireNonNull(statistics, "statistics is null");
         this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
         this.accessStatisticsExecutor = Executors.newSingleThreadScheduledExecutor();
-        this.accessStatisticsExecutor.scheduleAtFixedRate(
-                accessStatistics::run,
-                0,
-                1,
-                TimeUnit.MINUTES);
+        this.accessStatisticsExecutor.scheduleWithFixedDelay(() -> {
+            try {
+                accessStatistics.run();
+            }
+            catch (Throwable e) {
+                log.error(e, "Error running AlluxioAccessStats");
+            }
+        }, 0, 5, TimeUnit.MINUTES);
     }
 
     @Override
