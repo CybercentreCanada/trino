@@ -48,6 +48,7 @@ public class AlluxioInputHelper
     private final String cacheKey;
     private final CacheManager cacheManager;
     private final AlluxioCacheStats statistics;
+    private final AlluxioAccessStats accessStatistics;
     private final Location location;
     private final int pageSize;
     private final long fileLength;

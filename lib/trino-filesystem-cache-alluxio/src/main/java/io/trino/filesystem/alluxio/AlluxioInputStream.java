@@ -48,6 +48,7 @@ public class AlluxioInputStream
     private final long fileLength;
     private final Location location;
     private final AlluxioCacheStats statistics;
+    private final AlluxioAccessStats accessStatistics;
     private final String key;
     private final AlluxioInputHelper helper;
     private final Tracer tracer;

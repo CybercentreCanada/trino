@@ -33,6 +33,7 @@ public class AlluxioInput
     private final TrinoInputFile inputFile;
     private final long fileLength;
     private final AlluxioCacheStats statistics;
+    private final AlluxioAccessStats accessStatistics;
     private final AlluxioInputHelper helper;
 
     private TrinoInput input;

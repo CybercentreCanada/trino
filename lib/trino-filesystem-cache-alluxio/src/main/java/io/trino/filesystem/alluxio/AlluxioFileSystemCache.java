@@ -35,6 +35,9 @@ import jakarta.annotation.PreDestroy;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
@@ -51,6 +54,7 @@ public class AlluxioFileSystemCache
     private final AlluxioConfiguration config;
     private final AlluxioCacheStats statistics;
     private final AlluxioAccessStats accessStatistics;
+    private final ScheduledExecutorService statsExecutor;
     private final HashFunction hashFunction = Hashing.murmur3_128();
 
     @Inject
