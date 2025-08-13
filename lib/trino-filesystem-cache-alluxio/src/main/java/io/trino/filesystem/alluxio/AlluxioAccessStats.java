@@ -60,12 +60,12 @@ public class AlluxioAccessStats
         return path;
     }
 
-    public void recordExternalRead(String path, int bytes)
+    public void recordExternalRead(int bytes, String path)
     {
         externalReads.computeIfAbsent(normalizePath(path), p -> new Stats()).add(bytes);
     }
 
-    public void recordCacheRead(String path, int bytes)
+    public void recordCacheRead(int bytes, String path)
     {
         cacheReads.computeIfAbsent(normalizePath(path), p -> new Stats()).add(bytes);
     }

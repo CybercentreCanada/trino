@@ -54,7 +54,7 @@ public class AlluxioFileSystemCache
     private final AlluxioConfiguration config;
     private final AlluxioCacheStats statistics;
     private final AlluxioAccessStats accessStatistics;
-    private final ScheduledExecutorService statsExecutor;
+    private final ScheduledExecutorService accessStatisticsExecutor;
     private final HashFunction hashFunction = Hashing.murmur3_128();
 
     @Inject
