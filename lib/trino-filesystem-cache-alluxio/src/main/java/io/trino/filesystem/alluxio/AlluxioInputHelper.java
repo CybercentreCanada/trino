@@ -123,7 +123,7 @@ public class AlluxioInputHelper
         }
         int bytesRead = length - remainingLength;
         statistics.recordCacheRead(bytesRead);
-        accessStatistics.recordCacheRead(bytesRead, location.toString());
+        accessStatistics.recordCacheRead(bytesRead, location);
         return bytesRead;
     }
 
