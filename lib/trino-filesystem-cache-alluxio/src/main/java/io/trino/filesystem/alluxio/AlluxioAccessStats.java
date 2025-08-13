@@ -46,8 +46,7 @@ public class AlluxioAccessStats
         {
             return Map.of(
                 "hits", hits.sum(),
-                "bytes", bytes.sum()
-            );
+                "bytes", bytes.sum());
         }
     }
 
@@ -76,17 +75,15 @@ public class AlluxioAccessStats
     {
         // Take snapshots and clear maps atomically to avoid race conditions
         Map<String, Map<String, Long>> externalSnapshot = externalReads.entrySet().stream()
-            .collect(Collectors.toMap(
-                Map.Entry::getKey,
-                e -> e.getValue().toMap()
-            ));
+                .collect(Collectors.toMap(
+                    Map.Entry::getKey,
+                    e -> e.getValue().toMap()));
         externalReads.clear();
 
         Map<String, Map<String, Long>> cacheSnapshot = cacheReads.entrySet().stream()
-            .collect(Collectors.toMap(
-                Map.Entry::getKey,
-                e -> e.getValue().toMap()
-            ));
+                .collect(Collectors.toMap(
+                    Map.Entry::getKey,
+                    e -> e.getValue().toMap()));
         cacheReads.clear();
 
         // Skip logging if both are empty
@@ -95,9 +92,8 @@ public class AlluxioAccessStats
         }
 
         Map<String, Object> output = Map.of(
-            "externalReads", externalSnapshot,
-            "cacheReads", cacheSnapshot
-        );
+                "externalReads", externalSnapshot,
+                "cacheReads", cacheSnapshot);
 
         try {
             String json = mapper.writeValueAsString(output);
