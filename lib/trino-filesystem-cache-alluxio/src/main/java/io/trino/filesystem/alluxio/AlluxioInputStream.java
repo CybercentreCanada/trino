@@ -170,7 +170,7 @@ public class AlluxioInputStream
         int bytesToCopy = min(length, max(externalBytesRead - aligned.pageOffset(), 0));
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, bytesToCopy);
         statistics.recordExternalRead(externalBytesRead);
-        accessStatistics.recordExternalRead(readBuffer.length, inputFile.location());
+        accessStatistics.recordExternalRead(externalBytesRead, inputFile.location());
         return bytesToCopy;
     }
 
