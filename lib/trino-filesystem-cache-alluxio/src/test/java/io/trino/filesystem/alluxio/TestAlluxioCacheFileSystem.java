@@ -55,7 +55,7 @@ public class TestAlluxioCacheFileSystem
                 .disableTTL()
                 .setMaxCacheSizes(ImmutableList.of(DataSize.valueOf("100MB")));
         memoryFileSystem = new IncompleteStreamMemoryFileSystem();
-        cache = new AlluxioFileSystemCache(noopTracer(), configuration, new AlluxioCacheStats());
+        cache = new AlluxioFileSystemCache(noopTracer(), configuration, new AlluxioCacheStats(), new AlluxioAccessStats());
         fileSystem = new CacheFileSystem(memoryFileSystem, cache, new DefaultCacheKeyProvider());
     }
 

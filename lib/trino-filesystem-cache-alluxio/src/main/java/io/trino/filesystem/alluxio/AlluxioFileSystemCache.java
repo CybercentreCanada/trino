@@ -50,10 +50,11 @@ public class AlluxioFileSystemCache
     private final CacheFilter cacheFilter;
     private final AlluxioConfiguration config;
     private final AlluxioCacheStats statistics;
+    private final AlluxioAccessStats accessStatistics;
     private final HashFunction hashFunction = Hashing.murmur3_128();
 
     @Inject
-    public AlluxioFileSystemCache(Tracer tracer, AlluxioFileSystemCacheConfig config, AlluxioCacheStats statistics)
+    public AlluxioFileSystemCache(Tracer tracer, AlluxioFileSystemCacheConfig config, AlluxioCacheStats statistics, AlluxioAccessStats accessStatistics)
             throws IOException
     {
         this.tracer = requireNonNull(tracer, "tracer is null");
@@ -62,6 +63,13 @@ public class AlluxioFileSystemCache
         this.cacheManager = CacheManager.Factory.create(this.config);
         this.cacheFilter = CacheFilter.create(this.config);
         this.statistics = requireNonNull(statistics, "statistics is null");
+        this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
+        this.accessStatisticsExecutor = Executors.newSingleThreadScheduledExecutor();
+        this.accessStatisticsExecutor.scheduleAtFixedRate(
+                accessStatistics::run,
+                0,
+                1,
+                TimeUnit.MINUTES);
     }
 
     @Override
@@ -75,7 +83,7 @@ public class AlluxioFileSystemCache
             return delegate.newInput();
         }
 
-        return new AlluxioInput(tracer, delegate, key, status, new TracingCacheManager(tracer, key, pageSize, cacheManager), config, statistics);
+        return new AlluxioInput(tracer, delegate, key, status, new TracingCacheManager(tracer, key, pageSize, cacheManager), config, statistics, accessStatistics);
     }
 
     @Override
@@ -89,7 +97,7 @@ public class AlluxioFileSystemCache
             return delegate.newStream();
         }
 
-        return new AlluxioInputStream(tracer, delegate, key, status, new TracingCacheManager(tracer, key, pageSize, cacheManager), config, statistics);
+        return new AlluxioInputStream(tracer, delegate, key, status, new TracingCacheManager(tracer, key, pageSize, cacheManager), config, statistics, accessStatistics);
     }
 
     @Override
@@ -116,6 +124,7 @@ public class AlluxioFileSystemCache
             throws Exception
     {
         cacheManager.close();
+        accessStatisticsExecutor.shutdownNow();
     }
 
     @VisibleForTesting

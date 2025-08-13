@@ -183,7 +183,7 @@ public class TestFuzzAlluxioCacheFileSystem
                     .setCachePageSize(PAGE_SIZE)
                     .disableTTL()
                     .setMaxCacheSizes(ImmutableList.of(CACHE_SIZE));
-            AlluxioFileSystemCache alluxioCache = new AlluxioFileSystemCache(Tracing.noopTracer(), configuration, new AlluxioCacheStats());
+            AlluxioFileSystemCache alluxioCache = new AlluxioFileSystemCache(Tracing.noopTracer(), configuration, new AlluxioCacheStats(), new AlluxioAccessStats());
             return new CacheFileSystem(new IncompleteStreamMemoryFileSystem(), alluxioCache, new TestingCacheKeyProvider());
         }
 

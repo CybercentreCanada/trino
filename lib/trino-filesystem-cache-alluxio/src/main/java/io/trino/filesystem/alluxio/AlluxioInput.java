@@ -45,12 +45,14 @@ public class AlluxioInput
             URIStatus status,
             CacheManager cacheManager,
             AlluxioConfiguration configuration,
-            AlluxioCacheStats statistics)
+            AlluxioCacheStats statistics,
+            AlluxioAccessStats accessStatistics)
     {
         this.inputFile = requireNonNull(inputFile, "inputFile is null");
         this.fileLength = requireNonNull(status, "status is null").getLength();
         this.statistics = requireNonNull(statistics, "statistics is null");
-        this.helper = new AlluxioInputHelper(tracer, inputFile.location(), cacheKey, status, cacheManager, configuration, statistics);
+        this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
+        this.helper = new AlluxioInputHelper(tracer, inputFile.location(), cacheKey, status, cacheManager, configuration, statistics, accessStatistics);
     }
 
     @Override
@@ -86,6 +88,7 @@ public class AlluxioInput
         helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, aligned.length());
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, length);
         statistics.recordExternalRead(readBuffer.length);
+        accessStatistics.recordExternalRead(readBuffer.length, inputFile.location());
         return length;
     }
 

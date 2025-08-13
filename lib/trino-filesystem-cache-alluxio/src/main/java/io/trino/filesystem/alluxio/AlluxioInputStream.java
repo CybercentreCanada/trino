@@ -55,15 +55,16 @@ public class AlluxioInputStream
     private long position;
     private boolean closed;
 
-    public AlluxioInputStream(Tracer tracer, TrinoInputFile inputFile, String key, URIStatus status, CacheManager cacheManager, AlluxioConfiguration configuration, AlluxioCacheStats statistics)
+    public AlluxioInputStream(Tracer tracer, TrinoInputFile inputFile, String key, URIStatus status, CacheManager cacheManager, AlluxioConfiguration configuration, AlluxioCacheStats statistics, AlluxioAccessStats accessStatistics)
     {
         this.tracer = requireNonNull(tracer, "tracer is null");
         this.inputFile = requireNonNull(inputFile, "inputFile is null");
         this.fileLength = requireNonNull(status, "status is null").getLength();
         this.location = inputFile.location();
         this.statistics = requireNonNull(statistics, "statistics is null");
+        this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
         this.key = requireNonNull(key, "key is null");
-        this.helper = new AlluxioInputHelper(tracer, inputFile.location(), key, status, cacheManager, configuration, statistics);
+        this.helper = new AlluxioInputHelper(tracer, inputFile.location(), key, status, cacheManager, configuration, statistics, accessStatistics);
     }
 
     @Override
@@ -168,6 +169,7 @@ public class AlluxioInputStream
         int bytesToCopy = min(length, max(externalBytesRead - aligned.pageOffset(), 0));
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, bytesToCopy);
         statistics.recordExternalRead(externalBytesRead);
+        accessStatistics.recordExternalRead(readBuffer.length, inputFile.location());
         return bytesToCopy;
     }
 
