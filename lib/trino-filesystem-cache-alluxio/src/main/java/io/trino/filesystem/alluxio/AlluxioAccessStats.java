@@ -53,7 +53,20 @@ public class AlluxioAccessStats
 
     private String normalizePath(String path)
     {
-        int idx = path.indexOf("/data/");
+        int dataIdx = path.indexOf("/data/");
+        int metadataIdx = path.indexOf("/metadata/");
+
+        int idx = -1;
+        if (dataIdx > 0 && metadataIdx > 0) {
+            idx = Math.min(dataIdx, metadataIdx);
+        }
+        else if (dataIdx > 0) {
+            idx = dataIdx;
+        }
+        else if (metadataIdx > 0) {
+            idx = metadataIdx;
+        }
+
         if (idx > 0) {
             return path.substring(0, idx);
         }
