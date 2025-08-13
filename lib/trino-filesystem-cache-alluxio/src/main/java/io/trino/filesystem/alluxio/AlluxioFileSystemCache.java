@@ -39,6 +39,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -68,7 +69,6 @@ public class AlluxioFileSystemCache
         this.cacheFilter = CacheFilter.create(this.config);
         this.statistics = requireNonNull(statistics, "statistics is null");
         this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
-        this.accessStatisticsExecutor = Executors.newSingleThreadScheduledExecutor();
         this.accessStatisticsExecutor.scheduleWithFixedDelay(() -> {
             try {
                 accessStatistics.run();
