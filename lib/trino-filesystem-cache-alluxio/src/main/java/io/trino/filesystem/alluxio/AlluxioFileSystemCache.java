@@ -36,9 +36,9 @@ import jakarta.annotation.PreDestroy;
 
 import java.io.IOException;
 import java.util.Collection;
+import java.util.Optional;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.Optional;
 
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static java.nio.charset.StandardCharsets.UTF_8;
