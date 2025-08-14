@@ -98,7 +98,7 @@ public class PatternBasedCacheFilter
         String path = uriStatus.getPath();
 
         if (filterType == FilterType.CACHE_ALL) {
-            log.debug("CACHE_ALL enabled, caching path: %s", path);
+            log.debug("CACHE_ALL enabled, using cache for path: %s", path);
             return true;
         }
 
@@ -106,10 +106,10 @@ public class PatternBasedCacheFilter
 
         switch (filterType) {
             case ALLOW_LIST:
-                log.debug("ALLOW_LIST filter match for path %s: %s", path, matches);
+                log.debug("ALLOW_LIST cache filter match for path %s: %s", path, matches);
                 return matches;
             case BLOCK_LIST:
-                log.debug("BLOCK_LIST filter match for path %s: %s", path, matches);
+                log.debug("BLOCK_LIST cache filter match for path %s: %s", path, matches);
                 return !matches;
             default:
                 throw new IllegalStateException("Unsupported filter type: " + filterType);
