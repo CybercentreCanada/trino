@@ -25,6 +25,7 @@ import com.google.common.hash.Hashing;
 import com.google.inject.Inject;
 import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
+import io.airlift.units.Duration;
 import io.opentelemetry.api.trace.Tracer;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoInput;
@@ -37,6 +38,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.Optional;
 
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -68,6 +70,7 @@ public class AlluxioFileSystemCache
         this.cacheFilter = CacheFilter.create(this.config);
         this.statistics = requireNonNull(statistics, "statistics is null");
         this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
+        Optional<Duration> accessStatsLogInterval = config.getAccessStatsLogInterval();
         this.accessStatisticsExecutor.scheduleWithFixedDelay(() -> {
             try {
                 accessStatistics.run();
@@ -75,7 +78,7 @@ public class AlluxioFileSystemCache
             catch (Throwable e) {
                 log.error(e, "Error running AlluxioAccessStats");
             }
-        }, 0, config.getAccessStatsLogInterval().toMillis(), TimeUnit.MILLISECONDS);
+        }, 0, accessStatsLogInterval.orElseThrow().roundTo(TimeUnit.SECONDS), TimeUnit.SECONDS);
     }
 
     @Override

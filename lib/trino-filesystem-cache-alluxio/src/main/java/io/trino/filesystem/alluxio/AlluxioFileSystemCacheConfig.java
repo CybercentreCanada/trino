@@ -39,7 +39,7 @@ public class AlluxioFileSystemCacheConfig
     private Optional<Duration> cacheTTL = Optional.of(Duration.valueOf("7d"));
     private List<Integer> maxCacheDiskUsagePercentages = ImmutableList.of();
     private DataSize cachePageSize = DataSize.valueOf("1MB");
-    private Duration accessStatsLogInterval = Optional.of(Duration.valueOf("5m"));
+    private Optional<Duration> accessStatsLogInterval = Optional.of(Duration.valueOf("5m"));
 
     @NotNull
     public List<String> getCacheDirectories()
