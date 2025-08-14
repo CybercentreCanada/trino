@@ -117,7 +117,7 @@ public class AlluxioAccessStats
 
         try {
             String json = mapper.writeValueAsString(output);
-            log.info("AlluxioAccessStats: " + json);
+            log.info("AlluxioAccessStats=" + json);
         }
         catch (JsonProcessingException e) {
             log.error("Failed to serialize AlluxioAccessStats", e);
