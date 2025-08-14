@@ -51,6 +51,21 @@ public class AlluxioAccessStats
         }
     }
 
+    /**
+     * Normalizes a given file path to the table-level path for statistics aggregation.
+     * <p>
+     * This method trims the path at the first occurrence of either "/data/" or "/metadata/"
+     * so that reads are aggregated at the table level instead of per individual file.
+     * For example:
+     * <pre>
+     * abfss://warehouse@storageaccount.dfs.core.windows.net/iceberg/schema/table/data/00001.parquet
+     *   becomes
+     * abfss://warehouse@storageaccount.dfs.core.windows.net/iceberg/schema/table
+     * </pre>
+     *
+     * @param path the full path of a file or metadata
+     * @return the normalized table-level path
+     */
     private String normalizePath(String path)
     {
         int dataIdx = path.indexOf("/data/");

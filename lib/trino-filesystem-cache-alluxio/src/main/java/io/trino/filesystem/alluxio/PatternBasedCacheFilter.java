@@ -30,6 +30,22 @@ import java.util.Map;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+/**
+ * A cache filter that decides whether a path should be cached based on configured patterns.
+ * <p>
+ * This filter supports three modes via {@link FilterType}:
+ * <ul>
+ *     <li>{@code CACHE_ALL} - all paths are allowed to be cached.</li>
+ *     <li>{@code ALLOW_LIST} - only paths matching the configured regex patterns are allowed to be cached.</li>
+ *     <li>{@code BLOCK_LIST} - paths matching the configured regex patterns are blocked from caching.</li>
+ * </ul>
+ * <p>
+ * The filter is initialized from a JSON configuration file which must contain:
+ * <ul>
+ *     <li>{@code filterType} - one of {@code CACHE_ALL}, {@code ALLOW_LIST}, or {@code BLOCK_LIST}.</li>
+ *     <li>{@code regxPatternStrList} - a list of regex strings, required for ALLOW_LIST or BLOCK_LIST.</li>
+ * </ul>
+ */
 public class PatternBasedCacheFilter
         implements CacheFilter
 {
@@ -45,6 +61,13 @@ public class PatternBasedCacheFilter
     private final FilterType filterType;
     private final List<Pattern> patterns;
 
+    /**
+     * Creates a {@code PatternBasedCacheFilter} based on a configuration file.
+     *
+     * @param conf the Alluxio configuration (not currently used for pattern evaluation)
+     * @param cacheConfigFile path to the JSON config file containing filterType and optional patterns
+     * @throws RuntimeException if the config file cannot be read or contains invalid configuration
+     */
     public PatternBasedCacheFilter(AlluxioConfiguration conf, String cacheConfigFile)
     {
         log.debug("Initializing PatternBasedCacheFilter with config file: %s", cacheConfigFile);
@@ -92,6 +115,13 @@ public class PatternBasedCacheFilter
         }
     }
 
+    /**
+     * Determines whether the given path should be cached based on the filter type and patterns.
+     *
+     * @param uriStatus the path status to evaluate
+     * @return {@code true} if the path should be cached, {@code false} otherwise
+     * @throws IllegalStateException if the filter type is unsupported
+     */
     @Override
     public boolean needsCache(URIStatus uriStatus)
     {
