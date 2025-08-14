@@ -89,7 +89,7 @@ public class AlluxioInput
         helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, aligned.length());
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, length);
         statistics.recordExternalRead(readBuffer.length);
-        accessStatistics.recordExternalRead(readBuffer.length, getInput().location());
+        accessStatistics.recordExternalRead(readBuffer.length, inputFile.location());
         return length;
     }
 
