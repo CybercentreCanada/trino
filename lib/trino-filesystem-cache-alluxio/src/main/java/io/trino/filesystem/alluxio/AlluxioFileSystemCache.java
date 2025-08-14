@@ -75,7 +75,7 @@ public class AlluxioFileSystemCache
             catch (Throwable e) {
                 log.error(e, "Error running AlluxioAccessStats");
             }
-        }, 0, 5, TimeUnit.MINUTES);
+        }, 0, config.getAccessStatsLogInterval().toMillis(), TimeUnit.MILLISECONDS);
     }
 
     @Override
