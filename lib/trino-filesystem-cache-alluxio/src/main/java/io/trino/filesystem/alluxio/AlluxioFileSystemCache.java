@@ -86,13 +86,13 @@ public class AlluxioFileSystemCache
             throws IOException
     {
         URIStatus status = uriStatus(delegate, key);
+        boolean skipCache = !cacheFilter.needsCache(status);
 
-        if (!cacheFilter.needsCache(status)) {
-            log.debug("Skipping cacheInput for: %s", status.getPath());
-            return delegate.newInput();
+        if (skipCache) {
+            log.debug("Skipping caching for input: %s", status.getPath());
         }
 
-        return new AlluxioInput(tracer, delegate, key, status, new TracingCacheManager(tracer, key, pageSize, cacheManager), config, statistics, accessStatistics);
+        return new AlluxioInput(tracer, delegate, key, status, new TracingCacheManager(tracer, key, pageSize, cacheManager), config, statistics, accessStatistics, skipCache);
     }
 
     @Override
@@ -100,13 +100,13 @@ public class AlluxioFileSystemCache
             throws IOException
     {
         URIStatus status = uriStatus(delegate, key);
+        boolean skipCache = !cacheFilter.needsCache(status);
 
-        if (!cacheFilter.needsCache(status)) {
-            log.debug("Skipping cacheStream for: %s", status.getPath());
-            return delegate.newStream();
+        if (skipCache) {
+            log.debug("Skipping caching for stream: %s", status.getPath());
         }
 
-        return new AlluxioInputStream(tracer, delegate, key, status, new TracingCacheManager(tracer, key, pageSize, cacheManager), config, statistics, accessStatistics);
+        return new AlluxioInputStream(tracer, delegate, key, status, new TracingCacheManager(tracer, key, pageSize, cacheManager), config, statistics, accessStatistics, skipCache);
     }
 
     @Override
