@@ -84,7 +84,6 @@ public class PatternBasedCacheFilter
     private void reloadConfig()
     {
         try {
-            this.configPath = Paths.get(cacheConfigFile);
             try (BufferedReader reader = Files.newBufferedReader(configPath)) {
                 Map<String, Object> config = new Gson().fromJson(
                         reader,
