@@ -27,6 +27,7 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
@@ -64,6 +65,7 @@ public class PatternBasedCacheFilter
 
     private final Path configPath;
     private final ScheduledThreadPoolExecutor reloadConfigExecutor = new ScheduledThreadPoolExecutor(1, daemonThreadsNamed("reload-config"));
+    private final String instanceId = UUID.randomUUID().toString();
     private volatile FilterType filterType;
     private volatile List<Pattern> patterns;
 
@@ -111,7 +113,7 @@ public class PatternBasedCacheFilter
                         .collect(Collectors.toList());
                 }
 
-                log.debug("Cache Filter initialized with filterType: %s", filterType);
+                log.debug("Cache Filter initialized with filterType: %s with instanceId %s", filterType, instanceId);
                 if (!patterns.isEmpty()) {
                     log.debug("Cache Filter regex patterns:");
                     for (Pattern p : patterns) {
