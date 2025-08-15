@@ -56,8 +56,8 @@ RUN mkdir -p /tmp \
     && apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/* \
     # Download and install Maven 3.9.9 manually
     && wget https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz -P /tmp \
-    && tar xzvf /tmp/apache-maven-3.9.8-bin.tar.gz -C /opt \
-    && ln -s /opt/apache-maven-3.9.8/bin/mvn /usr/bin/mvn \
+    && tar xzvf /tmp/apache-maven-3.9.9-bin.tar.gz -C /opt \
+    && ln -s /opt/apache-maven-3.9.9/bin/mvn /usr/bin/mvn \
     # Install Trino CLI
     && wget https://repo1.maven.org/maven2/io/trino/trino-cli/${TRINO_VERSION}/trino-cli-${TRINO_VERSION}-executable.jar -P /usr/local/bin \
     && chmod +x /usr/local/bin/trino-cli-${TRINO_VERSION}-executable.jar \
