@@ -48,14 +48,14 @@ CMD [ "sleep", "infinity" ]
 ARG TRINO_VERSION
 LABEL cccs.trino.upstream.version=${TRINO_VERSION}
 
-# Install Maven 3.9.8
+# Install Maven 3.9.9
 RUN mkdir -p /tmp \
     # Install additional OS packages.
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends bash-completion vim wget \
     && apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/* \
-    # Download and install Maven 3.9.8 manually
-    && wget https://dlcdn.apache.org/maven/maven-3/3.9.8/binaries/apache-maven-3.9.8-bin.tar.gz -P /tmp \
+    # Download and install Maven 3.9.9 manually
+    && wget https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz -P /tmp \
     && tar xzvf /tmp/apache-maven-3.9.8-bin.tar.gz -C /opt \
     && ln -s /opt/apache-maven-3.9.8/bin/mvn /usr/bin/mvn \
     # Install Trino CLI
