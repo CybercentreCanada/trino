@@ -113,7 +113,7 @@ public class PatternBasedCacheFilter
                         .collect(Collectors.toList());
                 }
 
-                log.debug("Cache Filter initialized with filterType: %s with instanceId %s", filterType, instanceId);
+                log.debug("Cache Filter initialized with filterType: %s with instanceId %s and JVM identity %s", filterType, instanceId, System.identityHashCode(this));
                 if (!patterns.isEmpty()) {
                     log.debug("Cache Filter regex patterns:");
                     for (Pattern p : patterns) {
