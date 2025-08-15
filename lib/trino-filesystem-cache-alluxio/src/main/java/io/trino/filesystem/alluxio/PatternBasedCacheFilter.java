@@ -27,8 +27,12 @@ import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 
 /**
  * A cache filter that decides whether a path should be cached based on configured patterns.
@@ -58,8 +62,10 @@ public class PatternBasedCacheFilter
         BLOCK_LIST
     }
 
-    private final FilterType filterType;
-    private final List<Pattern> patterns;
+    private final Path configPath;
+    private final ScheduledThreadPoolExecutor reloadConfigExecutor = new ScheduledThreadPoolExecutor(1, daemonThreadsNamed("reload-config"));
+    private volatile FilterType filterType;
+    private volatile List<Pattern> patterns;
 
     /**
      * Creates a {@code PatternBasedCacheFilter} based on a configuration file.
@@ -71,9 +77,14 @@ public class PatternBasedCacheFilter
     public PatternBasedCacheFilter(AlluxioConfiguration conf, String cacheConfigFile)
     {
         log.debug("Initializing PatternBasedCacheFilter with config file: %s", cacheConfigFile);
+        this.configPath = Paths.get(cacheConfigFile);
+        this.reloadConfigExecutor.scheduleWithFixedDelay(this::reloadConfig, 0, 60, TimeUnit.SECONDS);
+    }
 
+    private void reloadConfig()
+    {
         try {
-            Path configPath = Paths.get(cacheConfigFile);
+            this.configPath = Paths.get(cacheConfigFile);
             try (BufferedReader reader = Files.newBufferedReader(configPath)) {
                 Map<String, Object> config = new Gson().fromJson(
                         reader,
@@ -101,11 +112,11 @@ public class PatternBasedCacheFilter
                         .collect(Collectors.toList());
                 }
 
-                log.info("Cache Filter initialized with filterType: %s", filterType);
+                log.debug("Cache Filter initialized with filterType: %s", filterType);
                 if (!patterns.isEmpty()) {
-                    log.info("Cache Filter regex patterns:");
+                    log.debug("Cache Filter regex patterns:");
                     for (Pattern p : patterns) {
-                        log.info("  - %s", p.pattern());
+                        log.debug("  - %s", p.pattern());
                     }
                 }
             }
