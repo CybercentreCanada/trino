@@ -96,13 +96,7 @@ public class PatternBasedCacheFilter
                     throw new IllegalArgumentException("Missing 'filterType' in cache filter config.");
                 }
 
-                filterType = FilterType.valueOf(filterTypeStr.toUpperCase());
-
                 List<String> patternStrs = (List<String>) config.get("regxPatternStrList");
-
-                if ((filterType == FilterType.ALLOW_LIST || filterType == FilterType.BLOCK_LIST) && (patternStrs == null || patternStrs.isEmpty())) {
-                    throw new IllegalArgumentException("'regxPatternStrList' must be provided for ALLOW_LIST or BLOCK_LIST.");
-                }
 
                 if (patternStrs == null) {
                     patterns = Collections.emptyList();
@@ -113,7 +107,7 @@ public class PatternBasedCacheFilter
                         .collect(Collectors.toList());
                 }
 
-                log.debug("Cache Filter initialized with filterType: %s with instanceId %s and JVM identity %s", filterType, instanceId, System.identityHashCode(this));
+                log.debug("Cache Filter initialized with filterType: %s with instanceId %s and JVM identity %s", filterTypeStr, instanceId, System.identityHashCode(this));
                 if (!patterns.isEmpty()) {
                     log.debug("Cache Filter regex patterns:");
                     for (Pattern p : patterns) {
