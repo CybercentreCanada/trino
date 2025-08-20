@@ -94,6 +94,8 @@ public class PatternBasedCacheFilter
                     throw new IllegalArgumentException("Missing 'filterType' in cache filter config.");
                 }
 
+                filterType = FilterType.valueOf(filterTypeStr.toUpperCase());
+
                 List<String> patternStrs = (List<String>) config.get("regxPatternStrList");
 
                 if (patternStrs == null) {
@@ -105,7 +107,7 @@ public class PatternBasedCacheFilter
                         .collect(Collectors.toList());
                 }
 
-                log.debug("Cache Filter initialized with filterType: %s", filterTypeStr);
+                log.debug("Cache Filter initialized with filterType: %s", filterType);
                 if (!patterns.isEmpty()) {
                     log.debug("Cache Filter regex patterns:");
                     for (Pattern p : patterns) {
