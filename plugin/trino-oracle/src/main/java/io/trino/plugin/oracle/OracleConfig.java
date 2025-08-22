@@ -26,6 +26,7 @@ import java.math.RoundingMode;
 import java.util.Optional;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
+import static java.util.concurrent.TimeUnit.SECONDS;
 
 @DefunctConfig("oracle.disable-automatic-fetch-size")
 public class OracleConfig
@@ -38,6 +39,7 @@ public class OracleConfig
     private int connectionPoolMinSize = 1;
     private int connectionPoolMaxSize = 30;
     private Duration inactiveConnectionTimeout = new Duration(20, MINUTES);
+    private Duration connectionWaitTimeout = new Duration(5, SECONDS);
     private Integer fetchSize;
 
     public boolean isSynonymsEnabled()
@@ -159,5 +161,19 @@ public class OracleConfig
     public boolean isPoolSizedProperly()
     {
         return getConnectionPoolMaxSize() >= getConnectionPoolMinSize();
+    }
+
+    @NotNull
+    public Duration getConnectionWaitTimeout()
+    {
+        return connectionWaitTimeout;
+    }
+
+    @Config("oracle.connection-pool.wait-timeout")
+    @ConfigDescription("How long to wait for a used connection to be released by a client")
+    public OracleConfig setConnectionWaitTimeout(Duration connectionWaitTimeout)
+    {
+        this.connectionWaitTimeout = connectionWaitTimeout;
+        return this;
     }
 }
