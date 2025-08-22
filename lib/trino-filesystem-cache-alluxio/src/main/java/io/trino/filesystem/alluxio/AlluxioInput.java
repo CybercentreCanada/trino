@@ -33,6 +33,8 @@ public class AlluxioInput
     private final TrinoInputFile inputFile;
     private final long fileLength;
     private final AlluxioCacheStats statistics;
+    private final AlluxioAccessStats accessStatistics;
+    private final boolean skipCache;
     private final AlluxioInputHelper helper;
 
     private TrinoInput input;
@@ -45,12 +47,16 @@ public class AlluxioInput
             URIStatus status,
             CacheManager cacheManager,
             AlluxioConfiguration configuration,
-            AlluxioCacheStats statistics)
+            AlluxioCacheStats statistics,
+            AlluxioAccessStats accessStatistics,
+            boolean skipCache)
     {
         this.inputFile = requireNonNull(inputFile, "inputFile is null");
         this.fileLength = requireNonNull(status, "status is null").getLength();
         this.statistics = requireNonNull(statistics, "statistics is null");
-        this.helper = new AlluxioInputHelper(tracer, inputFile.location(), cacheKey, status, cacheManager, configuration, statistics);
+        this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
+        this.skipCache = skipCache;
+        this.helper = new AlluxioInputHelper(tracer, inputFile.location(), cacheKey, status, cacheManager, configuration, statistics, accessStatistics);
     }
 
     @Override
@@ -66,7 +72,7 @@ public class AlluxioInput
             return;
         }
 
-        int bytesRead = helper.doCacheRead(position, buffer, offset, length);
+        int bytesRead = skipCache ? 0 : helper.doCacheRead(position, buffer, offset, length);
         if (length > bytesRead && position + bytesRead == fileLength) {
             throw new EOFException("Read %s of %s requested bytes: %s".formatted(bytesRead, length, inputFile.location()));
         }
@@ -83,9 +89,12 @@ public class AlluxioInput
         AlluxioInputHelper.PageAlignedRead aligned = helper.alignRead(position, length);
         byte[] readBuffer = new byte[aligned.length()];
         getInput().readFully(aligned.pageStart(), readBuffer, 0, readBuffer.length);
-        helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, aligned.length());
+        if (!skipCache) {
+            helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, aligned.length());
+        }
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, length);
         statistics.recordExternalRead(readBuffer.length);
+        accessStatistics.recordExternalRead(readBuffer.length, inputFile.location());
         return length;
     }
 
