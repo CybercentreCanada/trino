@@ -48,6 +48,8 @@ public class AlluxioInputStream
     private final long fileLength;
     private final Location location;
     private final AlluxioCacheStats statistics;
+    private final AlluxioAccessStats accessStatistics;
+    private final boolean skipCache;
     private final String key;
     private final AlluxioInputHelper helper;
     private final Tracer tracer;
@@ -55,15 +57,17 @@ public class AlluxioInputStream
     private long position;
     private boolean closed;
 
-    public AlluxioInputStream(Tracer tracer, TrinoInputFile inputFile, String key, URIStatus status, CacheManager cacheManager, AlluxioConfiguration configuration, AlluxioCacheStats statistics)
+    public AlluxioInputStream(Tracer tracer, TrinoInputFile inputFile, String key, URIStatus status, CacheManager cacheManager, AlluxioConfiguration configuration, AlluxioCacheStats statistics, AlluxioAccessStats accessStatistics, boolean skipCache)
     {
         this.tracer = requireNonNull(tracer, "tracer is null");
         this.inputFile = requireNonNull(inputFile, "inputFile is null");
         this.fileLength = requireNonNull(status, "status is null").getLength();
         this.location = inputFile.location();
         this.statistics = requireNonNull(statistics, "statistics is null");
+        this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
+        this.skipCache = skipCache;
         this.key = requireNonNull(key, "key is null");
-        this.helper = new AlluxioInputHelper(tracer, inputFile.location(), key, status, cacheManager, configuration, statistics);
+        this.helper = new AlluxioInputHelper(tracer, inputFile.location(), key, status, cacheManager, configuration, statistics, accessStatistics);
     }
 
     @Override
@@ -128,7 +132,7 @@ public class AlluxioInputStream
     private int doRead(byte[] bytes, int offset, int length)
             throws IOException
     {
-        int bytesRead = helper.doCacheRead(position, bytes, offset, length);
+        int bytesRead = skipCache ? 0 : helper.doCacheRead(position, bytes, offset, length);
         return addExact(bytesRead, doExternalRead0(position + bytesRead, bytes, offset + bytesRead, length - bytesRead));
     }
 
@@ -164,10 +168,13 @@ public class AlluxioInputStream
             throw new IOException("Unexpected end of stream");
         }
         verify(aligned.length() == externalBytesRead, "invalid number of external bytes read");
-        helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, externalBytesRead);
+        if (!skipCache) {
+            helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, externalBytesRead);
+        }
         int bytesToCopy = min(length, max(externalBytesRead - aligned.pageOffset(), 0));
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, bytesToCopy);
         statistics.recordExternalRead(externalBytesRead);
+        accessStatistics.recordExternalRead(externalBytesRead, inputFile.location());
         return bytesToCopy;
     }
 
