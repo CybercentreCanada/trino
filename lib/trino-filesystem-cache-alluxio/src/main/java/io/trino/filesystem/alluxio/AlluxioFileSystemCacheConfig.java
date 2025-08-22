@@ -39,6 +39,7 @@ public class AlluxioFileSystemCacheConfig
     private Optional<Duration> cacheTTL = Optional.of(Duration.valueOf("7d"));
     private List<Integer> maxCacheDiskUsagePercentages = ImmutableList.of();
     private DataSize cachePageSize = DataSize.valueOf("1MB");
+    private Optional<Duration> accessStatsLogInterval = Optional.of(Duration.valueOf("5m"));
 
     @NotNull
     public List<String> getCacheDirectories()
@@ -113,6 +114,20 @@ public class AlluxioFileSystemCacheConfig
     public AlluxioFileSystemCacheConfig setCachePageSize(DataSize cachePageSize)
     {
         this.cachePageSize = cachePageSize;
+        return this;
+    }
+
+    @NotNull
+    public Optional<@MinDuration("10s") Duration> getAccessStatsLogInterval()
+    {
+        return accessStatsLogInterval;
+    }
+
+    @Config("fs.cache.access-stats-log-interval")
+    @ConfigDescription("Interval at which table-level path statistics are logged.")
+    public AlluxioFileSystemCacheConfig setAccessStatsLogInterval(Duration accessStatsLogInterval)
+    {
+        this.accessStatsLogInterval = Optional.of(accessStatsLogInterval);
         return this;
     }
 }

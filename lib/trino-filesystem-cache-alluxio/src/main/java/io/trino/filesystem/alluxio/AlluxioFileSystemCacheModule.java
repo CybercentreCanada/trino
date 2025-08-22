@@ -47,6 +47,7 @@ public class AlluxioFileSystemCacheModule
         configBinder(binder).bindConfig(AlluxioFileSystemCacheConfig.class);
         configBinder(binder).bindConfig(ConsistentHashingHostAddressProviderConfig.class);
         binder.bind(AlluxioCacheStats.class).in(SINGLETON);
+        binder.bind(AlluxioAccessStats.class).in(SINGLETON);
         Provider<CatalogName> catalogName = binder.getProvider(CatalogName.class);
         newExporter(binder).export(AlluxioCacheStats.class)
                 .as(generator -> generator.generatedNameOf(AlluxioCacheStats.class, catalogName.get().toString()));
