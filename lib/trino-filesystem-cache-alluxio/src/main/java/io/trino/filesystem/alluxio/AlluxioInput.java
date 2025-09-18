@@ -86,12 +86,21 @@ public class AlluxioInput
             return 0;
         }
 
+        if (skipCache) {
+            // Read exactly what the caller requested directly into the caller's buffer.
+            // This avoids page alignment, temporary readBuffer allocation, and copy.
+            getInput().readFully(position, buffer, offset, length);
+
+            statistics.recordExternalRead(length);
+            accessStatistics.recordExternalRead(length, inputFile.location());
+
+            return length;
+        }
+
         AlluxioInputHelper.PageAlignedRead aligned = helper.alignRead(position, length);
         byte[] readBuffer = new byte[aligned.length()];
         getInput().readFully(aligned.pageStart(), readBuffer, 0, readBuffer.length);
-        if (!skipCache) {
-            helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, aligned.length());
-        }
+        helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, aligned.length());
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, length);
         statistics.recordExternalRead(readBuffer.length);
         accessStatistics.recordExternalRead(readBuffer.length, inputFile.location());

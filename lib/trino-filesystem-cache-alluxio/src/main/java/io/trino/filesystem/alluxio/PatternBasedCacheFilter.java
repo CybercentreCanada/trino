@@ -24,13 +24,11 @@ import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 
@@ -47,7 +45,7 @@ import static io.airlift.concurrent.Threads.daemonThreadsNamed;
  * The filter is initialized from a JSON configuration file which must contain:
  * <ul>
  *     <li>{@code filterType} - one of {@code CACHE_ALL}, {@code ALLOW_LIST}, or {@code BLOCK_LIST}.</li>
- *     <li>{@code regxPatternStrList} - a list of regex strings, required for ALLOW_LIST or BLOCK_LIST.</li>
+ *     <li>{@code pathPrefixPatterns} - a list of regex strings, required for ALLOW_LIST or BLOCK_LIST.</li>
  * </ul>
  */
 public class PatternBasedCacheFilter
@@ -65,7 +63,7 @@ public class PatternBasedCacheFilter
     private final Path configPath;
     private final ScheduledThreadPoolExecutor reloadConfigExecutor = new ScheduledThreadPoolExecutor(1, daemonThreadsNamed("reload-config"));
     private volatile FilterType filterType;
-    private volatile List<Pattern> patterns;
+    private volatile String[] prefixes;
 
     /**
      * Creates a {@code PatternBasedCacheFilter} based on a configuration file.
@@ -96,22 +94,21 @@ public class PatternBasedCacheFilter
 
                 filterType = FilterType.valueOf(filterTypeStr.toUpperCase());
 
-                List<String> patternStrs = (List<String>) config.get("regxPatternStrList");
+                List<String> patternStrs = (List<String>) config.get("pathPrefixPatterns");
 
-                if (patternStrs == null) {
-                    patterns = Collections.emptyList();
+                if (patternStrs == null || patternStrs.isEmpty()) {
+                    prefixes = new String[0];
                 }
                 else {
-                    patterns = patternStrs.stream()
-                        .map(Pattern::compile)
-                        .collect(Collectors.toList());
+                    prefixes = patternStrs.toArray(new String[0]);
+                    Arrays.sort(prefixes, (a, b) -> Integer.compare(b.length(), a.length()));
                 }
 
                 log.debug("Cache Filter initialized with filterType: %s", filterType);
-                if (!patterns.isEmpty()) {
-                    log.debug("Cache Filter regex patterns:");
-                    for (Pattern p : patterns) {
-                        log.debug("  - %s", p.pattern());
+                if (prefixes.length > 0) {
+                    log.debug("Cache Filter prefixes:");
+                    for (String p : prefixes) {
+                        log.debug("  - %s", p);
                     }
                 }
             }
@@ -138,17 +135,24 @@ public class PatternBasedCacheFilter
             return true;
         }
 
-        boolean matches = patterns.stream().anyMatch(p -> p.matcher(path).matches());
+        boolean matches = false;
+        for (String prefix : prefixes) {
+            if (path.startsWith(prefix)) {
+                matches = true;
+                break;
+            }
+        }
 
-        switch (filterType) {
-            case ALLOW_LIST:
-                log.debug("ALLOW_LIST cache filter match for path %s: %s", path, matches);
-                return matches;
-            case BLOCK_LIST:
-                log.debug("BLOCK_LIST cache filter match for path %s: %s", path, matches);
-                return !matches;
-            default:
-                throw new IllegalStateException("Unsupported filter type: " + filterType);
+        if (filterType == FilterType.ALLOW_LIST) {
+            log.debug("ALLOW_LIST cache filter match for path %s: %s", path, matches);
+            return matches;
+        }
+        else if (filterType == FilterType.BLOCK_LIST) {
+            log.debug("BLOCK_LIST cache filter match for path %s: %s", path, matches);
+            return !matches;
+        }
+        else {
+            throw new IllegalStateException("Unsupported filter type: " + filterType);
         }
     }
 }
