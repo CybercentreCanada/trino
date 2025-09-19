@@ -157,10 +157,26 @@ public class AlluxioInputStream
             throws IOException
     {
         verify(length > 0, "zero-length or negative read");
-        AlluxioInputHelper.PageAlignedRead aligned = helper.alignRead(readPosition, length);
+
         if (externalStream == null) {
             externalStream = inputFile.newStream();
         }
+
+        if (skipCache) {
+            // Seek to requested position and read directly into the caller's buffer
+            externalStream.seek(readPosition);
+            int externalBytesRead = externalStream.readNBytes(buffer, offset, length);
+            if (externalBytesRead < 0) {
+                throw new IOException("Unexpected end of stream");
+            }
+
+            statistics.recordExternalRead(externalBytesRead);
+            accessStatistics.recordExternalRead(externalBytesRead, inputFile.location());
+
+            return externalBytesRead;
+        }
+
+        AlluxioInputHelper.PageAlignedRead aligned = helper.alignRead(readPosition, length);
         externalStream.seek(aligned.pageStart());
         byte[] readBuffer = new byte[aligned.length()];
         int externalBytesRead = externalStream.readNBytes(readBuffer, 0, aligned.length());
@@ -168,9 +184,7 @@ public class AlluxioInputStream
             throw new IOException("Unexpected end of stream");
         }
         verify(aligned.length() == externalBytesRead, "invalid number of external bytes read");
-        if (!skipCache) {
-            helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, externalBytesRead);
-        }
+        helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, externalBytesRead);
         int bytesToCopy = min(length, max(externalBytesRead - aligned.pageOffset(), 0));
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, bytesToCopy);
         statistics.recordExternalRead(externalBytesRead);
