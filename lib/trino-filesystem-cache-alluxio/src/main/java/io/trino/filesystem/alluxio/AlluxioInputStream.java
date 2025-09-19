@@ -158,10 +158,11 @@ public class AlluxioInputStream
     {
         verify(length > 0, "zero-length or negative read");
 
+        if (externalStream == null) {
+            externalStream = inputFile.newStream();
+        }
+
         if (skipCache) {
-            if (externalStream == null) {
-                externalStream = inputFile.newStream();
-            }
             // Seek to requested position and read directly into the caller's buffer
             externalStream.seek(readPosition);
             int externalBytesRead = externalStream.readNBytes(buffer, offset, length);
@@ -176,9 +177,6 @@ public class AlluxioInputStream
         }
 
         AlluxioInputHelper.PageAlignedRead aligned = helper.alignRead(readPosition, length);
-        if (externalStream == null) {
-            externalStream = inputFile.newStream();
-        }
         externalStream.seek(aligned.pageStart());
         byte[] readBuffer = new byte[aligned.length()];
         int externalBytesRead = externalStream.readNBytes(readBuffer, 0, aligned.length());
