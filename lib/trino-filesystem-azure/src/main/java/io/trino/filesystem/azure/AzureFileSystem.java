@@ -39,7 +39,6 @@ import com.azure.storage.file.datalake.models.PathItem;
 import com.azure.storage.file.datalake.options.DataLakePathDeleteOptions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.trino.filesystem.FileIterator;
@@ -80,8 +79,6 @@ import static java.util.function.Predicate.not;
 public class AzureFileSystem
         implements TrinoFileSystem
 {
-    private static final Logger log = Logger.get(AzureFileSystem.class);
-
     private final HttpClient httpClient;
     private final TracingOptions tracingOptions;
     private final AzureAuth azureAuth;
