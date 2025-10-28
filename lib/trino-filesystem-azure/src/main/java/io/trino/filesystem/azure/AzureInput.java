@@ -17,7 +17,6 @@ import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.models.BlobRange;
 import com.azure.storage.blob.options.BlobInputStreamOptions;
 import com.azure.storage.blob.specialized.BlobInputStream;
-import io.airlift.log.Logger;
 import io.trino.filesystem.TrinoInput;
 
 import java.io.EOFException;
@@ -31,8 +30,6 @@ import static java.util.Objects.requireNonNull;
 class AzureInput
         implements TrinoInput
 {
-    private static final Logger log = Logger.get(AzureInput.class);
-
     private final AzureLocation location;
     private final BlobClient blobClient;
     private OptionalLong length;
@@ -61,43 +58,19 @@ class AzureInput
         BlobInputStreamOptions options = new BlobInputStreamOptions()
                 .setRange(new BlobRange(position, (long) bufferLength))
                 .setBlockSize(bufferLength);
-
-        final int maxRetries = 3;
-        int attempts = 0;
-
-        while (attempts < maxRetries) {
-            attempts++;
-            try (BlobInputStream blobInputStream = blobClient.openInputStream(options)) {
-                long fileSize = blobInputStream.getProperties().getBlobSize();
-                if (position >= fileSize) {
-                    throw new IOException("Cannot read at %s. File size is %s: %s".formatted(position, fileSize, location));
-                }
-
-                int readSize = blobInputStream.readNBytes(buffer, bufferOffset, bufferLength);
-                if (readSize != bufferLength) {
-                    throw new EOFException("End of file reached before reading fully: " + location);
-                }
-
-                // Successfully read, so break out of the retry loop
-                break;
+        try (BlobInputStream blobInputStream = blobClient.openInputStream(options)) {
+            long fileSize = blobInputStream.getProperties().getBlobSize();
+            if (position >= fileSize) {
+                throw new IOException("Cannot read at %s. File size is %s: %s".formatted(position, fileSize, location));
             }
-            catch (IllegalStateException e) {
-                if (attempts >= maxRetries) {
-                    throw new IOException("Failed to read file due to an unbalanced enter/exit error after " + attempts + " attempts", e);
-                }
-                log.warn("Attempt %s failed due to IllegalStateException, retrying... Location: %s", attempts, location, e);
-                // Short pause to avoid hammering the server on retries
-                try {
-                    Thread.sleep(100);
-                }
-                catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException("Interrupted during retry sleep", ie);
-                }
+
+            int readSize = blobInputStream.readNBytes(buffer, bufferOffset, bufferLength);
+            if (readSize != bufferLength) {
+                throw new EOFException("End of file reached before reading fully: " + location);
             }
-            catch (RuntimeException e) {
-                throw handleAzureException(e, "reading file", location);
-            }
+        }
+        catch (RuntimeException e) {
+            throw handleAzureException(e, "reading file", location);
         }
     }
 

@@ -631,9 +631,7 @@ public class AzureFileSystem
 
         azureAuth.setAuth(location.account(), builder);
         location.container().ifPresent(builder::containerName);
-        BlobContainerClient blobContainerClient = builder.buildClient();
-        log.info("blobContainerClient created for location: %s", location);
-        return blobContainerClient;
+        return builder.buildClient();
     }
 
     private DataLakeFileSystemClient createFileSystemClient(AzureLocation location, Optional<EncryptionKey> key)
@@ -651,7 +649,6 @@ public class AzureFileSystem
         if (!fileSystemClient.exists()) {
             throw new IllegalArgumentException();
         }
-        log.info("fileSystemClient created for location: %s", location);
         return fileSystemClient;
     }
 

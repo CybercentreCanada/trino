@@ -17,12 +17,10 @@ import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.models.BlobRange;
 import com.azure.storage.blob.options.BlobInputStreamOptions;
 import com.azure.storage.blob.specialized.BlobInputStream;
-import io.airlift.log.Logger;
 import io.trino.filesystem.TrinoInputStream;
 
 import java.io.EOFException;
 import java.io.IOException;
-import java.util.Arrays;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.filesystem.azure.AzureUtils.handleAzureException;
@@ -33,8 +31,6 @@ import static java.util.Objects.requireNonNull;
 class AzureInputStream
         extends TrinoInputStream
 {
-    private static final Logger log = Logger.get(AzureInputStream.class);
-
     private final AzureLocation location;
     private final BlobClient blobClient;
     private final int readBlockSizeBytes;
@@ -54,7 +50,6 @@ class AzureInputStream
         this.readBlockSizeBytes = readBlockSizeBytes;
         openStream(0);
         fileSize = stream.getProperties().getBlobSize();
-        log.info("AzureInputStream opened for location: %s, file size: %s", location, fileSize);
     }
 
     @Override
@@ -98,12 +93,10 @@ class AzureInputStream
             if (value >= 0) {
                 currentPosition++;
                 nextPosition++;
-                log.debug("Read byte at position %s: %s", currentPosition, value);
             }
             return value;
         }
         catch (RuntimeException e) {
-            log.error("Error reading file at position %s: %s", currentPosition, e.getMessage());
             throw handleAzureException(e, "reading file", location);
         }
     }
@@ -122,12 +115,10 @@ class AzureInputStream
             if (readSize > 0) {
                 currentPosition += readSize;
                 nextPosition += readSize;
-                log.debug("Read %s bytes from position %s: %s", readSize, currentPosition, Arrays.toString(buffer));
             }
             return readSize;
         }
         catch (RuntimeException e) {
-            log.error("Error reading file at position %s: %s", currentPosition, e.getMessage());
             throw handleAzureException(e, "reading file", location);
         }
     }
@@ -175,27 +166,9 @@ class AzureInputStream
             closed = true;
             try {
                 stream.close();
-                log.info("AzureInputStream closed for location: %s", location);
-            }
-            catch (RuntimeException e) {
-                log.error("Error closing stream for location %s: %s", location, e.getMessage());
-                throw handleAzureException(e, "closing file", location);
-            }
-        }
-    }
-
-    private void closeStream()
-            throws IOException
-    {
-        if (stream != null) {
-            try {
-                stream.close();
             }
             catch (RuntimeException e) {
                 throw handleAzureException(e, "closing file", location);
-            }
-            finally {
-                stream = null;
             }
         }
     }
@@ -203,17 +176,14 @@ class AzureInputStream
     private void openStream(long offset)
             throws IOException
     {
-        closeStream(); // Ensure any existing open stream is closed before opening a new one
         try {
             BlobInputStreamOptions options = new BlobInputStreamOptions()
                     .setRange(new BlobRange(offset))
                     .setBlockSize(readBlockSizeBytes);
             stream = blobClient.openInputStream(options);
             currentPosition = offset;
-            log.info("Opened stream at offset %s for location: %s", offset, location);
         }
         catch (RuntimeException e) {
-            log.error("Error opening stream at offset %s for location %s: %s", offset, location, e.getMessage());
             throw handleAzureException(e, "reading file", location);
         }
     }
@@ -230,12 +200,10 @@ class AzureInputStream
             // this always works because the client simply moves a counter forward and
             // preforms the reposition on the next actual read
             stream.skipNBytes(bytesToSkip);
-            log.debug("Skipped %s bytes to position %s", bytesToSkip, nextPosition);
         }
         else {
             stream.close();
             openStream(nextPosition);
-            log.debug("Reopened stream to position %s", nextPosition);
         }
 
         currentPosition = nextPosition;
