@@ -223,7 +223,7 @@ public class TestBackgroundHiveSplitLoader
                 LOCATION_DOMAIN,
                 Optional.of(new HiveBucketFilter(Set.of(0, 1))),
                 PARTITIONED_TABLE,
-                Optional.of(new HiveBucketHandle(BUCKET_COLUMN_HANDLES, BUCKETING_V1, BUCKET_COUNT, BUCKET_COUNT, List.of())));
+                Optional.of(new HiveTablePartitioning(true, BUCKETING_V1, BUCKET_COUNT, BUCKET_COLUMN_HANDLES, false, List.of(), true)));
 
         HiveSplitSource hiveSplitSource = hiveSplitSource(backgroundHiveSplitLoader);
         backgroundHiveSplitLoader.start(hiveSplitSource);
@@ -242,12 +242,14 @@ public class TestBackgroundHiveSplitLoader
                 Optional.empty(),
                 PARTITIONED_TABLE,
                 Optional.of(
-                        new HiveBucketHandle(
-                                getRegularColumnHandles(PARTITIONED_TABLE, TESTING_TYPE_MANAGER, DEFAULT_PRECISION),
+                        new HiveTablePartitioning(
+                                true,
                                 BUCKETING_V1,
                                 BUCKET_COUNT,
-                                BUCKET_COUNT,
-                                List.of())));
+                                getRegularColumnHandles(PARTITIONED_TABLE, TESTING_TYPE_MANAGER, DEFAULT_PRECISION),
+                                false,
+                                List.of(),
+                                true)));
 
         HiveSplitSource hiveSplitSource = hiveSplitSource(backgroundHiveSplitLoader);
         backgroundHiveSplitLoader.start(hiveSplitSource);
@@ -351,7 +353,7 @@ public class TestBackgroundHiveSplitLoader
     public void testCachedDirectoryLister()
             throws Exception
     {
-        CachingDirectoryLister cachingDirectoryLister = new CachingDirectoryLister(new Duration(5, TimeUnit.MINUTES), DataSize.of(100, KILOBYTE), List.of("test_dbname.test_table"), alwaysTrue());
+        CachingDirectoryLister cachingDirectoryLister = new CachingDirectoryLister(new Duration(5, TimeUnit.MINUTES), DataSize.of(100, KILOBYTE), List.of("test_dbname.test_table"), List.of(), alwaysTrue());
         assertThat(cachingDirectoryLister.getRequestCount()).isEqualTo(0);
 
         int totalCount = 100;
@@ -511,7 +513,7 @@ public class TestBackgroundHiveSplitLoader
                 TupleDomain.all(),
                 Optional.empty(),
                 SIMPLE_TABLE,
-                Optional.of(new HiveBucketHandle(BUCKET_COLUMN_HANDLES, BUCKETING_V1, BUCKET_COUNT, BUCKET_COUNT, List.of())),
+                Optional.of(new HiveTablePartitioning(true, BUCKETING_V1, BUCKET_COUNT, BUCKET_COLUMN_HANDLES, false, List.of(), true)),
                 Optional.empty());
 
         HiveSplitSource hiveSplitSource = hiveSplitSource(backgroundHiveSplitLoader);
@@ -778,7 +780,7 @@ public class TestBackgroundHiveSplitLoader
     public void testBuildManifestFileIterator()
             throws IOException
     {
-        CachingDirectoryLister directoryLister = new CachingDirectoryLister(new Duration(0, TimeUnit.MINUTES), DataSize.ofBytes(0), List.of(), alwaysTrue());
+        CachingDirectoryLister directoryLister = new CachingDirectoryLister(new Duration(0, TimeUnit.MINUTES), DataSize.ofBytes(0), List.of(), List.of(), alwaysTrue());
         Map<String, String> schema = ImmutableMap.<String, String>builder()
                 .put(FILE_INPUT_FORMAT, SYMLINK_TEXT_INPUT_FORMAT_CLASS)
                 .put(SERIALIZATION_LIB, AVRO.getSerde())
@@ -819,7 +821,7 @@ public class TestBackgroundHiveSplitLoader
     public void testBuildManifestFileIteratorNestedDirectory()
             throws IOException
     {
-        CachingDirectoryLister directoryLister = new CachingDirectoryLister(new Duration(5, TimeUnit.MINUTES), DataSize.of(100, KILOBYTE), List.of(), alwaysTrue());
+        CachingDirectoryLister directoryLister = new CachingDirectoryLister(new Duration(5, TimeUnit.MINUTES), DataSize.of(100, KILOBYTE), List.of(), List.of(), alwaysTrue());
         Map<String, String> schema = ImmutableMap.<String, String>builder()
                 .put(FILE_INPUT_FORMAT, SYMLINK_TEXT_INPUT_FORMAT_CLASS)
                 .put(SERIALIZATION_LIB, AVRO.getSerde())
@@ -861,7 +863,7 @@ public class TestBackgroundHiveSplitLoader
     public void testBuildManifestFileIteratorWithCacheInvalidation()
             throws IOException
     {
-        CachingDirectoryLister directoryLister = new CachingDirectoryLister(new Duration(5, TimeUnit.MINUTES), DataSize.of(1, MEGABYTE), List.of("*"), alwaysTrue());
+        CachingDirectoryLister directoryLister = new CachingDirectoryLister(new Duration(5, TimeUnit.MINUTES), DataSize.of(1, MEGABYTE), List.of("*"), List.of("*"), alwaysTrue());
         Map<String, String> schema = ImmutableMap.<String, String>builder()
                 .put(FILE_INPUT_FORMAT, SYMLINK_TEXT_INPUT_FORMAT_CLASS)
                 .put(SERIALIZATION_LIB, AVRO.getSerde())
@@ -915,7 +917,7 @@ public class TestBackgroundHiveSplitLoader
     public void testMaxPartitions()
             throws Exception
     {
-        CachingDirectoryLister directoryLister = new CachingDirectoryLister(new Duration(0, TimeUnit.MINUTES), DataSize.ofBytes(0), List.of(), alwaysTrue());
+        CachingDirectoryLister directoryLister = new CachingDirectoryLister(new Duration(0, TimeUnit.MINUTES), DataSize.ofBytes(0), List.of(), List.of(), alwaysTrue());
         // zero partitions
         {
             BackgroundHiveSplitLoader backgroundHiveSplitLoader = backgroundHiveSplitLoader(
@@ -1093,7 +1095,7 @@ public class TestBackgroundHiveSplitLoader
             TupleDomain<HiveColumnHandle> compactEffectivePredicate,
             Optional<HiveBucketFilter> hiveBucketFilter,
             Table table,
-            Optional<HiveBucketHandle> bucketHandle)
+            Optional<HiveTablePartitioning> tablePartitioning)
             throws IOException
     {
         return backgroundHiveSplitLoader(
@@ -1101,7 +1103,7 @@ public class TestBackgroundHiveSplitLoader
                 compactEffectivePredicate,
                 hiveBucketFilter,
                 table,
-                bucketHandle,
+                tablePartitioning,
                 Optional.empty());
     }
 
@@ -1110,7 +1112,7 @@ public class TestBackgroundHiveSplitLoader
             TupleDomain<HiveColumnHandle> compactEffectivePredicate,
             Optional<HiveBucketFilter> hiveBucketFilter,
             Table table,
-            Optional<HiveBucketHandle> bucketHandle,
+            Optional<HiveTablePartitioning> tablePartitioning,
             Optional<ValidWriteIdList> validWriteIds)
             throws IOException
     {
@@ -1120,7 +1122,7 @@ public class TestBackgroundHiveSplitLoader
                 compactEffectivePredicate,
                 hiveBucketFilter,
                 table,
-                bucketHandle,
+                tablePartitioning,
                 validWriteIds);
     }
 
@@ -1129,7 +1131,7 @@ public class TestBackgroundHiveSplitLoader
             TupleDomain<HiveColumnHandle> compactEffectivePredicate,
             Optional<HiveBucketFilter> hiveBucketFilter,
             Table table,
-            Optional<HiveBucketHandle> bucketHandle,
+            Optional<HiveTablePartitioning> tablePartitioning,
             Optional<ValidWriteIdList> validWriteIds)
     {
         return backgroundHiveSplitLoader(
@@ -1139,7 +1141,7 @@ public class TestBackgroundHiveSplitLoader
                 new Duration(0, SECONDS),
                 hiveBucketFilter,
                 table,
-                bucketHandle,
+                tablePartitioning,
                 validWriteIds);
     }
 
@@ -1150,7 +1152,7 @@ public class TestBackgroundHiveSplitLoader
             Duration dynamicFilteringProbeBlockingTimeout,
             Optional<HiveBucketFilter> hiveBucketFilter,
             Table table,
-            Optional<HiveBucketHandle> bucketHandle,
+            Optional<HiveTablePartitioning> tablePartitioning,
             Optional<ValidWriteIdList> validWriteIds)
     {
         List<HivePartitionMetadata> hivePartitionMetadatas =
@@ -1167,7 +1169,7 @@ public class TestBackgroundHiveSplitLoader
                 dynamicFilter,
                 dynamicFilteringProbeBlockingTimeout,
                 TESTING_TYPE_MANAGER,
-                createBucketSplitInfo(bucketHandle, hiveBucketFilter),
+                createBucketSplitInfo(tablePartitioning, hiveBucketFilter),
                 SESSION,
                 fileSystemFactory,
                 new CachingDirectoryLister(new HiveConfig()),

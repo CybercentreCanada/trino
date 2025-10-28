@@ -65,6 +65,7 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.connector.AggregateFunction;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.expression.ConnectorExpression;
@@ -136,6 +137,7 @@ import static io.trino.plugin.jdbc.PredicatePushdownController.DISABLE_PUSHDOWN;
 import static io.trino.plugin.jdbc.PredicatePushdownController.FULL_PUSHDOWN;
 import static io.trino.plugin.jdbc.StandardColumnMappings.bigintColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.bigintWriteFunction;
+import static io.trino.plugin.jdbc.StandardColumnMappings.booleanColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.booleanWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.dateReadFunctionUsingLocalDate;
 import static io.trino.plugin.jdbc.StandardColumnMappings.decimalColumnMapping;
@@ -520,13 +522,22 @@ public class ClickHouseClient
     }
 
     @Override
-    public void addColumn(ConnectorSession session, JdbcTableHandle handle, ColumnMetadata column)
+    public void addColumn(ConnectorSession session, JdbcTableHandle handle, ColumnMetadata column, ColumnPosition position)
+    {
+        switch (position) {
+            case ColumnPosition.First _ -> throw new TrinoException(NOT_SUPPORTED, "This connector does not support adding columns with FIRST clause");
+            case ColumnPosition.After _ -> throw new TrinoException(NOT_SUPPORTED, "This connector does not support adding columns with AFTER clause");
+            case ColumnPosition.Last _ -> addColumn(session, handle.asPlainTable().getRemoteTableName(), column);
+        }
+    }
+
+    private void addColumn(ConnectorSession session, RemoteTableName table, ColumnMetadata column)
     {
         try (Connection connection = connectionFactory.openConnection(session)) {
             String remoteColumnName = getIdentifierMapping().toRemoteColumnName(getRemoteIdentifiers(connection), column.getName());
             String sql = format(
                     "ALTER TABLE %s ADD COLUMN %s",
-                    quoted(handle.asPlainTable().getRemoteTableName()),
+                    quoted(table),
                     getColumnDefinitionSql(session, column, remoteColumnName));
             execute(session, connection, sql);
         }
@@ -628,6 +639,8 @@ public class ClickHouseClient
         ClickHouseColumn column = ClickHouseColumn.of("", jdbcTypeName);
         ClickHouseDataType columnDataType = column.getDataType();
         switch (columnDataType) {
+            case Bool:
+                return Optional.of(booleanColumnMapping());
             case UInt8:
                 return Optional.of(ColumnMapping.longMapping(SMALLINT, ResultSet::getShort, uInt8WriteFunction(getClickHouseServerVersion(session))));
             case UInt16:
@@ -747,8 +760,7 @@ public class ClickHouseClient
     public WriteMapping toWriteMapping(ConnectorSession session, Type type)
     {
         if (type == BOOLEAN) {
-            // ClickHouse is no separate type for boolean values. Use UInt8 type, restricted to the values 0 or 1.
-            return WriteMapping.booleanMapping("UInt8", booleanWriteFunction());
+            return WriteMapping.booleanMapping("Bool", booleanWriteFunction());
         }
         if (type == TINYINT) {
             return WriteMapping.longMapping("Int8", tinyintWriteFunction());

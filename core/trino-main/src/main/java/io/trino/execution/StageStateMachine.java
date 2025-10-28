@@ -31,6 +31,7 @@ import io.trino.operator.PipelineStats;
 import io.trino.operator.TaskStats;
 import io.trino.plugin.base.metrics.TDigestHistogram;
 import io.trino.spi.eventlistener.StageGcStatistics;
+import io.trino.spi.metrics.Metrics;
 import io.trino.sql.planner.PlanFragment;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.tracing.TrinoAttributes;
@@ -45,6 +46,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -55,6 +57,7 @@ import java.util.function.Supplier;
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.airlift.units.DataSize.succinctBytes;
 import static io.airlift.units.Duration.succinctDuration;
 import static io.trino.execution.StageState.ABORTED;
@@ -88,7 +91,8 @@ public class StageStateMachine
     private final AtomicReference<ExecutionFailureInfo> failureCause = new AtomicReference<>();
 
     private final AtomicReference<DateTime> schedulingComplete = new AtomicReference<>();
-    private final Distribution getSplitDistribution = new Distribution();
+    private final Map<PlanNodeId, Distribution> getSplitDistribution = new ConcurrentHashMap<>();
+    private final Map<PlanNodeId, Metrics> splitSourceMetrics = new ConcurrentHashMap<>();
 
     private final AtomicLong peakUserMemory = new AtomicLong();
     private final AtomicLong peakRevocableMemory = new AtomicLong();
@@ -473,6 +477,7 @@ public class StageStateMachine
         long failedOutputDataSize = 0;
         long outputPositions = 0;
         long failedOutputPositions = 0;
+        Metrics.Accumulator outputBufferMetrics = Metrics.accumulator();
 
         long outputBlockedTime = 0;
         long failedOutputBlockedTime = 0;
@@ -545,9 +550,13 @@ public class StageStateMachine
             inputBlockedTime += taskStats.getInputBlockedTime().roundTo(NANOSECONDS);
 
             bufferedDataSize += taskInfo.outputBuffers().getTotalBufferedBytes();
+
+            Optional<Metrics> bufferMetrics = taskInfo.outputBuffers().getMetrics();
+
             taskInfo.outputBuffers().getUtilization().ifPresent(bufferUtilizationHistograms::add);
             outputDataSize += taskStats.getOutputDataSize().toBytes();
             outputPositions += taskStats.getOutputPositions();
+            bufferMetrics.ifPresent(outputBufferMetrics::add);
 
             outputBlockedTime += taskStats.getOutputBlockedTime().roundTo(NANOSECONDS);
 
@@ -598,7 +607,8 @@ public class StageStateMachine
 
         StageStats stageStats = new StageStats(
                 schedulingComplete.get(),
-                getSplitDistribution.snapshot(),
+                getSplitDistributionSnapshot(),
+                splitSourceMetrics,
 
                 totalTasks,
                 runningTasks,
@@ -655,6 +665,7 @@ public class StageStateMachine
                 succinctBytes(failedOutputDataSize),
                 outputPositions,
                 failedOutputPositions,
+                outputBufferMetrics.get(),
                 succinctDuration(outputBlockedTime, NANOSECONDS),
                 succinctDuration(failedOutputBlockedTime, NANOSECONDS),
                 succinctBytes(physicalWrittenDataSize),
@@ -734,11 +745,12 @@ public class StageStateMachine
         return operatorStatsBuilder.build();
     }
 
-    public void recordGetSplitTime(long startNanos)
+    public void recordSplitSourceMetrics(PlanNodeId nodeId, Metrics metrics, long startNanos)
     {
         long elapsedNanos = System.nanoTime() - startNanos;
-        getSplitDistribution.add(elapsedNanos);
+        getSplitDistribution.computeIfAbsent(nodeId, (_) -> new Distribution()).add(elapsedNanos);
         scheduledStats.getGetSplitTime().add(elapsedNanos, NANOSECONDS);
+        splitSourceMetrics.put(nodeId, metrics);
     }
 
     @Override
@@ -748,5 +760,12 @@ public class StageStateMachine
                 .add("stageId", stageId)
                 .add("stageState", stageState)
                 .toString();
+    }
+
+    private Map<PlanNodeId, Distribution.DistributionSnapshot> getSplitDistributionSnapshot()
+    {
+        return getSplitDistribution.entrySet()
+                .stream()
+                .collect(toImmutableMap(Map.Entry::getKey, entry -> entry.getValue().snapshot()));
     }
 }

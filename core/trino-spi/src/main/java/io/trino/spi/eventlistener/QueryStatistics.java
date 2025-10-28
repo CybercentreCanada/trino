@@ -75,6 +75,8 @@ public class QueryStatistics
     private final List<StageCpuDistribution> cpuTimeDistribution;
     private final List<StageOutputBufferUtilization> outputBufferUtilization;
     private final List<StageTaskStatistics> taskStatistics;
+    private final List<StageOutputBufferMetrics> outputBufferMetrics;
+    private final List<DynamicFilterDomainStatistics> dynamicFilterDomainStatistics;
 
     /**
      * Operator summaries serialized to JSON. Serialization format and structure
@@ -131,7 +133,9 @@ public class QueryStatistics
             boolean complete,
             List<StageCpuDistribution> cpuTimeDistribution,
             List<StageOutputBufferUtilization> outputBufferUtilization,
+            List<StageOutputBufferMetrics> outputBufferMetrics,
             List<StageTaskStatistics> taskStatistics,
+            List<DynamicFilterDomainStatistics> dynamicFilterDomainStatistics,
             List<String> operatorSummaries,
             List<QueryPlanOptimizerStatistics> optimizerRulesSummaries,
             Optional<String> planNodeStatsAndCosts)
@@ -177,7 +181,9 @@ public class QueryStatistics
                 complete,
                 cpuTimeDistribution,
                 outputBufferUtilization,
+                outputBufferMetrics,
                 taskStatistics,
+                dynamicFilterDomainStatistics,
                 () -> operatorSummaries,
                 optimizerRulesSummaries,
                 planNodeStatsAndCosts);
@@ -224,7 +230,9 @@ public class QueryStatistics
             boolean complete,
             List<StageCpuDistribution> cpuTimeDistribution,
             List<StageOutputBufferUtilization> outputBufferUtilization,
+            List<StageOutputBufferMetrics> outputBufferMetrics,
             List<StageTaskStatistics> taskStatistics,
+            List<DynamicFilterDomainStatistics> dynamicFilterDomainStatistics,
             Supplier<List<String>> operatorSummariesProvider,
             List<QueryPlanOptimizerStatistics> optimizerRulesSummaries,
             Optional<String> planNodeStatsAndCosts)
@@ -269,7 +277,9 @@ public class QueryStatistics
         this.complete = complete;
         this.cpuTimeDistribution = requireNonNull(cpuTimeDistribution, "cpuTimeDistribution is null");
         this.outputBufferUtilization = requireNonNull(outputBufferUtilization, "outputBufferUtilization is null");
+        this.outputBufferMetrics = requireNonNull(outputBufferMetrics, "outputBufferMetrics is null");
         this.taskStatistics = requireNonNull(taskStatistics, "taskStatistics is null");
+        this.dynamicFilterDomainStatistics = requireNonNull(dynamicFilterDomainStatistics, "dynamicFilterDomainStatistics is null");
         this.operatorSummariesProvider = requireNonNull(operatorSummariesProvider, "operatorSummariesProvider is null");
         this.optimizerRulesSummaries = requireNonNull(optimizerRulesSummaries, "optimizerRulesSummaries is null");
         this.planNodeStatsAndCosts = requireNonNull(planNodeStatsAndCosts, "planNodeStatsAndCosts is null");
@@ -516,9 +526,21 @@ public class QueryStatistics
     }
 
     @JsonProperty
+    public List<StageOutputBufferMetrics> getOutputBufferMetrics()
+    {
+        return outputBufferMetrics;
+    }
+
+    @JsonProperty
     public List<StageTaskStatistics> getTaskStatistics()
     {
         return taskStatistics;
+    }
+
+    @JsonProperty
+    public List<DynamicFilterDomainStatistics> getDynamicFilterDomainStatistics()
+    {
+        return dynamicFilterDomainStatistics;
     }
 
     @JsonProperty

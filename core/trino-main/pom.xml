@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>465</version>
+        <version>476</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -18,7 +18,6 @@
     </properties>
 
     <dependencies>
-
         <dependency>
             <groupId>com.clearspring.analytics</groupId>
             <artifactId>stream</artifactId>
@@ -83,6 +82,18 @@
         <dependency>
             <groupId>dev.failsafe</groupId>
             <artifactId>failsafe</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>info.debatty</groupId>
+            <artifactId>java-string-similarity</artifactId>
+            <version>2.0.0</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.jcip</groupId>
+                    <artifactId>jcip-annotations</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -338,7 +349,12 @@
         <dependency>
             <groupId>org.apache.lucene</groupId>
             <artifactId>lucene-analysis-common</artifactId>
-            <version>10.0.0</version>
+            <version>10.2.1</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.eclipse.jetty</groupId>
+            <artifactId>jetty-io</artifactId>
         </dependency>
 
         <dependency>
@@ -409,6 +425,12 @@
 
         <dependency>
             <groupId>io.airlift</groupId>
+            <artifactId>configuration-testing</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
             <artifactId>jaxrs-testing</artifactId>
             <scope>test</scope>
         </dependency>
@@ -434,6 +456,13 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-parser</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-plugin-toolkit</artifactId>
             <type>test-jar</type>
             <scope>test</scope>
         </dependency>

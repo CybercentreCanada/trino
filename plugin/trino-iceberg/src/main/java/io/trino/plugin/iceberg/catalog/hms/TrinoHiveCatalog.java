@@ -16,6 +16,7 @@ package io.trino.plugin.iceberg.catalog.hms;
 import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import io.airlift.log.Logger;
 import io.trino.cache.EvictableCacheBuilder;
@@ -27,10 +28,10 @@ import io.trino.metastore.Database;
 import io.trino.metastore.HivePrincipal;
 import io.trino.metastore.PrincipalPrivileges;
 import io.trino.metastore.TableInfo;
+import io.trino.metastore.cache.CachingHiveMetastore;
 import io.trino.plugin.hive.HiveSchemaProperties;
 import io.trino.plugin.hive.TrinoViewHiveMetastore;
 import io.trino.plugin.hive.metastore.MetastoreUtil;
-import io.trino.plugin.hive.metastore.cache.CachingHiveMetastore;
 import io.trino.plugin.hive.util.HiveUtil;
 import io.trino.plugin.iceberg.IcebergTableName;
 import io.trino.plugin.iceberg.UnknownTableTypeException;
@@ -58,19 +59,22 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
-import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.exceptions.NotFoundException;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -85,6 +89,7 @@ import static io.trino.metastore.HiveType.HIVE_STRING;
 import static io.trino.metastore.PrincipalPrivileges.NO_PRIVILEGES;
 import static io.trino.metastore.StorageFormat.VIEW_STORAGE_FORMAT;
 import static io.trino.metastore.TableInfo.ICEBERG_MATERIALIZED_VIEW_COMMENT;
+import static io.trino.plugin.base.util.ExecutorUtil.processWithAdditionalThreads;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_DATABASE_LOCATION_ERROR;
 import static io.trino.plugin.hive.HiveErrorCode.HIVE_INVALID_METADATA;
 import static io.trino.plugin.hive.HiveMetadata.STORAGE_TABLE;
@@ -100,10 +105,10 @@ import static io.trino.plugin.iceberg.IcebergMaterializedViewDefinition.encodeMa
 import static io.trino.plugin.iceberg.IcebergMaterializedViewDefinition.fromConnectorMaterializedViewDefinition;
 import static io.trino.plugin.iceberg.IcebergMaterializedViewProperties.STORAGE_SCHEMA;
 import static io.trino.plugin.iceberg.IcebergSchemaProperties.LOCATION_PROPERTY;
+import static io.trino.plugin.iceberg.IcebergSessionProperties.isUseFileSizeFromMetadata;
 import static io.trino.plugin.iceberg.IcebergUtil.getIcebergTableWithMetadata;
 import static io.trino.plugin.iceberg.IcebergUtil.loadIcebergTable;
 import static io.trino.plugin.iceberg.IcebergUtil.quotedTableName;
-import static io.trino.plugin.iceberg.IcebergUtil.validateTableCanBeDropped;
 import static io.trino.plugin.iceberg.TableType.MATERIALIZED_VIEW_STORAGE;
 import static io.trino.plugin.iceberg.TrinoMetricsReporter.TRINO_METRICS_REPORTER;
 import static io.trino.plugin.iceberg.catalog.AbstractIcebergTableOperations.ICEBERG_METASTORE_STORAGE_FORMAT;
@@ -127,10 +132,6 @@ public class TrinoHiveCatalog
 {
     private static final Logger log = Logger.get(TrinoHiveCatalog.class);
     private static final int PER_QUERY_CACHE_SIZE = 1000;
-    public static final String DEPENDS_ON_TABLES = "dependsOnTables";
-    public static final String DEPENDS_ON_TABLE_FUNCTIONS = "dependsOnTableFunctions";
-    // Value should be ISO-8601 formatted time instant
-    public static final String TRINO_QUERY_START_TIME = "trino-query-start-time";
 
     private final CachingHiveMetastore metastore;
     private final TrinoViewHiveMetastore trinoViewHiveMetastore;
@@ -138,6 +139,7 @@ public class TrinoHiveCatalog
     private final boolean isUsingSystemSecurity;
     private final boolean deleteSchemaLocationsFallback;
     private final boolean hideMaterializedViewStorageTable;
+    private final Executor metadataFetchingExecutor;
 
     private final Cache<SchemaTableName, TableMetadata> tableMetadataCache = EvictableCacheBuilder.newBuilder()
             .maximumSize(PER_QUERY_CACHE_SIZE)
@@ -153,7 +155,8 @@ public class TrinoHiveCatalog
             boolean useUniqueTableLocation,
             boolean isUsingSystemSecurity,
             boolean deleteSchemaLocationsFallback,
-            boolean hideMaterializedViewStorageTable)
+            boolean hideMaterializedViewStorageTable,
+            Executor metadataFetchingExecutor)
     {
         super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
         this.metastore = requireNonNull(metastore, "metastore is null");
@@ -162,6 +165,7 @@ public class TrinoHiveCatalog
         this.isUsingSystemSecurity = isUsingSystemSecurity;
         this.deleteSchemaLocationsFallback = deleteSchemaLocationsFallback;
         this.hideMaterializedViewStorageTable = hideMaterializedViewStorageTable;
+        this.metadataFetchingExecutor = requireNonNull(metadataFetchingExecutor, "metadataFetchingExecutor is null");
     }
 
     public CachingHiveMetastore getMetastore()
@@ -286,7 +290,7 @@ public class TrinoHiveCatalog
             Schema schema,
             PartitionSpec partitionSpec,
             SortOrder sortOrder,
-            String location,
+            Optional<String> location,
             Map<String, String> properties)
     {
         return newCreateTableTransaction(
@@ -355,9 +359,39 @@ public class TrinoHiveCatalog
     @Override
     public List<TableInfo> listTables(ConnectorSession session, Optional<String> namespace)
     {
-        return listNamespaces(session, namespace).stream()
-                .flatMap(schema -> metastore.getTables(schema).stream())
+        List<Callable<List<TableInfo>>> tasks = listNamespaces(session, namespace).stream()
+                .map(schema -> (Callable<List<TableInfo>>) () -> metastore.getTables(schema))
                 .collect(toImmutableList());
+        try {
+            return processWithAdditionalThreads(tasks, metadataFetchingExecutor).stream()
+                    .flatMap(Collection::stream)
+                    .collect(toImmutableList());
+        }
+        catch (ExecutionException e) {
+            throw new RuntimeException(e.getCause());
+        }
+    }
+
+    @Override
+    public List<SchemaTableName> listIcebergTables(ConnectorSession session, Optional<String> namespace)
+    {
+        List<Callable<List<SchemaTableName>>> tasks = listNamespaces(session, namespace).stream()
+                .map(schema -> (Callable<List<SchemaTableName>>) () -> metastore.getTableNamesWithParameters(schema, TABLE_TYPE_PROP, ImmutableSet.of(
+                                // Get tables with parameter table_type set to  "ICEBERG" or "iceberg". This is required because
+                                // Trino uses lowercase value whereas Spark and Flink use uppercase.
+                                ICEBERG_TABLE_TYPE_VALUE.toLowerCase(ENGLISH),
+                                ICEBERG_TABLE_TYPE_VALUE.toUpperCase(ENGLISH))).stream()
+                        .map(tableName -> new SchemaTableName(schema, tableName))
+                        .collect(toImmutableList()))
+                .collect(toImmutableList());
+        try {
+            return processWithAdditionalThreads(tasks, metadataFetchingExecutor).stream()
+                    .flatMap(Collection::stream)
+                    .collect(toImmutableList());
+        }
+        catch (ExecutionException e) {
+            throw new RuntimeException(e.getCause());
+        }
     }
 
     @Override
@@ -383,9 +417,8 @@ public class TrinoHiveCatalog
     @Override
     public void dropTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
-        BaseTable table = (BaseTable) loadTable(session, schemaTableName);
+        BaseTable table = loadTable(session, schemaTableName);
         TableMetadata metadata = table.operations().current();
-        validateTableCanBeDropped(table);
 
         io.trino.metastore.Table metastoreTable = metastore.getTable(schemaTableName.getSchemaName(), schemaTableName.getTableName())
                 .orElseThrow(() -> new TableNotFoundException(schemaTableName));
@@ -438,14 +471,14 @@ public class TrinoHiveCatalog
     }
 
     @Override
-    public Table loadTable(ConnectorSession session, SchemaTableName schemaTableName)
+    public BaseTable loadTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
         TableMetadata metadata;
         try {
             metadata = uncheckedCacheGet(
                     tableMetadataCache,
                     schemaTableName,
-                    () -> ((BaseTable) loadIcebergTable(this, tableOperationsProvider, session, schemaTableName)).operations().current());
+                    () -> loadIcebergTable(this, tableOperationsProvider, session, schemaTableName).operations().current());
         }
         catch (UncheckedExecutionException e) {
             throwIfUnchecked(e.getCause());
@@ -568,7 +601,7 @@ public class TrinoHiveCatalog
 
             try {
                 if (existing.isPresent()) {
-                    metastore.replaceTable(viewName.getSchemaName(), viewName.getTableName(), table, principalPrivileges);
+                    metastore.replaceTable(viewName.getSchemaName(), viewName.getTableName(), table, principalPrivileges, ImmutableMap.of());
                 }
                 else {
                     metastore.createTable(table, principalPrivileges);
@@ -576,7 +609,7 @@ public class TrinoHiveCatalog
             }
             catch (RuntimeException e) {
                 try {
-                    dropMaterializedViewStorage(fileSystemFactory.create(session), storageMetadataLocation.toString());
+                    dropMaterializedViewStorage(session, fileSystemFactory.create(session), storageMetadataLocation.toString());
                 }
                 catch (Exception suppressed) {
                     log.warn(suppressed, "Failed to clean up metadata '%s' for materialized view '%s'", storageMetadataLocation, viewName);
@@ -631,7 +664,7 @@ public class TrinoHiveCatalog
                 metastore.dropTable(storageSchema, oldStorageTable, true);
             }
             // Replace the existing view definition
-            metastore.replaceTable(viewName.getSchemaName(), viewName.getTableName(), table, principalPrivileges);
+            metastore.replaceTable(viewName.getSchemaName(), viewName.getTableName(), table, principalPrivileges, ImmutableMap.of());
             return;
         }
         // create the view definition
@@ -676,7 +709,7 @@ public class TrinoHiveCatalog
 
         PrincipalPrivileges principalPrivileges = isUsingSystemSecurity ? NO_PRIVILEGES : buildInitialPrivilegeSet(session.getUser());
 
-        metastore.replaceTable(viewName.getSchemaName(), viewName.getTableName(), viewBuilder.build(), principalPrivileges);
+        metastore.replaceTable(viewName.getSchemaName(), viewName.getTableName(), viewBuilder.build(), principalPrivileges, ImmutableMap.of());
     }
 
     @Override
@@ -701,7 +734,7 @@ public class TrinoHiveCatalog
             String storageSchema = Optional.ofNullable(view.getParameters().get(STORAGE_SCHEMA))
                     .orElse(viewName.getSchemaName());
             try {
-                metastore.dropTable(storageSchema, storageTableName, true);
+                dropTable(session, new SchemaTableName(storageSchema, storageTableName));
             }
             catch (TrinoException e) {
                 log.warn(e, "Failed to drop storage table '%s.%s' for materialized view '%s'", storageSchema, storageTableName, viewName);
@@ -711,7 +744,7 @@ public class TrinoHiveCatalog
             String storageMetadataLocation = view.getParameters().get(METADATA_LOCATION_PROP);
             checkState(storageMetadataLocation != null, "Storage location missing in definition of materialized view " + viewName);
             try {
-                dropMaterializedViewStorage(fileSystemFactory.create(session), storageMetadataLocation);
+                dropMaterializedViewStorage(session, fileSystemFactory.create(session), storageMetadataLocation);
             }
             catch (IOException e) {
                 log.warn(e, "Failed to delete storage table metadata '%s' for materialized view '%s'", storageMetadataLocation, viewName);
@@ -798,7 +831,7 @@ public class TrinoHiveCatalog
             String storageMetadataLocation = materializedView.getParameters().get(METADATA_LOCATION_PROP);
             checkState(storageMetadataLocation != null, "Storage location missing in definition of materialized view " + materializedView.getTableName());
             TrinoFileSystem fileSystem = fileSystemFactory.create(session);
-            return TableMetadataParser.read(new ForwardingFileIo(fileSystem), storageMetadataLocation);
+            return TableMetadataParser.read(new ForwardingFileIo(fileSystem, isUseFileSizeFromMetadata(session)), storageMetadataLocation);
         });
     }
 

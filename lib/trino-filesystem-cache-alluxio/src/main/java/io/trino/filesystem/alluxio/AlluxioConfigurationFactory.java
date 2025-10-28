@@ -16,15 +16,19 @@ package io.trino.filesystem.alluxio;
 import alluxio.conf.AlluxioConfiguration;
 import alluxio.conf.AlluxioProperties;
 import alluxio.conf.InstancedConfiguration;
+import alluxio.conf.PropertyKey;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static alluxio.conf.PropertyKey.USER_CLIENT_CACHE_DIRS;
@@ -38,11 +42,13 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.filesystem.alluxio.AlluxioFileSystemCacheConfig.CACHE_DIRECTORIES;
 import static io.trino.filesystem.alluxio.AlluxioFileSystemCacheConfig.CACHE_MAX_PERCENTAGES;
 import static io.trino.filesystem.alluxio.AlluxioFileSystemCacheConfig.CACHE_MAX_SIZES;
-import static java.lang.String.format;
 import static java.lang.String.join;
 
 public class AlluxioConfigurationFactory
 {
+    private static final Logger log = Logger.get(AlluxioConfigurationFactory.class);
+    private static final Path CONFIG_PATH = Path.of("/opt/alluxio/conf/alluxio-site.properties");
+
     private AlluxioConfigurationFactory() {}
 
     public static AlluxioConfiguration create(AlluxioFileSystemCacheConfig config)
@@ -68,6 +74,7 @@ public class AlluxioConfigurationFactory
             alluxioProperties.set(USER_CLIENT_CACHE_TTL_THRESHOLD_SECONDS, ttl.orElseThrow().roundTo(TimeUnit.SECONDS));
             alluxioProperties.set(USER_CLIENT_CACHE_TTL_ENABLED, true);
         }
+        loadFromSiteProperties(alluxioProperties);
         return new InstancedConfiguration(alluxioProperties);
     }
 
@@ -77,9 +84,9 @@ public class AlluxioConfigurationFactory
         while (!Files.exists(path) && path.getParent() != null) {
             path = path.getParent();
         }
-        checkArgument(Files.isDirectory(path), format("Cache directory %s is not a directory", path));
-        checkArgument(Files.isReadable(path), format("Cannot read from cache directory %s", originalPath));
-        checkArgument(Files.isWritable(path), format("Cannot write to cache directory %s", originalPath));
+        checkArgument(Files.isDirectory(path), "Cache directory %s is not a directory", path);
+        checkArgument(Files.isReadable(path), "Cannot read from cache directory %s", originalPath);
+        checkArgument(Files.isWritable(path), "Cannot write to cache directory %s", originalPath);
     }
 
     /**
@@ -101,5 +108,35 @@ public class AlluxioConfigurationFactory
             maxCacheSizes.add(DataSize.of(Math.round(cachePercentages.get(i) / 100.0 * cacheDiskSizes.get(i)), DataSize.Unit.BYTE));
         }
         return maxCacheSizes.build();
+    }
+
+    private static void loadFromSiteProperties(AlluxioProperties alluxioProperties)
+    {
+        if (Files.isRegularFile(CONFIG_PATH)) {
+            try (var reader = Files.newBufferedReader(CONFIG_PATH)) {
+                Properties siteProps = new Properties();
+                siteProps.load(reader);
+                for (var entry : siteProps.entrySet()) {
+                    String key = entry.getKey().toString();
+                    String value = entry.getValue().toString();
+                    try {
+                        PropertyKey propertyKey = PropertyKey.fromString(key);
+                        alluxioProperties.set(propertyKey, value);
+                        log.info("Set Alluxio property: %s = %s", key, value);
+                    }
+                    catch (IllegalArgumentException e) {
+                        log.warn("Skipping unknown Alluxio property: %s", key, e);
+                    }
+                }
+
+                log.debug("AlluxioProperties after loading:");
+                alluxioProperties.forEach((key, value) -> {
+                    log.debug("Property: %s = %s", key.getName(), value);
+                });
+            }
+            catch (IOException e) {
+                throw new RuntimeException("Failed to load alluxio-site.properties", e);
+            }
+        }
     }
 }

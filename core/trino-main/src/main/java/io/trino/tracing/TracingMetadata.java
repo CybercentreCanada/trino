@@ -14,6 +14,7 @@
 package io.trino.tracing;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.inject.Inject;
 import io.airlift.slice.Slice;
@@ -55,6 +56,7 @@ import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorCapabilities;
 import io.trino.spi.connector.ConnectorOutputMetadata;
 import io.trino.spi.connector.ConnectorTableMetadata;
@@ -247,11 +249,11 @@ public class TracingMetadata
     }
 
     @Override
-    public TableHandle makeCompatiblePartitioning(Session session, TableHandle table, PartitioningHandle partitioningHandle)
+    public Optional<TableHandle> applyPartitioning(Session session, TableHandle tableHandle, Optional<PartitioningHandle> partitioning, List<ColumnHandle> columns)
     {
-        Span span = startSpan("makeCompatiblePartitioning", table);
+        Span span = startSpan("applyPartitioning", tableHandle);
         try (var _ = scopedSpan(span)) {
-            return delegate.makeCompatiblePartitioning(session, table, partitioningHandle);
+            return delegate.applyPartitioning(session, tableHandle, partitioning, columns);
         }
     }
 
@@ -394,15 +396,6 @@ public class TracingMetadata
     }
 
     @Override
-    public void setSchemaAuthorization(Session session, CatalogSchemaName source, TrinoPrincipal principal)
-    {
-        Span span = startSpan("setSchemaAuthorization", source);
-        try (var _ = scopedSpan(span)) {
-            delegate.setSchemaAuthorization(session, source, principal);
-        }
-    }
-
-    @Override
     public void createTable(Session session, String catalogName, ConnectorTableMetadata tableMetadata, SaveMode saveMode)
     {
         Span span = startSpan("createTable", catalogName, tableMetadata);
@@ -484,11 +477,11 @@ public class TracingMetadata
     }
 
     @Override
-    public void addColumn(Session session, TableHandle tableHandle, CatalogSchemaTableName table, ColumnMetadata column)
+    public void addColumn(Session session, TableHandle tableHandle, CatalogSchemaTableName table, ColumnMetadata column, ColumnPosition position)
     {
         Span span = startSpan("addColumn", table);
         try (var _ = scopedSpan(span)) {
-            delegate.addColumn(session, tableHandle, table, column);
+            delegate.addColumn(session, tableHandle, table, column, position);
         }
     }
 
@@ -525,15 +518,6 @@ public class TracingMetadata
         Span span = startSpan("dropNotNullConstraint", tableHandle);
         try (var _ = scopedSpan(span)) {
             delegate.dropNotNullConstraint(session, tableHandle, column);
-        }
-    }
-
-    @Override
-    public void setTableAuthorization(Session session, CatalogSchemaTableName table, TrinoPrincipal principal)
-    {
-        Span span = startSpan("setTableAuthorization", table);
-        try (var _ = scopedSpan(span)) {
-            delegate.setTableAuthorization(session, table, principal);
         }
     }
 
@@ -822,11 +806,11 @@ public class TracingMetadata
     }
 
     @Override
-    public MergeHandle beginMerge(Session session, TableHandle tableHandle)
+    public MergeHandle beginMerge(Session session, TableHandle tableHandle, Multimap<Integer, ColumnHandle> updateCaseColumns)
     {
         Span span = startSpan("beginMerge", tableHandle);
         try (var _ = scopedSpan(span)) {
-            return delegate.beginMerge(session, tableHandle);
+            return delegate.beginMerge(session, tableHandle, updateCaseColumns);
         }
     }
 
@@ -938,15 +922,6 @@ public class TracingMetadata
         Span span = startSpan("renameView", existingViewName);
         try (var _ = scopedSpan(span)) {
             delegate.renameView(session, existingViewName, newViewName);
-        }
-    }
-
-    @Override
-    public void setViewAuthorization(Session session, CatalogSchemaTableName view, TrinoPrincipal principal)
-    {
-        Span span = startSpan("setViewAuthorization", view);
-        try (var _ = scopedSpan(span)) {
-            delegate.setViewAuthorization(session, view, principal);
         }
     }
 
@@ -1546,6 +1521,15 @@ public class TracingMetadata
         Span span = startSpan("getInsertWriterScalingOptions", tableHandle);
         try (var _ = scopedSpan(span)) {
             return delegate.getInsertWriterScalingOptions(session, tableHandle);
+        }
+    }
+
+    @Override
+    public void setEntityAuthorization(Session session, EntityKindAndName entityKindAndName, TrinoPrincipal principal)
+    {
+        Span span = startSpan("setEntityAuthorization", entityKindAndName.name().stream().collect(Collectors.joining(".")));
+        try (var ignored = scopedSpan(span)) {
+            delegate.setEntityAuthorization(session, entityKindAndName, principal);
         }
     }
 

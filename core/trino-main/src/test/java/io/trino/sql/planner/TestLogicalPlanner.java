@@ -65,9 +65,7 @@ import io.trino.sql.planner.plan.FilterNode;
 import io.trino.sql.planner.plan.IndexJoinNode;
 import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.LimitNode;
-import io.trino.sql.planner.plan.MarkDistinctNode;
 import io.trino.sql.planner.plan.PlanNode;
-import io.trino.sql.planner.plan.ProjectNode;
 import io.trino.sql.planner.plan.SemiJoinNode;
 import io.trino.sql.planner.plan.SemiJoinNode.DistributionType;
 import io.trino.sql.planner.plan.SortNode;
@@ -101,9 +99,6 @@ import static io.trino.SystemSessionProperties.DISTRIBUTED_SORT;
 import static io.trino.SystemSessionProperties.FILTERING_SEMI_JOIN_TO_INNER;
 import static io.trino.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
 import static io.trino.SystemSessionProperties.JOIN_REORDERING_STRATEGY;
-import static io.trino.SystemSessionProperties.OPTIMIZE_HASH_GENERATION;
-import static io.trino.SystemSessionProperties.TASK_CONCURRENCY;
-import static io.trino.metadata.TestMetadataManager.createTestMetadataManager;
 import static io.trino.spi.StandardErrorCode.SUBQUERY_MULTIPLE_ROWS;
 import static io.trino.spi.connector.SortOrder.ASC_NULLS_LAST;
 import static io.trino.spi.predicate.Domain.multipleValues;
@@ -145,7 +140,6 @@ import static io.trino.sql.planner.assertions.PlanMatchPattern.exchange;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.expression;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.filter;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.groupId;
-import static io.trino.sql.planner.assertions.PlanMatchPattern.identityProject;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.join;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.limit;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.markDistinct;
@@ -208,8 +202,6 @@ public class TestLogicalPlanner
 
     private static final ResolvedFunction FAIL = FUNCTIONS.resolveFunction("fail", fromTypes(INTEGER, VARCHAR));
     private static final ResolvedFunction LOWER = FUNCTIONS.resolveFunction("lower", fromTypes(VARCHAR));
-    private static final ResolvedFunction COMBINE_HASH = FUNCTIONS.resolveFunction("combine_hash", fromTypes(BIGINT, BIGINT));
-    private static final ResolvedFunction HASH_CODE = createTestMetadataManager().resolveOperator(OperatorType.HASH_CODE, ImmutableList.of(BIGINT));
     private static final ResolvedFunction CONCAT = FUNCTIONS.resolveFunction("concat", fromTypes(VARCHAR, VARCHAR));
 
     private static final WindowNode.Frame ROWS_FROM_CURRENT = new WindowNode.Frame(
@@ -1471,12 +1463,12 @@ public class TestLogicalPlanner
         // validates that there exists only one remote exchange
         Consumer<Plan> validateSingleRemoteExchange = plan -> assertThat(countOfMatchingNodes(
                 plan,
-                node -> node instanceof ExchangeNode && ((ExchangeNode) node).getScope() == REMOTE)).isEqualTo(1);
+                node -> node instanceof ExchangeNode exchangeNode && exchangeNode.getScope() == REMOTE)).isEqualTo(1);
 
         Consumer<Plan> validateSingleStreamingAggregation = plan -> assertThat(countOfMatchingNodes(
                 plan,
-                node -> node instanceof AggregationNode && ((AggregationNode) node).getGroupingKeys().contains(new Symbol(BIGINT, "unique"))
-                        && ((AggregationNode) node).isStreamable())).isEqualTo(1);
+                node -> node instanceof AggregationNode aggregationNode && aggregationNode.getGroupingKeys().contains(new Symbol(BIGINT, "unique"))
+                        && aggregationNode.isStreamable())).isEqualTo(1);
 
         // region is unpartitioned, AssignUniqueId should provide satisfying partitioning for count(*) after LEFT JOIN
         assertPlanWithSession(
@@ -1502,7 +1494,6 @@ public class TestLogicalPlanner
     {
         Session broadcastJoin = Session.builder(this.getPlanTester().getDefaultSession())
                 .setSystemProperty(JOIN_DISTRIBUTION_TYPE, JoinDistributionType.BROADCAST.name())
-                .setSystemProperty(OPTIMIZE_HASH_GENERATION, Boolean.toString(false))
                 .build();
 
         // replicated join with naturally partitioned and distributed probe side is rewritten to partitioned join
@@ -1527,7 +1518,7 @@ public class TestLogicalPlanner
                 plan -> // make sure there are only two remote exchanges (one in probe and one in build side)
                         assertThat(countOfMatchingNodes(
                                 plan,
-                                node -> node instanceof ExchangeNode && ((ExchangeNode) node).getScope() == REMOTE)).isEqualTo(2));
+                                node -> node instanceof ExchangeNode exchangeNode && exchangeNode.getScope() == REMOTE)).isEqualTo(2));
 
         // replicated join is preserved if probe side is single node
         assertPlanWithSession(
@@ -1564,7 +1555,7 @@ public class TestLogicalPlanner
     @Test
     public void testDistributedSort()
     {
-        ImmutableList<PlanMatchPattern.Ordering> orderBy = ImmutableList.of(sort("ORDERKEY", DESCENDING, LAST));
+        List<PlanMatchPattern.Ordering> orderBy = ImmutableList.of(sort("ORDERKEY", DESCENDING, LAST));
         assertDistributedPlan(
                 "SELECT orderkey FROM orders ORDER BY orderkey DESC",
                 output(
@@ -1997,73 +1988,6 @@ public class TestLogicalPlanner
                 output(
                         node(AggregationNode.class,
                                 values(ImmutableList.of("x")))));
-    }
-
-    @Test
-    public void testRedundantHashRemovalForUnionAll()
-    {
-        assertPlan(
-                "SELECT count(*) FROM ((SELECT nationkey FROM customer) UNION ALL (SELECT nationkey FROM customer)) GROUP BY nationkey",
-                Session.builder(getPlanTester().getDefaultSession())
-                        .setSystemProperty(OPTIMIZE_HASH_GENERATION, "true")
-                        .build(),
-                output(
-                        project(
-                                node(AggregationNode.class,
-                                        exchange(LOCAL, REPARTITION,
-                                                project(ImmutableMap.of("hash", expression(new Call(COMBINE_HASH, ImmutableList.of(new Constant(BIGINT, 0L), new Coalesce(new Call(HASH_CODE, ImmutableList.of(new Reference(BIGINT, "nationkey"))), new Constant(BIGINT, 0L)))))),
-                                                        node(AggregationNode.class,
-                                                                tableScan("customer", ImmutableMap.of("nationkey", "nationkey")))),
-                                                project(ImmutableMap.of("hash_1", expression(new Call(COMBINE_HASH, ImmutableList.of(new Constant(BIGINT, 0L), new Coalesce(new Call(HASH_CODE, ImmutableList.of(new Reference(BIGINT, "nationkey_6"))), new Constant(BIGINT, 0L)))))),
-                                                        node(AggregationNode.class,
-                                                                tableScan("customer", ImmutableMap.of("nationkey_6", "nationkey")))))))));
-    }
-
-    @Test
-    public void testRedundantHashRemovalForMarkDistinct()
-    {
-        assertDistributedPlan(
-                "select count(*), count(distinct orderkey), count(distinct partkey), count(distinct suppkey) from lineitem",
-                Session.builder(this.getPlanTester().getDefaultSession())
-                        .setSystemProperty(OPTIMIZE_HASH_GENERATION, "true")
-                        .setSystemProperty(TASK_CONCURRENCY, "16")
-                        .setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, "mark_distinct")
-                        .build(),
-                output(
-                        anyTree(
-                                identityProject(
-                                        node(MarkDistinctNode.class,
-                                                anyTree(
-                                                        project(ImmutableMap.of(
-                                                                        "hash_1", expression(new Call(COMBINE_HASH, ImmutableList.of(new Constant(BIGINT, 0L), new Coalesce(new Call(HASH_CODE, ImmutableList.of(new Reference(BIGINT, "suppkey"))), new Constant(BIGINT, 0L))))),
-                                                                        "hash_2", expression(new Call(COMBINE_HASH, ImmutableList.of(new Constant(BIGINT, 0L), new Coalesce(new Call(HASH_CODE, ImmutableList.of(new Reference(BIGINT, "partkey"))), new Constant(BIGINT, 0L)))))),
-                                                                node(MarkDistinctNode.class,
-                                                                        tableScan("lineitem", ImmutableMap.of("suppkey", "suppkey", "partkey", "partkey"))))))))));
-    }
-
-    @Test
-    public void testRedundantHashRemovalForUnionAllAndMarkDistinct()
-    {
-        assertDistributedPlan(
-                "SELECT count(distinct(custkey)), count(distinct(nationkey)) FROM ((SELECT custkey, nationkey FROM customer) UNION ALL ( SELECT custkey, custkey FROM customer))",
-                Session.builder(getPlanTester().getDefaultSession())
-                        .setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, "mark_distinct")
-                        .setSystemProperty(OPTIMIZE_HASH_GENERATION, "true")
-                        .build(),
-                output(
-                        anyTree(
-                                node(MarkDistinctNode.class,
-                                        anyTree(
-                                                node(MarkDistinctNode.class,
-                                                        exchange(LOCAL, REPARTITION,
-                                                                exchange(REMOTE, REPARTITION,
-                                                                        project(ImmutableMap.of(
-                                                                                        "hash_custkey", expression(new Call(COMBINE_HASH, ImmutableList.of(new Constant(BIGINT, 0L), new Coalesce(new Call(HASH_CODE, ImmutableList.of(new Reference(BIGINT, "custkey"))), new Constant(BIGINT, 0L))))),
-                                                                                        "hash_nationkey", expression(new Call(COMBINE_HASH, ImmutableList.of(new Constant(BIGINT, 0L), new Coalesce(new Call(HASH_CODE, ImmutableList.of(new Reference(BIGINT, "nationkey"))), new Constant(BIGINT, 0L)))))),
-                                                                                tableScan("customer", ImmutableMap.of("custkey", "custkey", "nationkey", "nationkey")))),
-                                                                exchange(REMOTE, REPARTITION,
-                                                                        node(ProjectNode.class,
-                                                                                node(TableScanNode.class))))))))));
     }
 
     @Test
@@ -2654,6 +2578,18 @@ public class TestLogicalPlanner
                                 builder -> builder
                                         .left(any(unnest(values("array"))))
                                         .right(exchange(tableScan("nation"))))))));
+    }
+
+    @Test
+    public void testRewriteExcludeColumnsFunctionToProjection()
+    {
+        assertPlan("""
+                   SELECT *
+                   FROM TABLE(system.builtin.exclude_columns(
+                       INPUT => TABLE(orders),
+                       COLUMNS => DESCRIPTOR(comment)))
+                   """,
+                output(tableScan("orders")));
     }
 
     private Session noJoinReordering()

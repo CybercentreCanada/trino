@@ -231,10 +231,13 @@ public abstract class BaseFailureRecoveryTest
     @Test
     protected void testDeleteWithSubquery()
     {
-        testTableModification(
+        testNonSelect(
+                Optional.empty(),
                 Optional.of("CREATE TABLE <table> AS SELECT * FROM orders"),
                 "DELETE FROM <table> WHERE custkey IN (SELECT custkey FROM customer WHERE nationkey = 1)",
-                Optional.of("DROP TABLE <table>"));
+                Optional.of("DROP TABLE <table>"),
+                true,
+                Optional.of("orderkey"));
     }
 
     @Test
@@ -249,10 +252,13 @@ public abstract class BaseFailureRecoveryTest
     @Test
     protected void testUpdateWithSubquery()
     {
-        testTableModification(
+        testNonSelect(
+                Optional.empty(),
                 Optional.of("CREATE TABLE <table> AS SELECT * FROM orders"),
                 "UPDATE <table> SET shippriority = 101 WHERE custkey = (SELECT min(custkey) FROM customer)",
-                Optional.of("DROP TABLE <table>"));
+                Optional.of("DROP TABLE <table>"),
+                true,
+                Optional.of("orderkey"));
     }
 
     @Test
@@ -269,7 +275,8 @@ public abstract class BaseFailureRecoveryTest
     @Test
     protected void testMerge()
     {
-        testTableModification(
+        testNonSelect(
+                Optional.empty(),
                 Optional.of("CREATE TABLE <table> AS SELECT * FROM orders"),
                 """
                         MERGE INTO <table> t
@@ -280,7 +287,9 @@ public abstract class BaseFailureRecoveryTest
                         WHEN MATCHED AND s.orderkey <= 1000
                             THEN DELETE
                         """,
-                Optional.of("DROP TABLE <table>"));
+                Optional.of("DROP TABLE <table>"),
+                true,
+                Optional.of("orderkey"));
     }
 
     @Test
@@ -330,12 +339,18 @@ public abstract class BaseFailureRecoveryTest
 
     protected void testNonSelect(Optional<Session> session, Optional<String> setupQuery, String query, Optional<String> cleanupQuery, boolean writesData)
     {
+        testNonSelect(session, setupQuery, query, cleanupQuery, writesData, Optional.empty());
+    }
+
+    protected void testNonSelect(Optional<Session> session, Optional<String> setupQuery, String query, Optional<String> cleanupQuery, boolean writesData, Optional<String> primaryKey)
+    {
         if (writesData && !areWriteRetriesSupported()) {
             // if retries are not supported assert on that and skip actual failures simulation
             assertThatQuery(query)
                     .withSession(session)
                     .withSetupQuery(setupQuery)
                     .withCleanupQuery(cleanupQuery)
+                    .withPrimaryKey(primaryKey)
                     .failsDespiteRetries(failure -> failure.hasMessageMatching("This connector does not support query retries"))
                     .cleansUpTemporaryTables();
             return;
@@ -346,6 +361,7 @@ public abstract class BaseFailureRecoveryTest
                     .withSession(session)
                     .withSetupQuery(setupQuery)
                     .withCleanupQuery(cleanupQuery)
+                    .withPrimaryKey(primaryKey)
                     .experiencing(TASK_FAILURE, Optional.of(ErrorType.INTERNAL_ERROR))
                     .at(boundaryCoordinatorStage())
                     .finishesSuccessfully()
@@ -356,6 +372,7 @@ public abstract class BaseFailureRecoveryTest
                     .withSession(session)
                     .withSetupQuery(setupQuery)
                     .withCleanupQuery(cleanupQuery)
+                    .withPrimaryKey(primaryKey)
                     .experiencing(TASK_FAILURE, Optional.of(ErrorType.INTERNAL_ERROR))
                     .at(boundaryCoordinatorStage())
                     .failsAlways(failure -> failure.hasMessageContaining(FAILURE_INJECTION_MESSAGE))
@@ -367,6 +384,7 @@ public abstract class BaseFailureRecoveryTest
                     .withSession(session)
                     .withSetupQuery(setupQuery)
                     .withCleanupQuery(cleanupQuery)
+                    .withPrimaryKey(primaryKey)
                     .experiencing(TASK_FAILURE, Optional.of(ErrorType.INTERNAL_ERROR))
                     .at(rootStage())
                     .finishesSuccessfully()
@@ -377,6 +395,7 @@ public abstract class BaseFailureRecoveryTest
                     .withSession(session)
                     .withSetupQuery(setupQuery)
                     .withCleanupQuery(cleanupQuery)
+                    .withPrimaryKey(primaryKey)
                     .experiencing(TASK_FAILURE, Optional.of(ErrorType.INTERNAL_ERROR))
                     .at(rootStage())
                     .failsAlways(failure -> failure.hasMessageContaining(FAILURE_INJECTION_MESSAGE))
@@ -387,6 +406,7 @@ public abstract class BaseFailureRecoveryTest
                 .withSession(session)
                 .withSetupQuery(setupQuery)
                 .withCleanupQuery(cleanupQuery)
+                .withPrimaryKey(primaryKey)
                 .experiencing(TASK_FAILURE, Optional.of(ErrorType.INTERNAL_ERROR))
                 .at(boundaryDistributedStage())
                 .failsWithoutRetries(failure -> failure.hasMessageContaining(FAILURE_INJECTION_MESSAGE))
@@ -396,6 +416,7 @@ public abstract class BaseFailureRecoveryTest
         assertThatQuery(query)
                 .withSetupQuery(setupQuery)
                 .withCleanupQuery(cleanupQuery)
+                .withPrimaryKey(primaryKey)
                 .experiencing(TASK_MANAGEMENT_REQUEST_TIMEOUT)
                 .at(boundaryDistributedStage())
                 .failsWithoutRetries(failure -> failure.hasMessageContaining("Encountered too many errors talking to a worker node"))
@@ -407,6 +428,7 @@ public abstract class BaseFailureRecoveryTest
                     .withSession(session)
                     .withSetupQuery(setupQuery)
                     .withCleanupQuery(cleanupQuery)
+                    .withPrimaryKey(primaryKey)
                     .experiencing(TASK_GET_RESULTS_REQUEST_FAILURE)
                     .at(boundaryDistributedStage())
                     .failsWithoutRetries(failure -> failure.hasMessageFindingMatch("Error 500 Internal Server Error|Error closing remote buffer, expected 204 got 500"))
@@ -416,6 +438,7 @@ public abstract class BaseFailureRecoveryTest
             assertThatQuery(query)
                     .withSetupQuery(setupQuery)
                     .withCleanupQuery(cleanupQuery)
+                    .withPrimaryKey(primaryKey)
                     .experiencing(TASK_GET_RESULTS_REQUEST_TIMEOUT)
                     .at(boundaryDistributedStage())
                     .failsWithoutRetries(failure -> failure.hasMessageFindingMatch("Encountered too many errors talking to a worker node|Error closing remote buffer"))
@@ -475,6 +498,10 @@ public abstract class BaseFailureRecoveryTest
         return true;
     }
 
+    protected void addPrimaryKeyForMergeTarget(Session session, String tableName, String primaryKey)
+    {
+    }
+
     protected class FailureRecoveryAssert
     {
         private final String query;
@@ -485,6 +512,7 @@ public abstract class BaseFailureRecoveryTest
         private Optional<String> setup = Optional.empty();
         private Optional<String> cleanup = Optional.empty();
         private Set<String> queryIds = new HashSet<>();
+        private Optional<String> primaryKey = Optional.empty();
 
         public FailureRecoveryAssert(String query)
         {
@@ -507,6 +535,12 @@ public abstract class BaseFailureRecoveryTest
         public FailureRecoveryAssert withCleanupQuery(Optional<String> query)
         {
             cleanup = requireNonNull(query, "query is null");
+            return this;
+        }
+
+        public FailureRecoveryAssert withPrimaryKey(Optional<String> primaryKey)
+        {
+            this.primaryKey = requireNonNull(primaryKey, "primaryKey is null");
             return this;
         }
 
@@ -572,6 +606,8 @@ public abstract class BaseFailureRecoveryTest
             String tableName = "table_" + randomNameSuffix();
             setup.ifPresent(sql -> getQueryRunner().execute(noRetries(session), resolveTableName(sql, tableName)));
 
+            primaryKey.ifPresent(key -> addPrimaryKeyForMergeTarget(session, tableName, key));
+
             MaterializedResultWithPlan resultWithPlan = null;
             RuntimeException failure = null;
             String queryId = null;
@@ -581,8 +617,8 @@ public abstract class BaseFailureRecoveryTest
             }
             catch (RuntimeException e) {
                 failure = e;
-                if (e instanceof QueryFailedException) {
-                    queryId = ((QueryFailedException) e).getQueryId().getId();
+                if (e instanceof QueryFailedException queryFailedException) {
+                    queryId = queryFailedException.getQueryId().getId();
                 }
             }
 

@@ -66,7 +66,7 @@ import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
 
-public class JsonEncodingUtils
+public final class JsonEncodingUtils
 {
     private JsonEncodingUtils() {}
 
@@ -124,10 +124,14 @@ public class JsonEncodingUtils
             generator.writeStartArray();
 
             for (Page page : pages) {
+                Block[] blocks = new Block[sourcePageChannels.length];
+                for (int i = 0; i < sourcePageChannels.length; i++) {
+                    blocks[i] = page.getBlock(sourcePageChannels[i]);
+                }
                 for (int position = 0; position < page.getPositionCount(); position++) {
                     generator.writeStartArray();
                     for (int column = 0; column < typeEncoders.length; column++) {
-                        typeEncoders[column].encode(generator, connectorSession, page.getBlock(sourcePageChannels[column]), position);
+                        typeEncoders[column].encode(generator, connectorSession, blocks[column], position);
                     }
                     generator.writeEndArray();
                 }
@@ -263,7 +267,7 @@ public class JsonEncodingUtils
                 return;
             }
             Slice slice = VARCHAR.getSlice(block, position);
-            generator.writeString(slice.toStringUtf8());
+            generator.writeUTF8String(slice.byteArray(), slice.byteArrayOffset(), slice.length());
         }
     }
 
@@ -367,8 +371,9 @@ public class JsonEncodingUtils
             verify(keyBlock.getPositionCount() == valueBlock.getPositionCount(), "Key and value blocks have different number of positions");
             generator.writeStartObject();
             for (int i = 0; i < map.getSize(); i++) {
-                // Field name is always written as String for backward compatibility,
-                // only value is properly encoded.
+                // Map keys are always serialized as strings for backward compatibility with existing clients.
+                // Map values are always properly encoded using their types.
+                // TODO: improve in v2 JSON format
                 generator.writeFieldName(mapType.getKeyType().getObjectValue(session, keyBlock, offset + i).toString());
                 valueEncoder.encode(generator, session, valueBlock, offset + i);
             }

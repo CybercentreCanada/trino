@@ -22,6 +22,7 @@ public final class JdbcClientStats
     private final JdbcApiStats addColumn = new JdbcApiStats();
     private final JdbcApiStats beginCreateTable = new JdbcApiStats();
     private final JdbcApiStats beginInsertTable = new JdbcApiStats();
+    private final JdbcApiStats beginMergeTable = new JdbcApiStats();
     private final JdbcApiStats buildInsertSql = new JdbcApiStats();
     private final JdbcApiStats prepareQuery = new JdbcApiStats();
     private final JdbcApiStats buildSql = new JdbcApiStats();
@@ -38,6 +39,7 @@ public final class JdbcClientStats
     private final JdbcApiStats renameSchema = new JdbcApiStats();
     private final JdbcApiStats dropTable = new JdbcApiStats();
     private final JdbcApiStats finishInsertTable = new JdbcApiStats();
+    private final JdbcApiStats finishMergeTable = new JdbcApiStats();
     private final JdbcApiStats getColumns = new JdbcApiStats();
     private final JdbcApiStats getAllTableComments = new JdbcApiStats();
     private final JdbcApiStats getConnectionWithHandle = new JdbcApiStats();
@@ -69,6 +71,7 @@ public final class JdbcClientStats
     private final JdbcApiStats delete = new JdbcApiStats();
     private final JdbcApiStats update = new JdbcApiStats();
     private final JdbcApiStats truncateTable = new JdbcApiStats();
+    private final JdbcApiStats getPrimaryKeys = new JdbcApiStats();
 
     @Managed
     @Nested
@@ -89,6 +92,13 @@ public final class JdbcClientStats
     public JdbcApiStats getBeginCreateTable()
     {
         return beginCreateTable;
+    }
+
+    @Managed
+    @Nested
+    public JdbcApiStats getBeginMergeTable()
+    {
+        return beginMergeTable;
     }
 
     @Managed
@@ -201,6 +211,13 @@ public final class JdbcClientStats
     public JdbcApiStats getDropTable()
     {
         return dropTable;
+    }
+
+    @Managed
+    @Nested
+    public JdbcApiStats getFinishMergeTable()
+    {
+        return finishMergeTable;
     }
 
     @Managed
@@ -425,5 +442,12 @@ public final class JdbcClientStats
     public JdbcApiStats getTruncateTable()
     {
         return truncateTable;
+    }
+
+    @Managed
+    @Nested
+    public JdbcApiStats getGetPrimaryKeys()
+    {
+        return getPrimaryKeys;
     }
 }

@@ -15,9 +15,8 @@ package io.trino.plugin.iceberg;
 
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.metastore.HiveMetastore;
+import io.trino.metastore.cache.CachingHiveMetastore;
 import io.trino.plugin.hive.TrinoViewHiveMetastore;
-import io.trino.plugin.hive.metastore.HiveMetastoreFactory;
-import io.trino.plugin.hive.metastore.cache.CachingHiveMetastore;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
 import io.trino.plugin.iceberg.catalog.TrinoCatalog;
 import io.trino.plugin.iceberg.catalog.file.FileMetastoreTableOperationsProvider;
@@ -28,15 +27,13 @@ import io.trino.spi.type.TestingTypeManager;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.MaterializedResult;
 import io.trino.testing.QueryRunner;
-import io.trino.testing.TestingConnectorSession;
 import org.apache.iceberg.Table;
 import org.junit.jupiter.api.Test;
 
-import java.util.Optional;
-
-import static io.trino.plugin.hive.metastore.cache.CachingHiveMetastore.createPerTransactionCache;
-import static io.trino.plugin.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
+import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
+import static io.trino.metastore.cache.CachingHiveMetastore.createPerTransactionCache;
 import static io.trino.plugin.iceberg.IcebergTestUtils.getFileSystemFactory;
+import static io.trino.plugin.iceberg.IcebergTestUtils.getHiveMetastore;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestIcebergMergeAppend
@@ -50,9 +47,7 @@ public class TestIcebergMergeAppend
             throws Exception
     {
         QueryRunner queryRunner = IcebergQueryRunner.builder().build();
-        HiveMetastore metastore = ((IcebergConnector) queryRunner.getCoordinator().getConnector(ICEBERG_CATALOG)).getInjector()
-                .getInstance(HiveMetastoreFactory.class)
-                .createMetastore(Optional.empty());
+        HiveMetastore metastore = getHiveMetastore(queryRunner);
         CachingHiveMetastore cachingHiveMetastore = createPerTransactionCache(metastore, 1000);
         TrinoFileSystemFactory fileSystemFactory = getFileSystemFactory(queryRunner);
         tableOperationsProvider = new FileMetastoreTableOperationsProvider(fileSystemFactory);
@@ -66,7 +61,8 @@ public class TestIcebergMergeAppend
                 false,
                 false,
                 false,
-                new IcebergConfig().isHideMaterializedViewStorageTable());
+                new IcebergConfig().isHideMaterializedViewStorageTable(),
+                directExecutor());
 
         return queryRunner;
     }
@@ -75,7 +71,7 @@ public class TestIcebergMergeAppend
     public void testInsertWithAppend()
     {
         assertUpdate("CREATE TABLE table_to_insert (_bigint BIGINT, _varchar VARCHAR)");
-        Table table = IcebergUtil.loadIcebergTable(trinoCatalog, tableOperationsProvider, TestingConnectorSession.SESSION,
+        Table table = IcebergUtil.loadIcebergTable(trinoCatalog, tableOperationsProvider, IcebergTestUtils.SESSION,
                 new SchemaTableName("tpch", "table_to_insert"));
         table.updateProperties()
                 .set("commit.manifest.min-count-to-merge", "2")

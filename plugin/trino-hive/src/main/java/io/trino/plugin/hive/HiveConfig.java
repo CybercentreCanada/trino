@@ -66,8 +66,6 @@ import static java.util.concurrent.TimeUnit.MINUTES;
 })
 public class HiveConfig
 {
-    public static final String CONFIGURATION_HIVE_PARTITION_PROJECTION_ENABLED = "hive.partition-projection-enabled";
-
     private boolean singleStatementWritesOnly;
 
     private DataSize maxSplitSize = DataSize.of(64, MEGABYTE);
@@ -126,7 +124,7 @@ public class HiveConfig
     private boolean sortedWritingEnabled = true;
     private boolean propagateTableScanSortingProperties;
 
-    private boolean optimizeMismatchedBucketCount;
+    private boolean optimizeMismatchedBucketCount = true;
     private boolean writesToNonManagedTablesEnabled;
     private boolean createsOfNonManagedTablesEnabled = true;
 
@@ -142,6 +140,7 @@ public class HiveConfig
     private Duration fileStatusCacheExpireAfterWrite = new Duration(1, MINUTES);
     private DataSize fileStatusCacheMaxRetainedSize = DataSize.of(1, GIGABYTE);
     private List<String> fileStatusCacheTables = ImmutableList.of();
+    private List<String> fileStatusCacheExcludedTables = ImmutableList.of();
     private DataSize perTransactionFileStatusCacheMaxRetainedSize = DataSize.of(100, MEGABYTE);
 
     private boolean translateHiveViews;
@@ -172,9 +171,11 @@ public class HiveConfig
     private double minimumAssignedSplitWeight = 0.05;
     private boolean autoPurge;
 
-    private boolean partitionProjectionEnabled;
+    private boolean partitionProjectionEnabled = true;
 
-    private S3StorageClassFilter s3StorageClassFilter = S3StorageClassFilter.READ_ALL;
+    private S3GlacierFilter s3GlacierFilter = S3GlacierFilter.READ_ALL;
+
+    private int metadataParallelism = 8;
 
     public boolean isSingleStatementWritesOnly()
     {
@@ -771,6 +772,19 @@ public class HiveConfig
         return this;
     }
 
+    public List<String> getFileStatusCacheExcludedTables()
+    {
+        return fileStatusCacheExcludedTables;
+    }
+
+    @Config("hive.file-status-cache.excluded-tables")
+    @ConfigDescription("List of tables that should be excluded from file status caching")
+    public HiveConfig setFileStatusCacheExcludedTables(List<String> fileStatusCacheExcludedTables)
+    {
+        this.fileStatusCacheExcludedTables = ImmutableList.copyOf(fileStatusCacheExcludedTables);
+        return this;
+    }
+
     @MinDataSize("0MB")
     @NotNull
     public DataSize getPerTransactionFileStatusCacheMaxRetainedSize()
@@ -904,7 +918,7 @@ public class HiveConfig
     }
 
     @Config("hive.bucket-execution")
-    @ConfigDescription("Enable bucket-aware execution: only use a single worker per bucket")
+    @ConfigDescription("Enable bucket-aware execution: use physical bucketing information to optimize queries")
     public HiveConfig setBucketExecutionEnabled(boolean bucketExecutionEnabled)
     {
         this.bucketExecutionEnabled = bucketExecutionEnabled;
@@ -1247,7 +1261,7 @@ public class HiveConfig
         return partitionProjectionEnabled;
     }
 
-    @Config(CONFIGURATION_HIVE_PARTITION_PROJECTION_ENABLED)
+    @Config("hive.partition-projection-enabled")
     @ConfigDescription("Enables AWS Athena partition projection")
     public HiveConfig setPartitionProjectionEnabled(boolean enabledAthenaPartitionProjection)
     {
@@ -1255,16 +1269,31 @@ public class HiveConfig
         return this;
     }
 
-    public S3StorageClassFilter getS3StorageClassFilter()
+    public S3GlacierFilter getS3GlacierFilter()
     {
-        return s3StorageClassFilter;
+        return s3GlacierFilter;
     }
 
-    @Config("hive.s3.storage-class-filter")
+    @LegacyConfig("hive.s3.storage-class-filter")
+    @Config("hive.s3-glacier-filter")
     @ConfigDescription("Filter based on storage class of S3 object")
-    public HiveConfig setS3StorageClassFilter(S3StorageClassFilter s3StorageClassFilter)
+    public HiveConfig setS3GlacierFilter(S3GlacierFilter s3GlacierFilter)
     {
-        this.s3StorageClassFilter = s3StorageClassFilter;
+        this.s3GlacierFilter = s3GlacierFilter;
+        return this;
+    }
+
+    @Min(1)
+    public int getMetadataParallelism()
+    {
+        return metadataParallelism;
+    }
+
+    @ConfigDescription("Limits metadata enumeration calls parallelism")
+    @Config("hive.metadata.parallelism")
+    public HiveConfig setMetadataParallelism(int metadataParallelism)
+    {
+        this.metadataParallelism = metadataParallelism;
         return this;
     }
 }

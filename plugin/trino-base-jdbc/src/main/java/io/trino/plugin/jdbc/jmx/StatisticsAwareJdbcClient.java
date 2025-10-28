@@ -18,6 +18,7 @@ import io.trino.plugin.jdbc.JdbcClient;
 import io.trino.plugin.jdbc.JdbcColumnHandle;
 import io.trino.plugin.jdbc.JdbcExpression;
 import io.trino.plugin.jdbc.JdbcJoinCondition;
+import io.trino.plugin.jdbc.JdbcMergeTableHandle;
 import io.trino.plugin.jdbc.JdbcOutputTableHandle;
 import io.trino.plugin.jdbc.JdbcProcedureHandle;
 import io.trino.plugin.jdbc.JdbcProcedureHandle.ProcedureQuery;
@@ -33,6 +34,7 @@ import io.trino.plugin.jdbc.expression.ParameterizedExpression;
 import io.trino.spi.connector.AggregateFunction;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.ConnectorTableMetadata;
@@ -40,6 +42,7 @@ import io.trino.spi.connector.JoinStatistics;
 import io.trino.spi.connector.JoinType;
 import io.trino.spi.connector.RelationColumnsMetadata;
 import io.trino.spi.connector.RelationCommentMetadata;
+import io.trino.spi.connector.RetryMode;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SystemTable;
 import io.trino.spi.connector.TableScanRedirectApplicationResult;
@@ -54,6 +57,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -294,9 +298,9 @@ public final class StatisticsAwareJdbcClient
     }
 
     @Override
-    public void addColumn(ConnectorSession session, JdbcTableHandle handle, ColumnMetadata column)
+    public void addColumn(ConnectorSession session, JdbcTableHandle handle, ColumnMetadata column, ColumnPosition position)
     {
-        stats.getAddColumn().wrap(() -> delegate().addColumn(session, handle, column));
+        stats.getAddColumn().wrap(() -> delegate().addColumn(session, handle, column, position));
     }
 
     @Override
@@ -363,6 +367,23 @@ public final class StatisticsAwareJdbcClient
     public void finishInsertTable(ConnectorSession session, JdbcOutputTableHandle handle, Set<Long> pageSinkIds)
     {
         stats.getFinishInsertTable().wrap(() -> delegate().finishInsertTable(session, handle, pageSinkIds));
+    }
+
+    @Override
+    public JdbcMergeTableHandle beginMerge(
+            ConnectorSession session,
+            JdbcTableHandle handle,
+            Map<Integer, Collection<ColumnHandle>> updateColumnHandles,
+            List<Runnable> rollbackActions,
+            RetryMode retryMode)
+    {
+        return stats.getBeginMergeTable().wrap(() -> delegate().beginMerge(session, handle, updateColumnHandles, rollbackActions, retryMode));
+    }
+
+    @Override
+    public void finishMerge(ConnectorSession session, JdbcMergeTableHandle handle, Set<Long> pageSinkIds)
+    {
+        stats.getFinishMergeTable().wrap(() -> delegate().finishMerge(session, handle, pageSinkIds));
     }
 
     @Override
@@ -441,6 +462,12 @@ public final class StatisticsAwareJdbcClient
     }
 
     @Override
+    public boolean supportsMerge()
+    {
+        return delegate().supportsMerge();
+    }
+
+    @Override
     public void createSchema(ConnectorSession session, String schemaName)
     {
         stats.getCreateSchema().wrap(() -> delegate().createSchema(session, schemaName));
@@ -516,5 +543,11 @@ public final class StatisticsAwareJdbcClient
     public OptionalInt getMaxColumnNameLength(ConnectorSession session)
     {
         return delegate().getMaxColumnNameLength(session);
+    }
+
+    @Override
+    public List<JdbcColumnHandle> getPrimaryKeys(ConnectorSession session, RemoteTableName remoteTableName)
+    {
+        return stats.getGetPrimaryKeys().wrap(() -> delegate().getPrimaryKeys(session, remoteTableName));
     }
 }

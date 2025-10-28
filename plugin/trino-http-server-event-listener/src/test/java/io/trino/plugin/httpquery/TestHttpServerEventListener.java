@@ -20,6 +20,7 @@ import io.airlift.http.client.UnexpectedResponseException;
 import io.airlift.http.client.jetty.JettyHttpClient;
 import io.airlift.json.JsonCodec;
 import io.trino.operator.RetryPolicy;
+import io.trino.plugin.base.evenlistener.TestingEventListenerContext;
 import io.trino.spi.eventlistener.QueryCompletedEvent;
 import io.trino.spi.eventlistener.QueryContext;
 import io.trino.spi.eventlistener.QueryIOMetadata;
@@ -71,6 +72,7 @@ final class TestHttpServerEventListener
         QueryContext queryContext = new QueryContext(
                 "user",
                 "originalUser",
+                Set.of(),
                 Optional.of("principal"),
                 Set.of(), // enabledRoles
                 Set.of(), // groups
@@ -162,6 +164,8 @@ final class TestHttpServerEventListener
                 true,
                 Collections.emptyList(),
                 List.of(new StageOutputBufferUtilization(0, 10, 0.1, 0.5, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99, 0.0, 1.0, ofSeconds(1234))),
+                Collections.emptyList(),
+                Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList(),
@@ -271,6 +275,7 @@ final class TestHttpServerEventListener
                 ImmutableMap.<String, String>builder()
                         .put("bootstrap.quiet", "true")
                         .buildOrThrow(),
+                new TestingEventListenerContext(),
                 true);
     }
 }

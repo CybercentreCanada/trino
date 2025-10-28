@@ -19,11 +19,11 @@ import io.airlift.json.JsonCodec;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.parquet.ParquetReaderOptions;
+import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
 import io.trino.plugin.deltalake.procedure.DeltaLakeTableExecuteHandle;
 import io.trino.plugin.deltalake.procedure.DeltaTableOptimizeHandle;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
 import io.trino.plugin.deltalake.transactionlog.ProtocolEntry;
-import io.trino.plugin.hive.FileFormatDataSourceStats;
 import io.trino.plugin.hive.NodeVersion;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
 import io.trino.spi.PageIndexerFactory;
@@ -201,7 +201,8 @@ public class DeltaLakePageSinkProvider
                 fileFormatDataSourceStats,
                 isDeletionVectorEnabled(tableHandle.metadataEntry(), tableHandle.protocolEntry()),
                 merge.deletionVectors(),
-                getRandomPrefixLength(tableHandle.metadataEntry()));
+                getRandomPrefixLength(tableHandle.metadataEntry()),
+                merge.shallowCloneSourceTableLocation());
     }
 
     private DeltaLakeCdfPageSink createCdfPageSink(

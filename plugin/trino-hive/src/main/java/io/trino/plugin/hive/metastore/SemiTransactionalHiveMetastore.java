@@ -13,7 +13,6 @@
  */
 package io.trino.plugin.hive.metastore;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.CharMatcher;
 import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
@@ -51,12 +50,12 @@ import io.trino.metastore.PartitionWithStatistics;
 import io.trino.metastore.PrincipalPrivileges;
 import io.trino.metastore.StatisticsUpdateMode;
 import io.trino.metastore.Table;
+import io.trino.metastore.TableAlreadyExistsException;
 import io.trino.metastore.TableInfo;
 import io.trino.plugin.hive.HiveTableHandle;
 import io.trino.plugin.hive.LocationHandle.WriteMode;
 import io.trino.plugin.hive.PartitionNotFoundException;
 import io.trino.plugin.hive.PartitionUpdateAndMergeResults;
-import io.trino.plugin.hive.TableAlreadyExistsException;
 import io.trino.plugin.hive.TableInvalidationCallback;
 import io.trino.plugin.hive.acid.AcidTransaction;
 import io.trino.plugin.hive.projection.PartitionProjection;
@@ -111,7 +110,8 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.trino.metastore.HivePrivilegeInfo.HivePrivilege.OWNERSHIP;
-import static io.trino.metastore.Partition.toPartitionValues;
+import static io.trino.metastore.Partitions.makePartName;
+import static io.trino.metastore.Partitions.toPartitionValues;
 import static io.trino.metastore.PrincipalPrivileges.NO_PRIVILEGES;
 import static io.trino.metastore.StatisticsUpdateMode.MERGE_INCREMENTAL;
 import static io.trino.metastore.StatisticsUpdateMode.OVERWRITE_ALL;
@@ -135,7 +135,6 @@ import static io.trino.plugin.hive.metastore.MetastoreUtil.getHiveBasicStatistic
 import static io.trino.plugin.hive.metastore.SparkMetastoreUtil.getSparkTableStatistics;
 import static io.trino.plugin.hive.projection.PartitionProjectionProperties.getPartitionProjectionFromTable;
 import static io.trino.plugin.hive.util.AcidTables.isTransactionalTable;
-import static io.trino.plugin.hive.util.HiveUtil.makePartName;
 import static io.trino.plugin.hive.util.HiveWriteUtils.isFileCreatedByQuery;
 import static io.trino.spi.StandardErrorCode.ALREADY_EXISTS;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -595,7 +594,7 @@ public class SemiTransactionalHiveMetastore
 
     public synchronized void replaceTable(String databaseName, String tableName, Table table, PrincipalPrivileges principalPrivileges)
     {
-        setExclusive(delegate -> delegate.replaceTable(databaseName, tableName, table, principalPrivileges));
+        setExclusive(delegate -> delegate.replaceTable(databaseName, tableName, table, principalPrivileges, ImmutableMap.of()));
     }
 
     public synchronized void renameTable(String databaseName, String tableName, String newDatabaseName, String newTableName)
@@ -2335,14 +2334,6 @@ public class SemiTransactionalHiveMetastore
         }
     }
 
-    @VisibleForTesting
-    public synchronized void testOnlyCheckIsReadOnly()
-    {
-        if (state != State.EMPTY) {
-            throw new AssertionError("Test did not commit or rollback");
-        }
-    }
-
     @GuardedBy("this")
     private synchronized void checkReadable()
     {
@@ -3072,7 +3063,7 @@ public class SemiTransactionalHiveMetastore
                 metastore.alterTransactionalTable(newTable, transaction.getAcidTransactionId(), transaction.getWriteId(), principalPrivileges);
             }
             else {
-                metastore.replaceTable(newTable.getDatabaseName(), newTable.getTableName(), newTable, principalPrivileges);
+                metastore.replaceTable(newTable.getDatabaseName(), newTable.getTableName(), newTable, principalPrivileges, ImmutableMap.of());
             }
         }
 
@@ -3086,7 +3077,7 @@ public class SemiTransactionalHiveMetastore
                 metastore.alterTransactionalTable(oldTable, transaction.getAcidTransactionId(), transaction.getWriteId(), principalPrivileges);
             }
             else {
-                metastore.replaceTable(oldTable.getDatabaseName(), oldTable.getTableName(), oldTable, principalPrivileges);
+                metastore.replaceTable(oldTable.getDatabaseName(), oldTable.getTableName(), oldTable, principalPrivileges, ImmutableMap.of());
             }
         }
     }

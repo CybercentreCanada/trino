@@ -20,9 +20,8 @@ import io.airlift.units.Duration;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.cache.DefaultCachingHostAddressProvider;
 import io.trino.metastore.HiveMetastore;
+import io.trino.metastore.cache.CachingHiveMetastore;
 import io.trino.plugin.hive.TrinoViewHiveMetastore;
-import io.trino.plugin.hive.metastore.HiveMetastoreFactory;
-import io.trino.plugin.hive.metastore.cache.CachingHiveMetastore;
 import io.trino.plugin.hive.orc.OrcReaderConfig;
 import io.trino.plugin.hive.orc.OrcWriterConfig;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
@@ -59,6 +58,7 @@ import org.apache.iceberg.data.parquet.GenericParquetWriter;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.metrics.InMemoryMetricsReporter;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Type;
@@ -83,11 +83,12 @@ import java.util.concurrent.CompletableFuture;
 
 import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
+import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
-import static io.trino.plugin.hive.metastore.cache.CachingHiveMetastore.createPerTransactionCache;
-import static io.trino.plugin.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
+import static io.trino.metastore.cache.CachingHiveMetastore.createPerTransactionCache;
 import static io.trino.plugin.iceberg.IcebergSplitSource.createFileStatisticsDomain;
 import static io.trino.plugin.iceberg.IcebergTestUtils.getFileSystemFactory;
+import static io.trino.plugin.iceberg.IcebergTestUtils.getHiveMetastore;
 import static io.trino.plugin.iceberg.util.EqualityDeleteUtils.writeEqualityDeleteForTable;
 import static io.trino.spi.connector.Constraint.alwaysTrue;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -126,9 +127,7 @@ public class TestIcebergSplitSource
                 .setMetastoreDirectory(metastoreDir)
                 .build();
 
-        HiveMetastore metastore = ((IcebergConnector) queryRunner.getCoordinator().getConnector(ICEBERG_CATALOG)).getInjector()
-                .getInstance(HiveMetastoreFactory.class)
-                .createMetastore(Optional.empty());
+        HiveMetastore metastore = getHiveMetastore(queryRunner);
 
         this.fileSystemFactory = getFileSystemFactory(queryRunner);
         CachingHiveMetastore cachingHiveMetastore = createPerTransactionCache(metastore, 1000);
@@ -142,7 +141,8 @@ public class TestIcebergSplitSource
                 false,
                 false,
                 false,
-                new IcebergConfig().isHideMaterializedViewStorageTable());
+                new IcebergConfig().isHideMaterializedViewStorageTable(),
+                directExecutor());
 
         return queryRunner;
     }
@@ -210,6 +210,7 @@ public class TestIcebergSplitSource
                 false,
                 new IcebergConfig().getMinimumAssignedSplitWeight(),
                 new DefaultCachingHostAddressProvider(),
+                new InMemoryMetricsReporter(),
                 newDirectExecutorService())) {
             ImmutableList.Builder<IcebergSplit> splits = ImmutableList.builder();
             while (!splitSource.isFinished()) {
@@ -407,14 +408,14 @@ public class TestIcebergSplitSource
 
         // Write position delete file
         FileIO fileIo = new ForwardingFileIo(fileSystemFactory.create(SESSION));
-        PositionDeleteWriter<Record> writer = Parquet.writeDeletes(fileIo.newOutputFile("local:///delete_file_" + UUID.randomUUID()))
-                .createWriterFunc(GenericParquetWriter::buildWriter)
+        PositionDeleteWriter<org.apache.iceberg.data.Record> writer = Parquet.writeDeletes(fileIo.newOutputFile("local:///delete_file_" + UUID.randomUUID()))
+                .createWriterFunc(GenericParquetWriter::create)
                 .forTable(nationTable)
                 .overwrite()
                 .rowSchema(nationTable.schema())
                 .withSpec(PartitionSpec.unpartitioned())
                 .buildPositionWriter();
-        PositionDelete<Record> positionDelete = PositionDelete.create();
+        PositionDelete<org.apache.iceberg.data.Record> positionDelete = PositionDelete.create();
         PositionDelete<Record> record = positionDelete.set(dataFilePath, 0, GenericRecord.create(nationTable.schema()));
         try (Closeable ignored = writer) {
             writer.write(record);
@@ -455,6 +456,7 @@ public class TestIcebergSplitSource
                 false,
                 0,
                 new DefaultCachingHostAddressProvider(),
+                new InMemoryMetricsReporter(),
                 newDirectExecutorService())) {
             ImmutableList.Builder<IcebergSplit> builder = ImmutableList.builder();
             while (!splitSource.isFinished()) {
@@ -490,6 +492,7 @@ public class TestIcebergSplitSource
                 Optional.empty(),
                 nationTable.location(),
                 nationTable.properties(),
+                Optional.empty(),
                 false,
                 Optional.empty(),
                 ImmutableSet.of(),

@@ -356,7 +356,7 @@ public class TestScalarFunctionAdapter
                 actualConvention.supportsSession(),
                 actualConvention.supportsInstanceFactory());
 
-        // crete an exact invoker to the handle, so we can use object invoke interface without type coercion concerns
+        // create an exact invoker to the handle, so we can use object invoke interface without type coercion concerns
         MethodHandle exactInvoker = MethodHandles.exactInvoker(adaptedMethodHandle.type())
                 .bindTo(adaptedMethodHandle);
         if (expectedConvention.getReturnConvention() != BLOCK_BUILDER) {
@@ -554,6 +554,7 @@ public class TestScalarFunctionAdapter
                     callArguments.add(fixedSlice);
                     callArguments.add(0);
                     callArguments.add(variableSlice);
+                    callArguments.add(0);
                 }
                 case IN_OUT -> callArguments.add(new TestingInOut(argumentType, testValue));
                 default -> throw new IllegalArgumentException("Unsupported argument convention: " + argumentConvention);
@@ -996,8 +997,8 @@ public class TestScalarFunctionAdapter
 
         private static void assertArgumentValue(Object actual, Object expected)
         {
-            if (actual instanceof Block && expected instanceof Block) {
-                assertBlockEquals(BIGINT, (Block) actual, (Block) expected);
+            if (actual instanceof Block actualBlock && expected instanceof Block expectedBlock) {
+                assertBlockEquals(BIGINT, actualBlock, expectedBlock);
             }
             else {
                 assertThat(actual).isEqualTo(expected);

@@ -525,7 +525,7 @@ public class BackgroundHiveSplitLoader
     {
         TrinoFileSystem trinoFileSystem = fileSystemFactory.create(session);
         // Check if location is cached BEFORE using the directoryLister
-        boolean isCached = directoryLister.isCached(location);
+        boolean isCached = directoryLister.isCached(location, table.getSchemaTableName());
 
         Map<String, TrinoFileStatus> fileStatuses = new HashMap<>();
         Iterator<TrinoFileStatus> fileStatusIterator = new HiveFileIterator(table, location, trinoFileSystem, directoryLister, RECURSE);
@@ -540,7 +540,7 @@ public class BackgroundHiveSplitLoader
                     .anyMatch(path -> !fileStatuses.containsKey(path.path()));
             // Invalidate the cache and reload
             if (missing) {
-                directoryLister.invalidate(location);
+                directoryLister.invalidate(location, table.getSchemaTableName());
 
                 fileStatuses.clear();
                 fileStatusIterator = new HiveFileIterator(table, location, trinoFileSystem, directoryLister, RECURSE);
@@ -900,21 +900,21 @@ public class BackgroundHiveSplitLoader
         private final int readBucketCount;
         private final IntPredicate bucketFilter;
 
-        public static Optional<BucketSplitInfo> createBucketSplitInfo(Optional<HiveBucketHandle> bucketHandle, Optional<HiveBucketFilter> bucketFilter)
+        public static Optional<BucketSplitInfo> createBucketSplitInfo(Optional<HiveTablePartitioning> tablePartitioning, Optional<HiveBucketFilter> bucketFilter)
         {
-            requireNonNull(bucketHandle, "bucketHandle is null");
+            requireNonNull(tablePartitioning, "tablePartitioning is null");
             requireNonNull(bucketFilter, "bucketFilter is null");
 
-            if (bucketHandle.isEmpty()) {
-                checkArgument(bucketFilter.isEmpty(), "bucketHandle must be present if bucketFilter is present");
+            if (tablePartitioning.isEmpty()) {
+                checkArgument(bucketFilter.isEmpty(), "tablePartitioning must be present if bucketFilter is present");
                 return Optional.empty();
             }
 
-            BucketingVersion bucketingVersion = bucketHandle.get().bucketingVersion();
-            int tableBucketCount = bucketHandle.get().tableBucketCount();
-            int readBucketCount = bucketHandle.get().readBucketCount();
+            BucketingVersion bucketingVersion = tablePartitioning.get().partitioningHandle().getBucketingVersion();
+            int tableBucketCount = tablePartitioning.get().tableBucketCount();
+            int readBucketCount = tablePartitioning.get().partitioningHandle().getBucketCount();
 
-            List<HiveColumnHandle> bucketColumns = bucketHandle.get().columns();
+            List<HiveColumnHandle> bucketColumns = tablePartitioning.get().columns();
             IntPredicate predicate = bucketFilter
                     .<IntPredicate>map(filter -> filter.getBucketsToKeep()::contains)
                     .orElse(bucket -> true);

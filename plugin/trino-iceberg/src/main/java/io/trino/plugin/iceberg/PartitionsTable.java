@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -75,8 +76,9 @@ public class PartitionsTable
     private final List<RowType> columnMetricTypes;
     private final List<io.trino.spi.type.Type> resultTypes;
     private final ConnectorTableMetadata connectorTableMetadata;
+    private final ExecutorService executor;
 
-    public PartitionsTable(SchemaTableName tableName, TypeManager typeManager, Table icebergTable, Optional<Long> snapshotId)
+    public PartitionsTable(SchemaTableName tableName, TypeManager typeManager, Table icebergTable, Optional<Long> snapshotId, ExecutorService executor)
     {
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.icebergTable = requireNonNull(icebergTable, "icebergTable is null");
@@ -115,11 +117,12 @@ public class PartitionsTable
             this.columnMetricTypes = ImmutableList.of();
         }
 
-        ImmutableList<ColumnMetadata> columnMetadata = columnMetadataBuilder.build();
+        List<ColumnMetadata> columnMetadata = columnMetadataBuilder.build();
         this.resultTypes = columnMetadata.stream()
                 .map(ColumnMetadata::getType)
                 .collect(toImmutableList());
         this.connectorTableMetadata = new ConnectorTableMetadata(tableName, columnMetadata);
+        this.executor = requireNonNull(executor, "executor is null");
     }
 
     @Override
@@ -202,7 +205,8 @@ public class PartitionsTable
         }
         TableScan tableScan = icebergTable.newScan()
                 .useSnapshot(snapshotId.get())
-                .includeColumnStats();
+                .includeColumnStats()
+                .planWith(executor);
         // TODO make the cursor lazy
         return buildRecordCursor(getStatisticsByPartition(tableScan));
     }
@@ -270,26 +274,22 @@ public class PartitionsTable
 
             // add column level metrics
             dataColumnType.ifPresent(dataColumnType -> {
-                try {
-                    row.add(buildRowValue(dataColumnType, fields -> {
-                        for (int i = 0; i < columnMetricTypes.size(); i++) {
-                            Integer fieldId = nonPartitionPrimitiveColumns.get(i).fieldId();
-                            Object min = icebergStatistics.minValues().get(fieldId);
-                            Object max = icebergStatistics.maxValues().get(fieldId);
-                            Long nullCount = icebergStatistics.nullCounts().get(fieldId);
-                            Long nanCount = icebergStatistics.nanCounts().get(fieldId);
-                            if (min == null && max == null && nullCount == null) {
-                                throw new MissingColumnMetricsException();
-                            }
-
-                            RowType columnMetricType = columnMetricTypes.get(i);
+                row.add(buildRowValue(dataColumnType, fields -> {
+                    for (int i = 0; i < columnMetricTypes.size(); i++) {
+                        Integer fieldId = nonPartitionPrimitiveColumns.get(i).fieldId();
+                        Object min = icebergStatistics.minValues().get(fieldId);
+                        Object max = icebergStatistics.maxValues().get(fieldId);
+                        Long nullCount = icebergStatistics.nullCounts().get(fieldId);
+                        Long nanCount = icebergStatistics.nanCounts().get(fieldId);
+                        RowType columnMetricType = columnMetricTypes.get(i);
+                        if (min == null && max == null && nullCount == null) {
+                            fields.get(i).appendNull();
+                        }
+                        else {
                             columnMetricType.writeObject(fields.get(i), getColumnMetricBlock(columnMetricType, min, max, nullCount, nanCount));
                         }
-                    }));
-                }
-                catch (MissingColumnMetricsException _) {
-                    row.add(null);
-                }
+                    }
+                }));
             });
 
             records.add(row);
@@ -297,10 +297,6 @@ public class PartitionsTable
 
         return new InMemoryRecordSet(resultTypes, records.build()).cursor();
     }
-
-    private static class MissingColumnMetricsException
-            extends Exception
-    {}
 
     private List<Type> partitionTypes()
     {

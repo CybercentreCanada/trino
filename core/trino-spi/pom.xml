@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>465</version>
+        <version>476</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -44,6 +44,12 @@
             <groupId>jakarta.annotation</groupId>
             <artifactId>jakarta.annotation-api</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-api-incubator</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <dependency>
@@ -166,7 +172,7 @@
             <plugin>
                 <groupId>org.revapi</groupId>
                 <artifactId>revapi-maven-plugin</artifactId>
-                <version>0.15.0</version>
+                <version>0.15.1</version>
                 <configuration>
                     <skip>${trino.check.skip-revapi}</skip>
                     <ignoreSuggestionsFormat>xml</ignoreSuggestionsFormat>
@@ -213,145 +219,214 @@
                                 <!-- Backwards incompatible changes since the previous release -->
                                 <!-- Any exclusions below can be deleted after each release -->
                                 <item>
-                                    <ignore>true</ignore>
-                                    <code>java.annotation.attributeValueChanged</code>
-                                    <old>interface io.trino.spi.predicate.ValueSet</old>
-                                    <new>interface io.trino.spi.predicate.ValueSet</new>
-                                    <annotationType>com.fasterxml.jackson.annotation.JsonSubTypes</annotationType>
-                                    <attribute>value</attribute>
-                                    <oldValue>{@com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = io.trino.spi.predicate.EquatableValueSet.class, name = "equatable"), @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = io.trino.spi.predicate.SortedRangeSet.class, name = "sortable"), @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = io.trino.spi.predicate.AllOrNoneValueSet.class, name = "allOrNone")}</oldValue>
-                                    <newValue>{@com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = io.trino.spi.predicate.AllOrNoneValueSet.class, name = "allOrNone"), @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = io.trino.spi.predicate.EquatableValueSet.class, name = "equatable"), @com.fasterxml.jackson.annotation.JsonSubTypes.Type(value = io.trino.spi.predicate.SortedRangeSet.class, name = "sortable")}</newValue>
-                                    <justification>cleanup</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
                                     <code>java.method.removed</code>
-                                    <old>method long io.trino.spi.protocol.SpoolingContext::rowCount()</old>
-                                    <justification>Align better when naming in other places</justification>
+                                    <old>method io.trino.spi.Page io.trino.spi.Page::getLoadedPage(int[], int[])</old>
                                 </item>
                                 <item>
-                                    <ignore>true</ignore>
-                                    <code>java.method.noLongerStatic</code>
-                                    <old>method void io.trino.spi.type.AbstractIntType::checkValueValid(long)</old>
-                                    <new>method void io.trino.spi.type.AbstractIntType::checkValueValid(long)</new>
-                                    <justification>allows for more descriptive message</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
-                                    <code>java.class.removed</code>
-                                    <old>interface io.trino.spi.protocol.SpooledLocation</old>
-                                    <justification>Spooling SPI marked as experimental</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
-                                    <code>java.class.removed</code>
-                                    <old>interface io.trino.spi.protocol.SpooledSegmentHandle</old>
-                                    <justification>Spooling SPI marked as experimental</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
-                                    <code>java.class.removed</code>
-                                    <old>class io.trino.spi.protocol.SpoolingContext</old>
-                                    <justification>Spooling SPI marked as experimental</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
-                                    <code>java.class.removed</code>
-                                    <old>interface io.trino.spi.protocol.SpoolingManager</old>
-                                    <justification>Spooling SPI marked as experimental</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
-                                    <code>java.class.removed</code>
-                                    <old>interface io.trino.spi.protocol.SpoolingManagerContext</old>
-                                    <justification>Spooling SPI marked as experimental</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
-                                    <code>java.class.removed</code>
-                                    <old>interface io.trino.spi.protocol.SpoolingManagerFactory</old>
-                                    <justification>Spooling SPI marked as experimental</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
                                     <code>java.method.removed</code>
-                                    <old>method long io.trino.spi.Page::getLogicalSizeInBytes()</old>
+                                    <old>method io.trino.spi.block.ArrayBlock io.trino.spi.block.ArrayBlock::getLoadedBlock()</old>
                                 </item>
                                 <item>
-                                    <ignore>true</ignore>
                                     <code>java.method.removed</code>
-                                    <old>method long io.trino.spi.block.Block::getLogicalSizeInBytes()</old>
+                                    <old>method boolean io.trino.spi.block.ArrayBlock::isLoaded()</old>
                                 </item>
                                 <item>
-                                    <ignore>true</ignore>
                                     <code>java.method.removed</code>
-                                    <old>method long io.trino.spi.block.DictionaryBlock::getLogicalSizeInBytes()</old>
+                                    <old>method io.trino.spi.block.Block io.trino.spi.block.Block::getLoadedBlock()</old>
                                 </item>
                                 <item>
-                                    <ignore>true</ignore>
                                     <code>java.method.removed</code>
-                                    <old>method long io.trino.spi.block.RunLengthEncodedBlock::getLogicalSizeInBytes()</old>
+                                    <old>method boolean io.trino.spi.block.Block::isLoaded()</old>
                                 </item>
                                 <item>
-                                    <ignore>true</ignore>
-                                    <code>java.method.addedToInterface</code>
-                                    <new>method boolean io.trino.spi.resourcegroups.ResourceGroup::isDisabled()</new>
+                                    <code>java.method.removed</code>
+                                    <old>method io.trino.spi.block.Block io.trino.spi.block.DictionaryBlock::getLoadedBlock()</old>
                                 </item>
                                 <item>
-                                    <ignore>true</ignore>
-                                    <code>java.method.addedToInterface</code>
-                                    <new>method void io.trino.spi.resourcegroups.ResourceGroup::setDisabled(boolean)</new>
+                                    <code>java.method.removed</code>
+                                    <old>method boolean io.trino.spi.block.DictionaryBlock::isLoaded()</old>
                                 </item>
                                 <item>
                                     <code>java.class.removed</code>
-                                    <old>class io.trino.spi.connector.ConnectorMetadata.Helper</old>
+                                    <old>class io.trino.spi.block.LazyBlock</old>
+                                </item>
+                                <item>
+                                    <code>java.class.removed</code>
+                                    <old>class io.trino.spi.block.LazyBlockEncoding</old>
+                                </item>
+                                <item>
+                                    <code>java.class.removed</code>
+                                    <old>interface io.trino.spi.block.LazyBlockLoader</old>
                                 </item>
                                 <item>
                                     <code>java.method.removed</code>
-                                    <old>method io.trino.spi.type.Type io.trino.spi.PageBuilder::getType(int)</old>
+                                    <old>method io.trino.spi.block.Block io.trino.spi.block.MapBlock::getLoadedBlock()</old>
                                 </item>
                                 <item>
                                     <code>java.method.removed</code>
-                                    <old>method void io.trino.spi.PageBuilder::reset(int)</old>
-                                </item>
-                                <item>
-                                    <code>java.method.nowAbstract</code>
-                                    <old>method io.trino.spi.block.BlockBuilder io.trino.spi.type.AbstractIntType::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int)</old>
-                                    <new>method io.trino.spi.block.BlockBuilder io.trino.spi.type.Type::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int) @ io.trino.spi.type.AbstractIntType</new>
-                                </item>
-                                <item>
-                                    <code>java.method.nowAbstract</code>
-                                    <old>method io.trino.spi.block.BlockBuilder io.trino.spi.type.AbstractLongType::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int)</old>
-                                    <new>method io.trino.spi.block.BlockBuilder io.trino.spi.type.Type::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int) @ io.trino.spi.type.AbstractLongType</new>
-                                </item>
-                                <item>
-                                    <code>java.method.nowAbstract</code>
-                                    <old>method io.trino.spi.block.BlockBuilder io.trino.spi.type.BooleanType::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int)</old>
-                                    <new>method io.trino.spi.block.BlockBuilder io.trino.spi.type.Type::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int) @ io.trino.spi.type.BooleanType</new>
-                                </item>
-                                <item>
-                                    <code>java.method.nowAbstract</code>
-                                    <old>method io.trino.spi.block.BlockBuilder io.trino.spi.type.DoubleType::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int)</old>
-                                    <new>method io.trino.spi.block.BlockBuilder io.trino.spi.type.Type::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int) @ io.trino.spi.type.DoubleType</new>
-                                </item>
-                                <item>
-                                    <code>java.method.nowAbstract</code>
-                                    <old>method io.trino.spi.block.BlockBuilder io.trino.spi.type.SmallintType::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int)</old>
-                                    <new>method io.trino.spi.block.BlockBuilder io.trino.spi.type.Type::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int) @ io.trino.spi.type.SmallintType</new>
-                                </item>
-                                <item>
-                                    <code>java.method.nowAbstract</code>
-                                    <old>method io.trino.spi.block.BlockBuilder io.trino.spi.type.TinyintType::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int)</old>
-                                    <new>method io.trino.spi.block.BlockBuilder io.trino.spi.type.Type::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int) @ io.trino.spi.type.TinyintType</new>
-                                </item>
-                                <item>
-                                    <code>java.method.nowAbstract</code>
-                                    <old>method io.trino.spi.block.BlockBuilder io.trino.spi.type.UuidType::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int)</old>
-                                    <new>method io.trino.spi.block.BlockBuilder io.trino.spi.type.Type::createBlockBuilder(io.trino.spi.block.BlockBuilderStatus, int, int) @ io.trino.spi.type.UuidType</new>
+                                    <old>method boolean io.trino.spi.block.MapBlock::isLoaded()</old>
                                 </item>
                                 <item>
                                     <code>java.method.removed</code>
-                                    <old>method io.trino.spi.PageBuilder io.trino.spi.PageBuilder::newPageBuilderLike()</old>
+                                    <old>method io.trino.spi.block.Block io.trino.spi.block.RowBlock::getLoadedBlock()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method boolean io.trino.spi.block.RowBlock::isLoaded()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method io.trino.spi.block.Block io.trino.spi.block.RunLengthEncodedBlock::getLoadedBlock()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method boolean io.trino.spi.block.RunLengthEncodedBlock::isLoaded()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method io.trino.spi.Page io.trino.spi.Page::getLoadedPage(int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method io.trino.spi.Page io.trino.spi.Page::getLoadedPage()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method io.trino.spi.Page io.trino.spi.Page::getLoadedPage(int[])</old>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.method.returnTypeTypeParametersChanged</code>
+                                    <old>method java.util.List&lt;java.lang.String&gt; io.trino.spi.eventlistener.QueryInputMetadata::getColumns()</old>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.method.parameterTypeParameterChanged</code>
+                                    <old>method void io.trino.spi.eventlistener.QueryInputMetadata::&lt;init&gt;(java.lang.String, io.trino.spi.connector.CatalogHandle.CatalogVersion, java.lang.String, java.lang.String, java.util.List&lt;java.lang.String&gt;, java.util.Optional&lt;java.lang.Object&gt;, io.trino.spi.metrics.Metrics, java.util.OptionalLong, java.util.OptionalLong)</old>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.method.numberOfParametersChanged</code>
+                                    <old>method java.util.Optional&lt;java.lang.Object&gt; io.trino.spi.connector.ConnectorMetadata::getInfo(io.trino.spi.connector.ConnectorTableHandle)</old>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.method.numberOfParametersChanged</code>
+                                    <old>method void io.trino.spi.eventlistener.QueryStatistics::&lt;init&gt;(java.time.Duration, java.time.Duration, java.time.Duration, java.time.Duration, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, long, long, long, long, long, long, long, long, long, long, long, long, long, long, long, long, double, double, java.util.List&lt;io.trino.spi.eventlistener.StageGcStatistics&gt;, int, boolean, java.util.List&lt;io.trino.spi.eventlistener.StageCpuDistribution&gt;, java.util.List&lt;io.trino.spi.eventlistener.StageOutputBufferUtilization&gt;, java.util.List&lt;io.trino.spi.eventlistener.StageOutputBufferMetrics&gt;, java.util.List&lt;io.trino.spi.eventlistener.StageTaskStatistics&gt;, java.util.function.Supplier&lt;java.util.List&lt;java.lang.String&gt;&gt;, java.util.List&lt;io.trino.spi.eventlistener.QueryPlanOptimizerStatistics&gt;, java.util.Optional&lt;java.lang.String&gt;)</old>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.method.returnTypeChanged</code>
+                                    <old>method io.trino.spi.eventlistener.DoubleSymmetricDistribution io.trino.spi.eventlistener.StageTaskStatistics::getGetSplitDistribution()</old>
+                                </item>
+                                <item>
+                                    <ignore>true</ignore>
+                                    <code>java.method.parameterTypeChanged</code>
+                                    <old>method void io.trino.spi.eventlistener.StageTaskStatistics::&lt;init&gt;(int, int, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongDistribution, io.trino.spi.eventlistener.LongSymmetricDistribution, io.trino.spi.eventlistener.LongSymmetricDistribution, io.trino.spi.eventlistener.LongSymmetricDistribution, io.trino.spi.eventlistener.LongSymmetricDistribution, io.trino.spi.eventlistener.LongSymmetricDistribution, io.trino.spi.eventlistener.LongSymmetricDistribution, io.trino.spi.eventlistener.DoubleSymmetricDistribution, io.trino.spi.eventlistener.DoubleSymmetricDistribution, io.trino.spi.eventlistener.DoubleSymmetricDistribution, io.trino.spi.eventlistener.DoubleSymmetricDistribution, io.trino.spi.eventlistener.DoubleSymmetricDistribution, io.trino.spi.eventlistener.DoubleSymmetricDistribution, io.trino.spi.eventlistener.DoubleSymmetricDistribution)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.ArrayBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.ArrayBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.Block::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.Block::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.ByteArrayBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.ByteArrayBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.DictionaryBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.DictionaryBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.Fixed12Block::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.Fixed12Block::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.Int128ArrayBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.Int128ArrayBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.IntArrayBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.IntArrayBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.LongArrayBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.LongArrayBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.MapBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.MapBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.RowBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.RowBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.RunLengthEncodedBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.RunLengthEncodedBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.ShortArrayBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.ShortArrayBlock::getPositionsSizeInBytes(boolean[], int)</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method java.util.OptionalInt io.trino.spi.block.VariableWidthBlock::fixedSizeInBytesPerPosition()</old>
+                                </item>
+                                <item>
+                                    <code>java.method.removed</code>
+                                    <old>method long io.trino.spi.block.VariableWidthBlock::getPositionsSizeInBytes(boolean[], int)</old>
                                 </item>
                             </differences>
                         </revapi.differences>

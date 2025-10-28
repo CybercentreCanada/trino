@@ -49,12 +49,15 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.eventlistener.RoutineInfo;
 import io.trino.spi.eventlistener.StageGcStatistics;
 import io.trino.spi.eventlistener.TableInfo;
+import io.trino.spi.metrics.Metrics;
 import io.trino.spi.resourcegroups.QueryType;
 import io.trino.spi.resourcegroups.ResourceGroupId;
 import io.trino.spi.security.SelectedRole;
 import io.trino.spi.type.Type;
+import io.trino.sql.SessionPropertyResolver.SessionPropertiesApplier;
 import io.trino.sql.analyzer.Output;
 import io.trino.sql.planner.PlanFragment;
+import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.tracing.TrinoAttributes;
 import io.trino.transaction.TransactionId;
 import io.trino.transaction.TransactionInfo;
@@ -88,6 +91,7 @@ import static com.google.common.base.Strings.nullToEmpty;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.units.DataSize.succinctBytes;
 import static io.trino.SystemSessionProperties.getRetryPolicy;
+import static io.trino.SystemSessionProperties.isSpoolingEnabled;
 import static io.trino.execution.BasicStageStats.EMPTY_STAGE_STATS;
 import static io.trino.execution.QueryState.DISPATCHING;
 import static io.trino.execution.QueryState.FAILED;
@@ -154,6 +158,7 @@ public class QueryStateMachine
 
     private final AtomicReference<String> setAuthorizationUser = new AtomicReference<>();
     private final AtomicBoolean resetAuthorizationUser = new AtomicBoolean();
+    private final Set<SelectedRole> setOriginalRoles = Sets.newConcurrentHashSet();
 
     private final Map<String, String> setSessionProperties = new ConcurrentHashMap<>();
     private final Set<String> resetSessionProperties = Sets.newConcurrentHashSet();
@@ -244,6 +249,7 @@ public class QueryStateMachine
             PlanOptimizersStatsCollector queryStatsCollector,
             Optional<QueryType> queryType,
             boolean faultTolerantExecutionExchangeEncryptionEnabled,
+            Optional<SessionPropertiesApplier> sessionPropertiesApplier,
             NodeVersion version)
     {
         return beginWithTicker(
@@ -263,6 +269,7 @@ public class QueryStateMachine
                 queryStatsCollector,
                 queryType,
                 faultTolerantExecutionExchangeEncryptionEnabled,
+                sessionPropertiesApplier,
                 version);
     }
 
@@ -283,6 +290,7 @@ public class QueryStateMachine
             PlanOptimizersStatsCollector queryStatsCollector,
             Optional<QueryType> queryType,
             boolean faultTolerantExecutionExchangeEncryptionEnabled,
+            Optional<SessionPropertiesApplier> sessionPropertiesApplier,
             NodeVersion version)
     {
         // if there is an existing transaction, activate it
@@ -309,8 +317,13 @@ public class QueryStateMachine
             session = session.withExchangeEncryption(serializeAesEncryptionKey(createRandomAesEncryptionKey()));
         }
 
-        if (!queryType.map(SELECT::equals).orElse(false)) {
+        if (!queryType.map(SELECT::equals).orElse(false) || !isSpoolingEnabled(session)) {
             session = session.withoutSpooling();
+        }
+
+        // Apply WITH SESSION properties which require transaction to be started to resolve catalog handles
+        if (sessionPropertiesApplier.isPresent()) {
+            session = sessionPropertiesApplier.orElseThrow().apply(session);
         }
 
         Span querySpan = session.getQuerySpan();
@@ -515,6 +528,7 @@ public class QueryStateMachine
                 Optional.ofNullable(setPath.get()),
                 Optional.ofNullable(setAuthorizationUser.get()),
                 resetAuthorizationUser.get(),
+                setOriginalRoles,
                 setSessionProperties,
                 resetSessionProperties,
                 setRoles,
@@ -547,6 +561,7 @@ public class QueryStateMachine
                 stageStats.getSpilledDataSize(),
                 stageStats.getPhysicalInputDataSize(),
                 stageStats.getPhysicalWrittenDataSize(),
+                stageStats.getInternalNetworkInputDataSize(),
 
                 stageStats.getCumulativeUserMemory(),
                 stageStats.getFailedCumulativeUserMemory(),
@@ -555,10 +570,14 @@ public class QueryStateMachine
                 succinctBytes(getPeakUserMemoryInBytes()),
                 succinctBytes(getPeakTotalMemoryInBytes()),
 
+                queryStateTimer.getPlanningTime(),
+                queryStateTimer.getAnalysisTime(),
                 stageStats.getTotalCpuTime(),
                 stageStats.getFailedCpuTime(),
                 stageStats.getTotalScheduledTime(),
                 stageStats.getFailedScheduledTime(),
+                queryStateTimer.getFinishingTime(),
+                stageStats.getPhysicalInputReadTime(),
 
                 stageStats.isFullyBlocked(),
                 stageStats.getBlockedReasons(),
@@ -603,6 +622,7 @@ public class QueryStateMachine
                 Optional.ofNullable(setPath.get()),
                 Optional.ofNullable(setAuthorizationUser.get()),
                 resetAuthorizationUser.get(),
+                setOriginalRoles,
                 setSessionProperties,
                 resetSessionProperties,
                 setRoles,
@@ -758,7 +778,17 @@ public class QueryStateMachine
 
             stageGcStatistics.add(stageStats.getGcInfo());
 
-            operatorStatsSummary.addAll(stageInfo.getStageStats().getOperatorSummaries());
+            List<OperatorStats> operatorStats = stageInfo.getStageStats().getOperatorSummaries();
+            Map<PlanNodeId, Metrics> splitSourceMetrics = stageInfo.getStageStats().getSplitSourceMetrics();
+            for (OperatorStats stats : operatorStats) {
+                if (stats.getSourceId().isPresent()) {
+                    Metrics metrics = splitSourceMetrics.get(stats.getSourceId().get());
+                    if (metrics != null && metrics != Metrics.EMPTY) {
+                        stats = stats.withConnectorSplitSourceMetrics(metrics);
+                    }
+                }
+                operatorStatsSummary.add(stats);
+            }
         }
 
         if (rootStage.isPresent()) {
@@ -1007,6 +1037,11 @@ public class QueryStateMachine
     {
         checkArgument(setAuthorizationUser.get() == null, "Cannot set and reset the authorization user in the same request");
         resetAuthorizationUser.set(true);
+    }
+
+    public void addSetOriginalRoles(SelectedRole role)
+    {
+        setOriginalRoles.add(requireNonNull(role, "role is null"));
     }
 
     public void addSetSessionProperties(String key, String value)
@@ -1402,6 +1437,7 @@ public class QueryStateMachine
                 queryInfo.getSetPath(),
                 queryInfo.getSetAuthorizationUser(),
                 queryInfo.isResetAuthorizationUser(),
+                queryInfo.getSetOriginalRoles(),
                 queryInfo.getSetSessionProperties(),
                 queryInfo.getResetSessionProperties(),
                 queryInfo.getSetRoles(),

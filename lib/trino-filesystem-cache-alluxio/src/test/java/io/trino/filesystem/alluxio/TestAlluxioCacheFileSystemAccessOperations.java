@@ -94,7 +94,7 @@ public class TestAlluxioCacheFileSystemAccessOperations
                 .setMaxCacheSizes(ImmutableList.of(DataSize.ofBytes(CACHE_SIZE)));
 
         tracingFileSystemFactory = new TracingFileSystemFactory(testingTelemetry.getTracer(), new MemoryFileSystemFactory());
-        alluxioCache = new AlluxioFileSystemCache(testingTelemetry.getTracer(), configuration, new AlluxioCacheStats());
+        alluxioCache = new AlluxioFileSystemCache(testingTelemetry.getTracer(), configuration, new AlluxioCacheStats(), new AlluxioAccessStats());
         fileSystem = new CacheFileSystem(tracingFileSystemFactory.create(ConnectorIdentity.ofUser("hello")), new TracingFileSystemCache(testingTelemetry.getTracer(), alluxioCache), cacheKeyProvider);
         pageStore = PageStore.create(Iterables.getOnlyElement(PageStoreOptions.create(AlluxioConfigurationFactory.create(configuration))));
     }

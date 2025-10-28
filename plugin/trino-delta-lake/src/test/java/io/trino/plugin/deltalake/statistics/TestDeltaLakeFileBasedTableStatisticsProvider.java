@@ -16,6 +16,7 @@ package io.trino.plugin.deltalake.statistics;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Resources;
 import io.airlift.json.JsonCodecFactory;
+import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
 import io.trino.plugin.deltalake.DeltaLakeColumnHandle;
 import io.trino.plugin.deltalake.DeltaLakeConfig;
 import io.trino.plugin.deltalake.DeltaLakeSessionProperties;
@@ -25,7 +26,6 @@ import io.trino.plugin.deltalake.transactionlog.ProtocolEntry;
 import io.trino.plugin.deltalake.transactionlog.TableSnapshot;
 import io.trino.plugin.deltalake.transactionlog.TransactionLogAccess;
 import io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointSchemaManager;
-import io.trino.plugin.hive.FileFormatDataSourceStats;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
 import io.trino.plugin.hive.parquet.ParquetWriterConfig;
 import io.trino.spi.connector.ColumnHandle;
@@ -50,6 +50,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 import static io.trino.plugin.deltalake.DeltaLakeColumnType.REGULAR;
 import static io.trino.plugin.deltalake.DeltaTestingConnectorSession.SESSION;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_FACTORY;
@@ -86,7 +87,8 @@ public class TestDeltaLakeFileBasedTableStatisticsProvider
                 new DeltaLakeConfig(),
                 fileFormatDataSourceStats,
                 HDFS_FILE_SYSTEM_FACTORY,
-                new ParquetReaderConfig());
+                new ParquetReaderConfig(),
+                newDirectExecutorService());
 
         statistics = new CachingExtendedStatisticsAccess(new MetaDirStatisticsAccess(HDFS_FILE_SYSTEM_FACTORY, new JsonCodecFactory().jsonCodec(ExtendedStatistics.class)));
         tableStatisticsProvider = new FileBasedTableStatisticsProvider(
@@ -467,8 +469,7 @@ public class TestDeltaLakeFileBasedTableStatisticsProvider
         catch (IOException e) {
             throw new RuntimeException(e);
         }
-        TableStatistics tableStatistics = tableStatisticsProvider.getTableStatistics(session, tableHandle, tableSnapshot);
-        return tableStatistics;
+        return tableStatisticsProvider.getTableStatistics(session, tableHandle, tableSnapshot);
     }
 
     private Optional<ExtendedStatistics> readExtendedStatisticsFromTableResource(String tableLocationResourceName)

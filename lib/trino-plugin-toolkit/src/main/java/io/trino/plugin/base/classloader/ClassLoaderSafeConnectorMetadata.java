@@ -23,6 +23,7 @@ import io.trino.spi.connector.BeginTableExecuteResult;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorAccessControl;
 import io.trino.spi.connector.ConnectorAnalyzeMetadata;
 import io.trino.spi.connector.ConnectorInsertTableHandle;
@@ -122,10 +123,10 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
-    public ConnectorTableHandle makeCompatiblePartitioning(ConnectorSession session, ConnectorTableHandle tableHandle, ConnectorPartitioningHandle partitioningHandle)
+    public Optional<ConnectorTableHandle> applyPartitioning(ConnectorSession session, ConnectorTableHandle tableHandle, Optional<ConnectorPartitioningHandle> partitioningHandle, List<ColumnHandle> columns)
     {
         try (ThreadContextClassLoader _ = new ThreadContextClassLoader(classLoader)) {
-            return delegate.makeCompatiblePartitioning(session, tableHandle, partitioningHandle);
+            return delegate.applyPartitioning(session, tableHandle, partitioningHandle, columns);
         }
     }
 
@@ -202,14 +203,6 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
-    public Optional<ConnectorTableExecuteHandle> getTableHandleForExecute(ConnectorSession session, ConnectorTableHandle tableHandle, String procedureName, Map<String, Object> executeProperties, RetryMode retryMode)
-    {
-        try (ThreadContextClassLoader _ = new ThreadContextClassLoader(classLoader)) {
-            return delegate.getTableHandleForExecute(session, tableHandle, procedureName, executeProperties, retryMode);
-        }
-    }
-
-    @Override
     public Optional<ConnectorTableExecuteHandle> getTableHandleForExecute(ConnectorSession session, ConnectorAccessControl accessControl, ConnectorTableHandle tableHandle, String procedureName, Map<String, Object> executeProperties, RetryMode retryMode)
     {
         try (ThreadContextClassLoader _ = new ThreadContextClassLoader(classLoader)) {
@@ -282,10 +275,10 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
-    public Optional<Object> getInfo(ConnectorTableHandle table)
+    public Optional<Object> getInfo(ConnectorSession session, ConnectorTableHandle table)
     {
         try (ThreadContextClassLoader _ = new ThreadContextClassLoader(classLoader)) {
-            return delegate.getInfo(table);
+            return delegate.getInfo(session, table);
         }
     }
 
@@ -365,10 +358,10 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
-    public void addColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnMetadata column)
+    public void addColumn(ConnectorSession session, ConnectorTableHandle tableHandle, ColumnMetadata column, ColumnPosition position)
     {
-        try (ThreadContextClassLoader _ = new ThreadContextClassLoader(classLoader)) {
-            delegate.addColumn(session, tableHandle, column);
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(classLoader)) {
+            delegate.addColumn(session, tableHandle, column, position);
         }
     }
 
@@ -1207,10 +1200,10 @@ public class ClassLoaderSafeConnectorMetadata
     }
 
     @Override
-    public ConnectorMergeTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle tableHandle, RetryMode retryMode)
+    public ConnectorMergeTableHandle beginMerge(ConnectorSession session, ConnectorTableHandle tableHandle, Map<Integer, Collection<ColumnHandle>> updateCaseColumns, RetryMode retryMode)
     {
         try (ThreadContextClassLoader _ = new ThreadContextClassLoader(classLoader)) {
-            return delegate.beginMerge(session, tableHandle, retryMode);
+            return delegate.beginMerge(session, tableHandle, updateCaseColumns, retryMode);
         }
     }
 

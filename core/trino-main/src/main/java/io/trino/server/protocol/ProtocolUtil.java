@@ -110,11 +110,11 @@ public final class ProtocolUtil
 
                 yield dataType.getArguments().stream()
                         .map(parameter -> {
-                            if (parameter instanceof NumericParameter) {
-                                return ((NumericParameter) parameter).getValue();
+                            if (parameter instanceof NumericParameter numericParameter) {
+                                return numericParameter.getValue();
                             }
-                            if (parameter instanceof TypeParameter) {
-                                return formatType(((TypeParameter) parameter).getValue(), supportsParametricDateTime);
+                            if (parameter instanceof TypeParameter typeParameter) {
+                                return formatType(typeParameter.getValue(), supportsParametricDateTime);
                             }
                             throw new IllegalArgumentException("Unsupported parameter type: " + parameter.getClass().getName());
                         })
@@ -182,14 +182,19 @@ public final class ProtocolUtil
                 .setQueuedSplits(queryStats.getQueuedDrivers())
                 .setRunningSplits(queryStats.getRunningDrivers() + queryStats.getBlockedDrivers())
                 .setCompletedSplits(queryStats.getCompletedDrivers())
+                .setPlanningTimeMillis(queryStats.getPlanningTime().toMillis())
+                .setAnalysisTimeMillis(queryStats.getAnalysisTime().toMillis())
                 .setCpuTimeMillis(queryStats.getTotalCpuTime().toMillis())
                 .setWallTimeMillis(queryStats.getTotalScheduledTime().toMillis())
                 .setQueuedTimeMillis(queryStats.getQueuedTime().toMillis())
                 .setElapsedTimeMillis(queryStats.getElapsedTime().toMillis())
+                .setFinishingTimeMillis(queryStats.getFinishingTime().toMillis())
+                .setPhysicalInputTimeMillis(queryStats.getPhysicalInputReadTime().toMillis())
                 .setProcessedRows(queryStats.getRawInputPositions())
                 .setProcessedBytes(queryStats.getRawInputDataSize().toBytes())
                 .setPhysicalInputBytes(queryStats.getPhysicalInputDataSize().toBytes())
                 .setPhysicalWrittenBytes(queryStats.getPhysicalWrittenDataSize().toBytes())
+                .setInternalNetworkInputBytes(queryStats.getInternalNetworkInputDataSize().toBytes())
                 .setPeakMemoryBytes(queryStats.getPeakUserMemoryReservation().toBytes())
                 .setSpilledBytes(queryStats.getSpilledDataSize().toBytes())
                 .setRootStage(rootStageStats)

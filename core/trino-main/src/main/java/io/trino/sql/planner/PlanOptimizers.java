@@ -220,6 +220,7 @@ import io.trino.sql.planner.iterative.rule.ReplaceJoinOverConstantWithProject;
 import io.trino.sql.planner.iterative.rule.ReplaceRedundantJoinWithProject;
 import io.trino.sql.planner.iterative.rule.ReplaceRedundantJoinWithSource;
 import io.trino.sql.planner.iterative.rule.ReplaceWindowWithRowNumber;
+import io.trino.sql.planner.iterative.rule.RewriteExcludeColumnsFunctionToProjection;
 import io.trino.sql.planner.iterative.rule.RewriteSpatialPartitioningAggregation;
 import io.trino.sql.planner.iterative.rule.RewriteTableFunctionToTableScan;
 import io.trino.sql.planner.iterative.rule.SimplifyCountOverConstant;
@@ -253,7 +254,6 @@ import io.trino.sql.planner.optimizations.AddLocalExchanges;
 import io.trino.sql.planner.optimizations.BeginTableWrite;
 import io.trino.sql.planner.optimizations.CheckSubqueryNodesAreRewritten;
 import io.trino.sql.planner.optimizations.DeterminePartitionCount;
-import io.trino.sql.planner.optimizations.HashGenerationOptimizer;
 import io.trino.sql.planner.optimizations.IndexJoinOptimizer;
 import io.trino.sql.planner.optimizations.LimitPushDown;
 import io.trino.sql.planner.optimizations.MetadataQueryOptimizer;
@@ -646,6 +646,7 @@ public class PlanOptimizers
                 .add(new PushDistinctLimitIntoTableScan(plannerContext))
                 .add(new PushTopNIntoTableScan(metadata))
                 .add(new RewriteTableFunctionToTableScan(plannerContext)) // must run after ImplementTableFunctionSource
+                .add(new RewriteExcludeColumnsFunctionToProjection()) // must run after ImplementTableFunctionSource
                 .build();
         IterativeOptimizer pushIntoTableScanOptimizer = new IterativeOptimizer(
                 plannerContext,
@@ -736,7 +737,7 @@ public class PlanOptimizers
                                 new PushdownFilterIntoWindow(plannerContext),
                                 new PushFilterIntoValues(plannerContext),
                                 new ReplaceJoinOverConstantWithProject(),
-                                new ReplaceWindowWithRowNumber(metadata))),
+                                new ReplaceWindowWithRowNumber())),
                 new IterativeOptimizer(
                         plannerContext,
                         ruleStats,
@@ -905,7 +906,7 @@ public class PlanOptimizers
             // unalias symbols before adding exchanges to use same partitioning symbols in joins, aggregations and other
             // operators that require node partitioning
             builder.add(new UnaliasSymbolReferences());
-            builder.add(new StatsRecordingPlanOptimizer(optimizerStats, new AddExchanges(plannerContext, statsCalculator, taskCountEstimator)));
+            builder.add(new StatsRecordingPlanOptimizer(optimizerStats, new AddExchanges(plannerContext, statsCalculator, taskCountEstimator, nodePartitioningManager)));
             // It can only run after AddExchanges since it estimates the hash partition count for all remote exchanges
             builder.add(new StatsRecordingPlanOptimizer(optimizerStats, new DeterminePartitionCount(statsCalculator, taskCountEstimator)));
         }
@@ -1000,11 +1001,13 @@ public class PlanOptimizers
                 ruleStats,
                 statsCalculator,
                 costCalculator,
-                ImmutableSet.of(
-                        new PushPartialAggregationThroughJoin(),
-                        new PushPartialAggregationThroughExchange(plannerContext),
-                        new PruneJoinColumns(),
-                        new PruneJoinChildrenColumns())));
+                ImmutableSet.<Rule<?>>builder()
+                        .addAll(new PushPartialAggregationThroughJoin().rules())
+                        .add(new PushPartialAggregationThroughExchange(plannerContext),
+                                new PruneJoinColumns(),
+                                new PruneJoinChildrenColumns(),
+                                new RemoveRedundantIdentityProjections())
+                        .build()));
         builder.add(new IterativeOptimizer(
                 plannerContext,
                 ruleStats,
@@ -1020,9 +1023,6 @@ public class PlanOptimizers
                         new AddIntermediateAggregations(),
                         new RemoveRedundantIdentityProjections())));
         // DO NOT add optimizers that change the plan shape (computations) after this point
-
-        // Precomputed hashes - this assumes that partitioning will not change
-        builder.add(new HashGenerationOptimizer(metadata));
 
         builder.add(new IterativeOptimizer(
                 plannerContext,

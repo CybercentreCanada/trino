@@ -66,6 +66,7 @@ import io.trino.execution.QueryManagerConfig;
 import io.trino.execution.QueryPreparer;
 import io.trino.execution.QueryPreparer.PreparedQuery;
 import io.trino.execution.ScheduledSplit;
+import io.trino.execution.SessionPropertyEvaluator;
 import io.trino.execution.SplitAssignment;
 import io.trino.execution.TableExecuteContextManager;
 import io.trino.execution.TaskManagerConfig;
@@ -75,7 +76,6 @@ import io.trino.execution.scheduler.NodeScheduler;
 import io.trino.execution.scheduler.NodeSchedulerConfig;
 import io.trino.execution.scheduler.UniformNodeSelectorFactory;
 import io.trino.execution.warnings.WarningCollector;
-import io.trino.memory.LocalMemoryManager;
 import io.trino.memory.MemoryManagerConfig;
 import io.trino.memory.NodeMemoryConfig;
 import io.trino.metadata.AnalyzePropertyManager;
@@ -91,6 +91,7 @@ import io.trino.metadata.InMemoryNodeManager;
 import io.trino.metadata.InternalBlockEncodingSerde;
 import io.trino.metadata.InternalFunctionBundle;
 import io.trino.metadata.InternalNodeManager;
+import io.trino.metadata.LanguageFunctionEngineManager;
 import io.trino.metadata.LanguageFunctionManager;
 import io.trino.metadata.MaterializedViewPropertyManager;
 import io.trino.metadata.Metadata;
@@ -151,6 +152,7 @@ import io.trino.split.PageSourceManager;
 import io.trino.split.SplitManager;
 import io.trino.split.SplitSource;
 import io.trino.sql.PlannerContext;
+import io.trino.sql.SessionPropertyResolver;
 import io.trino.sql.SqlEnvironmentConfig;
 import io.trino.sql.analyzer.Analysis;
 import io.trino.sql.analyzer.Analyzer;
@@ -158,6 +160,7 @@ import io.trino.sql.analyzer.AnalyzerFactory;
 import io.trino.sql.analyzer.QueryExplainerFactory;
 import io.trino.sql.analyzer.SessionTimeProvider;
 import io.trino.sql.analyzer.StatementAnalyzerFactory;
+import io.trino.sql.gen.CursorProcessorCompiler;
 import io.trino.sql.gen.ExpressionCompiler;
 import io.trino.sql.gen.JoinCompiler;
 import io.trino.sql.gen.JoinFilterFunctionCompiler;
@@ -357,7 +360,12 @@ public class PlanTester
                 () -> getPlannerContext().getFunctionManager());
         globalFunctionCatalog.addFunctions(SystemFunctionBundle.create(new FeaturesConfig(), typeOperators, blockTypeOperators, nodeManager.getCurrentNode().getNodeVersion()));
         TestingGroupProviderManager groupProvider = new TestingGroupProviderManager();
-        LanguageFunctionManager languageFunctionManager = new LanguageFunctionManager(sqlParser, typeManager, groupProvider, blockEncodingSerde);
+        LanguageFunctionManager languageFunctionManager = new LanguageFunctionManager(
+                sqlParser,
+                typeManager,
+                groupProvider,
+                blockEncodingSerde,
+                new LanguageFunctionEngineManager());
         TableFunctionRegistry tableFunctionRegistry = new TableFunctionRegistry(createTableFunctionProvider(catalogManager));
         Metadata metadata = new MetadataManager(
                 new AllowAllAccessControl(),
@@ -372,7 +380,7 @@ public class PlanTester
         this.joinCompiler = new JoinCompiler(typeOperators);
         this.hashStrategyCompiler = new FlatHashStrategyCompiler(typeOperators);
         PageIndexerFactory pageIndexerFactory = new GroupByHashPageIndexerFactory(hashStrategyCompiler);
-        EventListenerManager eventListenerManager = new EventListenerManager(new EventListenerConfig(), secretsResolver);
+        EventListenerManager eventListenerManager = new EventListenerManager(new EventListenerConfig(), secretsResolver, noop(), tracer, nodeManager.getCurrentNode().getNodeVersion());
         this.accessControl = new TestingAccessControlManager(transactionManager, eventListenerManager, secretsResolver);
         accessControl.loadSystemAccessControl(AllowAllSystemAccessControl.NAME, ImmutableMap.of());
 
@@ -390,7 +398,6 @@ public class PlanTester
                 typeManager,
                 nodeSchedulerConfig,
                 optimizerConfig,
-                new LocalMemoryManager(new NodeMemoryConfig()),
                 secretsResolver));
         this.splitManager = new SplitManager(createSplitManagerProvider(catalogManager), tracer, new QueryManagerConfig());
         this.pageSourceManager = new PageSourceManager(createPageSourceProviderFactory(catalogManager));
@@ -419,7 +426,7 @@ public class PlanTester
         this.plannerContext = new PlannerContext(metadata, typeOperators, blockEncodingSerde, typeManager, functionManager, languageFunctionManager, tracer);
         this.pageFunctionCompiler = new PageFunctionCompiler(functionManager, 0);
         this.filterCompiler = new ColumnarFilterCompiler(functionManager, 0);
-        this.expressionCompiler = new ExpressionCompiler(functionManager, pageFunctionCompiler, filterCompiler);
+        this.expressionCompiler = new ExpressionCompiler(new CursorProcessorCompiler(functionManager), pageFunctionCompiler, filterCompiler);
         this.joinFilterFunctionCompiler = new JoinFilterFunctionCompiler(functionManager);
 
         this.statementAnalyzerFactory = new StatementAnalyzerFactory(
@@ -463,6 +470,7 @@ public class PlanTester
                 Optional.empty(),
                 catalogFactory,
                 globalFunctionCatalog,
+                new LanguageFunctionEngineManager(),
                 new NoOpResourceGroupManager(),
                 accessControl,
                 Optional.of(new PasswordAuthenticatorManager(new PasswordAuthenticatorConfig(), secretsResolver)),
@@ -738,7 +746,9 @@ public class PlanTester
                 indexManager,
                 nodePartitioningManager,
                 pageSinkManager,
-                null,
+                (_, _, _, _, _, _) -> {
+                    throw new UnsupportedOperationException();
+                },
                 expressionCompiler,
                 pageFunctionCompiler,
                 joinFilterFunctionCompiler,
@@ -746,7 +756,6 @@ public class PlanTester
                 this.taskManagerConfig,
                 new GenericSpillerFactory(unsupportedSingleStreamSpillerFactory()),
                 new QueryDataEncoders(new SpoolingEnabledConfig(), Set.of()),
-                Optional.empty(),
                 Optional.empty(),
                 unsupportedSingleStreamSpillerFactory(),
                 unsupportedPartitioningSpillerFactory(),
@@ -810,7 +819,7 @@ public class PlanTester
         }
 
         // add split assignments to the drivers
-        ImmutableSet<PlanNodeId> partitionedSources = ImmutableSet.copyOf(subplan.getFragment().getPartitionedSources());
+        Set<PlanNodeId> partitionedSources = ImmutableSet.copyOf(subplan.getFragment().getPartitionedSources());
         for (SplitAssignment splitAssignment : splitAssignments) {
             DriverFactory driverFactory = driverFactoriesBySource.get(splitAssignment.getPlanNodeId());
             checkState(driverFactory != null);
@@ -888,7 +897,6 @@ public class PlanTester
                 new PlanSanityChecker(true),
                 idAllocator,
                 getPlannerContext(),
-                new SpoolingManagerRegistry(new ServerConfig(), new SpoolingEnabledConfig(), noop(), noopTracer()),
                 statsCalculator,
                 costCalculator,
                 warningCollector,
@@ -945,6 +953,10 @@ public class PlanTester
 
     private AnalyzerFactory createAnalyzerFactory(QueryExplainerFactory queryExplainerFactory)
     {
+        SessionPropertyResolver sessionPropertyResolver = new SessionPropertyResolver(
+                new SessionPropertyEvaluator(plannerContext, accessControl, sessionPropertyManager, new SqlEnvironmentConfig()),
+                accessControl);
+
         return new AnalyzerFactory(
                 statementAnalyzerFactory,
                 new StatementRewrite(ImmutableSet.of(
@@ -962,7 +974,7 @@ public class PlanTester
                                 viewPropertyManager,
                                 materializedViewPropertyManager),
                         new ShowStatsRewrite(plannerContext.getMetadata(), queryExplainerFactory, statsCalculator),
-                        new ExplainRewrite(queryExplainerFactory, new QueryPreparer(sqlParser)))),
+                        new ExplainRewrite(queryExplainerFactory, sessionPropertyResolver, new QueryPreparer(sqlParser)))),
                 plannerContext.getTracer());
     }
 

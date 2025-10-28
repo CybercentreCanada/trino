@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.json.JsonCodec;
 import io.trino.operator.RetryPolicy;
+import io.trino.plugin.base.evenlistener.TestingEventListenerContext;
 import io.trino.spi.eventlistener.EventListener;
 import io.trino.spi.eventlistener.EventListenerFactory;
 import io.trino.spi.eventlistener.QueryCompletedEvent;
@@ -105,6 +106,7 @@ final class TestHttpEventListener
         queryContext = new QueryContext(
                 "user",
                 "originalUser",
+                Set.of(),
                 Optional.of("principal"),
                 Set.of(), // enabledRoles
                 Set.of(), // groups
@@ -191,6 +193,8 @@ final class TestHttpEventListener
                 true,
                 Collections.emptyList(),
                 List.of(new StageOutputBufferUtilization(0, 10, 0.1, 0.5, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95, 0.99, 0.0, 1.0, ofSeconds(1234))),
+                Collections.emptyList(),
+                Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList(),
@@ -520,6 +524,6 @@ final class TestHttpEventListener
         return factory.create(ImmutableMap.<String, String>builder()
                 .putAll(config)
                 .put("bootstrap.quiet", "true")
-                .buildOrThrow());
+                .buildOrThrow(), new TestingEventListenerContext());
     }
 }

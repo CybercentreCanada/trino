@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 import io.trino.sql.tree.AddColumn;
 import io.trino.sql.tree.AllColumns;
 import io.trino.sql.tree.ColumnDefinition;
+import io.trino.sql.tree.ColumnPosition;
 import io.trino.sql.tree.Comment;
 import io.trino.sql.tree.CreateCatalog;
 import io.trino.sql.tree.CreateMaterializedView;
@@ -43,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
+import static io.trino.sql.QueryUtil.identifier;
 import static io.trino.sql.QueryUtil.selectList;
 import static io.trino.sql.QueryUtil.simpleQuery;
 import static io.trino.sql.QueryUtil.table;
@@ -223,6 +225,7 @@ public class TestSqlFormatter
             NodeLocation location = new NodeLocation(1, 1);
             Identifier type = new Identifier(location, "VARCHAR", false);
             return new CreateTable(
+                    new NodeLocation(1, 1),
                     QualifiedName.of(ImmutableList.of(new Identifier(tableName, false))),
                     ImmutableList.of(new ColumnDefinition(
                             QualifiedName.of(columnName),
@@ -244,6 +247,7 @@ public class TestSqlFormatter
         // Create a table with table comment
         assertThat(formatSql(
                 new CreateTable(
+                        new NodeLocation(1, 1),
                         QualifiedName.of(ImmutableList.of(new Identifier("test", false))),
                         ImmutableList.of(new ColumnDefinition(
                                 QualifiedName.of("col"),
@@ -262,6 +266,7 @@ public class TestSqlFormatter
         // Create a table with column comment
         assertThat(formatSql(
                 new CreateTable(
+                        new NodeLocation(1, 1),
                         QualifiedName.of(ImmutableList.of(new Identifier("test", false))),
                         ImmutableList.of(new ColumnDefinition(
                                 QualifiedName.of("col"),
@@ -279,6 +284,7 @@ public class TestSqlFormatter
         // Create a table with column properties
         assertThat(formatSql(
                 new CreateTable(
+                        new NodeLocation(1, 1),
                         QualifiedName.of(ImmutableList.of(new Identifier("test", false))),
                         ImmutableList.of(new ColumnDefinition(
                                 QualifiedName.of("col"),
@@ -305,6 +311,7 @@ public class TestSqlFormatter
         BiFunction<String, String, CreateTableAsSelect> createTableAsSelect = (tableName, columnName) -> {
             Query query = simpleQuery(selectList(new AllColumns()), table(QualifiedName.of("t")));
             return new CreateTableAsSelect(
+                    new NodeLocation(1, 1),
                     QualifiedName.of(ImmutableList.of(new Identifier(tableName, false))),
                     query,
                     FAIL,
@@ -322,6 +329,7 @@ public class TestSqlFormatter
 
         assertThat(formatSql(
                 new CreateTableAsSelect(
+                        new NodeLocation(1, 1),
                         QualifiedName.of(ImmutableList.of(new Identifier("test", false))),
                         simpleQuery(selectList(new AllColumns()), table(QualifiedName.of("t"))),
                         FAIL,
@@ -457,6 +465,7 @@ public class TestSqlFormatter
                                 true,
                                 emptyList(),
                                 Optional.empty()),
+                        Optional.empty(),
                         false, false)))
                 .isEqualTo("ALTER TABLE foo.t ADD COLUMN c VARCHAR");
         assertThat(formatSql(
@@ -468,8 +477,48 @@ public class TestSqlFormatter
                                 true,
                                 emptyList(),
                                 Optional.of("攻殻機動隊")),
+                        Optional.empty(),
                         false, false)))
                 .isEqualTo("ALTER TABLE foo.t ADD COLUMN c VARCHAR COMMENT '攻殻機動隊'");
+        assertThat(formatSql(
+                new AddColumn(
+                        new NodeLocation(1, 1),
+                        QualifiedName.of("foo", "t"),
+                        new ColumnDefinition(QualifiedName.of("c"),
+                                new GenericDataType(new NodeLocation(1, 1), new Identifier("VARCHAR", false), ImmutableList.of()),
+                                true,
+                                emptyList(),
+                                Optional.empty()),
+                        Optional.of(new ColumnPosition.First()),
+                        false,
+                        false)))
+                .isEqualTo("ALTER TABLE foo.t ADD COLUMN c VARCHAR FIRST");
+        assertThat(formatSql(
+                new AddColumn(
+                        new NodeLocation(1, 1),
+                        QualifiedName.of("foo", "t"),
+                        new ColumnDefinition(QualifiedName.of("c"),
+                                new GenericDataType(new NodeLocation(1, 1), new Identifier("VARCHAR", false), ImmutableList.of()),
+                                true,
+                                emptyList(),
+                                Optional.empty()),
+                        Optional.of(new ColumnPosition.Last()),
+                        false,
+                        false)))
+                .isEqualTo("ALTER TABLE foo.t ADD COLUMN c VARCHAR LAST");
+        assertThat(formatSql(
+                new AddColumn(
+                        new NodeLocation(1, 1),
+                        QualifiedName.of("foo", "t"),
+                        new ColumnDefinition(QualifiedName.of("c"),
+                                new GenericDataType(new NodeLocation(1, 1), new Identifier("VARCHAR", false), ImmutableList.of()),
+                                true,
+                                emptyList(),
+                                Optional.empty()),
+                        Optional.of(new ColumnPosition.After(identifier("b"))),
+                        false,
+                        false)))
+                .isEqualTo("ALTER TABLE foo.t ADD COLUMN c VARCHAR AFTER b");
     }
 
     @Test

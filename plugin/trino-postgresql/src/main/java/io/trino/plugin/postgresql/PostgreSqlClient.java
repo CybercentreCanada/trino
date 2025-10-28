@@ -16,6 +16,7 @@ package io.trino.plugin.postgresql;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.io.Closer;
 import com.google.common.math.LongMath;
 import com.google.inject.Inject;
 import io.airlift.log.Logger;
@@ -35,7 +36,9 @@ import io.trino.plugin.jdbc.DoubleReadFunction;
 import io.trino.plugin.jdbc.JdbcColumnHandle;
 import io.trino.plugin.jdbc.JdbcExpression;
 import io.trino.plugin.jdbc.JdbcJoinCondition;
+import io.trino.plugin.jdbc.JdbcMergeTableHandle;
 import io.trino.plugin.jdbc.JdbcMetadata;
+import io.trino.plugin.jdbc.JdbcOutputTableHandle;
 import io.trino.plugin.jdbc.JdbcSortItem;
 import io.trino.plugin.jdbc.JdbcStatisticsConfig;
 import io.trino.plugin.jdbc.JdbcTableHandle;
@@ -74,6 +77,7 @@ import io.trino.plugin.jdbc.expression.ParameterizedExpression;
 import io.trino.plugin.jdbc.expression.RewriteIn;
 import io.trino.plugin.jdbc.logging.RemoteQueryModifier;
 import io.trino.plugin.postgresql.PostgreSqlConfig.ArrayMapping;
+import io.trino.plugin.postgresql.rule.RewriteCast;
 import io.trino.plugin.postgresql.rule.RewriteDotProductFunction;
 import io.trino.plugin.postgresql.rule.RewriteStringReverseFunction;
 import io.trino.plugin.postgresql.rule.RewriteVectorDistanceFunction;
@@ -132,6 +136,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -139,6 +144,7 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
@@ -147,6 +153,7 @@ import java.util.stream.Stream;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Throwables.throwIfInstanceOf;
 import static com.google.common.base.Verify.verify;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.slice.Slices.wrappedBuffer;
@@ -355,6 +362,7 @@ public class PostgreSqlClient
                         .add(new RewriteVectorDistanceFunction("euclidean_distance", "<->"))
                         .add(new RewriteVectorDistanceFunction("cosine_distance", "<=>"))
                         .add(new RewriteDotProductFunction())
+                        .add(new RewriteCast((session, type) -> toWriteMapping(session, type).getDataType()))
                         .build());
 
         JdbcTypeHandle bigintTypeHandle = new JdbcTypeHandle(Types.BIGINT, Optional.of("bigint"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
@@ -765,8 +773,8 @@ public class PostgreSqlClient
             return WriteMapping.objectMapping(dataType, longDecimalWriteFunction(decimalType));
         }
 
-        if (type instanceof CharType) {
-            return WriteMapping.sliceMapping("char(" + ((CharType) type).getLength() + ")", charWriteFunction());
+        if (type instanceof CharType charType) {
+            return WriteMapping.sliceMapping("char(" + charType.getLength() + ")", charWriteFunction());
         }
 
         if (type instanceof VarcharType varcharType) {
@@ -917,6 +925,196 @@ public class PostgreSqlClient
     public boolean isLimitGuaranteed(ConnectorSession session)
     {
         return true;
+    }
+
+    @Override
+    public boolean supportsMerge()
+    {
+        return true;
+    }
+
+    @Override
+    public void finishMerge(ConnectorSession session, JdbcMergeTableHandle handle, Set<Long> pageSinkIds)
+    {
+        Closer closer = Closer.create();
+        try (Connection connection = connectionFactory.openConnection(session)) {
+            verify(connection.getAutoCommit());
+            RemoteTableName pageSinkIdsTable = constructPageSinkIdsTable(session, connection, handle.getOutputTableHandle(), pageSinkIds, closer);
+
+            doFinishMerge(session, connection, handle, pageSinkIdsTable, closer);
+        }
+        catch (SQLException e) {
+            throw new TrinoException(JDBC_ERROR, e);
+        }
+        finally {
+            try {
+                closer.close();
+            }
+            catch (IOException e) {
+                throw new TrinoException(JDBC_ERROR, e);
+            }
+        }
+    }
+
+    private void doFinishMerge(ConnectorSession session, Connection connection, JdbcMergeTableHandle handle, RemoteTableName pageSinkIdsTable, Closer closer)
+            throws SQLException
+    {
+        try {
+            connection.setAutoCommit(false);
+
+            // prepare phrase for insert/update/delete
+            prepareExecuteInsert(session, connection, handle.getOutputTableHandle(), pageSinkIdsTable, closer);
+            handle.getUpdateOutputTableHandle().values().forEach(tableHandle -> prepareExecuteUpdate(session, connection, tableHandle, handle.getPrimaryKeys(), pageSinkIdsTable, closer));
+            handle.getDeleteOutputTableHandle().ifPresent(tableHandle -> prepareExecuteDelete(session, connection, tableHandle, pageSinkIdsTable, closer));
+
+            // submit statements
+            connection.commit();
+        }
+        catch (Throwable e) {
+            connection.rollback();
+            throw new TrinoException(JDBC_ERROR, e);
+        }
+        finally {
+            connection.setAutoCommit(true);
+        }
+    }
+
+    private void prepareExecuteInsert(ConnectorSession session, Connection connection, JdbcOutputTableHandle handle, RemoteTableName pageSinkTable, Closer closer)
+            throws SQLException
+    {
+        RemoteTableName temporaryTable = new RemoteTableName(
+                handle.getRemoteTableName().getCatalogName(),
+                handle.getRemoteTableName().getSchemaName(),
+                handle.getTemporaryTableName().orElseThrow());
+
+        String pageSinkIdName = handle.getPageSinkIdColumnName().orElseThrow();
+
+        // We conditionally create more than the one table, so keep a list of the tables that need to be dropped.
+        closer.register(() -> dropTable(session, temporaryTable, true));
+
+        String columns = handle.getColumnNames().stream()
+                .map(this::quoted)
+                .collect(joining(", "));
+
+        String insertSql = """
+                INSERT INTO %s (%s)
+                SELECT %s FROM %s temp_table
+                WHERE EXISTS (SELECT 1 FROM %s page_sink_table WHERE page_sink_table.%s = temp_table.%s)
+                """
+                .formatted(
+                        quoted(handle.getRemoteTableName()),
+                        columns,
+                        columns,
+                        quoted(temporaryTable),
+                        quoted(pageSinkTable),
+                        pageSinkIdName,
+                        pageSinkIdName);
+
+        execute(session, connection, insertSql);
+    }
+
+    private void prepareExecuteUpdate(
+            ConnectorSession session,
+            Connection connection,
+            JdbcOutputTableHandle handle,
+            List<JdbcColumnHandle> primaryKeys,
+            RemoteTableName pageSinkTable,
+            Closer closer)
+    {
+        RemoteTableName temporaryTable = new RemoteTableName(
+                handle.getRemoteTableName().getCatalogName(),
+                handle.getRemoteTableName().getSchemaName(),
+                handle.getTemporaryTableName().orElseThrow());
+
+        // We conditionally create more than the one table, so keep a list of the tables that need to be dropped.
+        closer.register(() -> dropTable(session, temporaryTable, true));
+
+        String targetTableName = quoted(handle.getRemoteTableName());
+        String sourceTableName = quoted(temporaryTable);
+
+        String pageSinkIdName = handle.getPageSinkIdColumnName().orElseThrow();
+
+        int keyNamesSize = primaryKeys.size();
+        int columnNamesSize = handle.getColumnNames().size();
+        checkArgument(columnNamesSize > keyNamesSize, "Update assigns keyNamesSize should greater than primary key keyNamesSize");
+        List<String> updateColumns = handle.getColumnNames().subList(0, columnNamesSize - keyNamesSize);
+
+        List<String> targetConditionColumns = primaryKeys.stream().map(JdbcColumnHandle::getColumnName).collect(toImmutableList());
+        List<String> temporaryTableConditionColumns = handle.getColumnNames().subList(columnNamesSize - keyNamesSize, columnNamesSize);
+
+        // Target columns
+        String updateAssigns = updateColumns.stream()
+                .map(this::quoted)
+                .map(column -> column + " = temp_table." + column)
+                .collect(joining(", "));
+
+        String updateSql = """
+                UPDATE %s SET %s FROM
+                  %s AS temp_table
+                    JOIN
+                  %s AS page_sink_table
+                    ON page_sink_table.%s = temp_table.%s
+                """
+                .formatted(
+                        targetTableName,
+                        updateAssigns,
+                        sourceTableName,
+                        quoted(pageSinkTable),
+                        pageSinkIdName,
+                        pageSinkIdName);
+
+        ImmutableList.Builder<String> conditions = ImmutableList.builder();
+        for (int i = 0; i < keyNamesSize; i++) {
+            conditions.add("%s.%s = temp_table.%s".formatted(targetTableName, targetConditionColumns.get(i), temporaryTableConditionColumns.get(i)));
+        }
+        updateSql += " WHERE " + String.join(" AND ", conditions.build());
+
+        try {
+            execute(session, connection, updateSql);
+        }
+        catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void prepareExecuteDelete(ConnectorSession session, Connection connection, JdbcOutputTableHandle handle, RemoteTableName pageSinkTable, Closer closer)
+    {
+        RemoteTableName temporaryTable = new RemoteTableName(
+                handle.getRemoteTableName().getCatalogName(),
+                handle.getRemoteTableName().getSchemaName(),
+                handle.getTemporaryTableName().orElseThrow());
+
+        // We conditionally create more than the one table, so keep a list of the tables that need to be dropped.
+        closer.register(() -> dropTable(session, temporaryTable, true));
+
+        String targetTableName = quoted(handle.getRemoteTableName());
+        String sourceTableName = quoted(temporaryTable);
+
+        String pageSinkIdName = handle.getPageSinkIdColumnName().orElseThrow();
+
+        String deleteSql = """
+                DELETE FROM %s USING %s AS temp_table
+                JOIN %s AS page_sink_table ON page_sink_table.%s = temp_table.%s
+                """
+                .formatted(
+                        targetTableName,
+                        sourceTableName,
+                        quoted(pageSinkTable),
+                        pageSinkIdName,
+                        pageSinkIdName);
+
+        String condition = handle.getColumnNames().stream()
+                .map(this::quoted)
+                .map(column -> "%s.%s = temp_table.%s".formatted(targetTableName, column, column))
+                .collect(joining(" AND ", " WHERE ", ""));
+        deleteSql += condition;
+
+        try {
+            execute(session, connection, deleteSql);
+        }
+        catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
@@ -1185,6 +1383,32 @@ public class PostgreSqlClient
         // PostgreSQL driver caches the max column name length in a DatabaseMetaData object. The cost to call this method per column is low.
         if (columnName.length() > databaseMetadata.getMaxColumnNameLength()) {
             throw new TrinoException(NOT_SUPPORTED, format("Column name must be shorter than or equal to '%s' characters but got '%s': '%s'", databaseMetadata.getMaxColumnNameLength(), columnName.length(), columnName));
+        }
+    }
+
+    @Override
+    public List<JdbcColumnHandle> getPrimaryKeys(ConnectorSession session, RemoteTableName remoteTableName)
+    {
+        List<JdbcColumnHandle> columns = getColumns(session, remoteTableName.getSchemaTableName(), remoteTableName);
+        try (Connection connection = connectionFactory.openConnection(session)) {
+            DatabaseMetaData metaData = connection.getMetaData();
+
+            ResultSet primaryKeys = metaData.getPrimaryKeys(remoteTableName.getCatalogName().orElse(null), remoteTableName.getSchemaName().orElse(null), remoteTableName.getTableName());
+
+            Set<String> primaryKeyNames = new HashSet<>();
+            while (primaryKeys.next()) {
+                String columnName = primaryKeys.getString("COLUMN_NAME");
+                primaryKeyNames.add(columnName);
+            }
+            if (primaryKeyNames.isEmpty()) {
+                return ImmutableList.of();
+            }
+            return columns.stream()
+                    .filter(column -> primaryKeyNames.contains(column.getColumnName()))
+                    .collect(toImmutableList());
+        }
+        catch (SQLException e) {
+            throw new TrinoException(JDBC_ERROR, e);
         }
     }
 
@@ -1474,11 +1698,15 @@ public class PostgreSqlClient
             type.writeObject(builder, block);
             Object value = type.getObjectValue(session, builder.build(), 0);
 
+            if (!(value instanceof List<?> list)) {
+                throw new TrinoException(JDBC_ERROR, "Unexpected JSON object value for " + type.getDisplayName() + " expected List, got " + value.getClass().getSimpleName());
+            }
+
             try {
-                return toJsonValue(value);
+                return toJsonValue(list);
             }
             catch (IOException e) {
-                throw new TrinoException(JDBC_ERROR, "Conversion to JSON failed for  " + type.getDisplayName(), e);
+                throw new TrinoException(JDBC_ERROR, "Conversion to JSON failed for " + type.getDisplayName(), e);
             }
         };
     }

@@ -67,6 +67,11 @@ public interface HiveMetastore
 
     List<TableInfo> getTables(String databaseName);
 
+    /**
+     * @param parameterValues is using ImmutableSet to mark that this api does not support filtering by null parameter value.
+     */
+    List<String> getTableNamesWithParameters(String databaseName, String parameterKey, Set<String> parameterValues);
+
     void createDatabase(Database database);
 
     void dropDatabase(String databaseName, boolean deleteData);
@@ -84,7 +89,7 @@ public interface HiveMetastore
      * alter one field of a table object previously acquired from getTable is
      * probably not what you want.
      */
-    void replaceTable(String databaseName, String tableName, Table newTable, PrincipalPrivileges principalPrivileges);
+    void replaceTable(String databaseName, String tableName, Table newTable, PrincipalPrivileges principalPrivileges, Map<String, String> environmentContext);
 
     void renameTable(String databaseName, String tableName, String newDatabaseName, String newTableName);
 

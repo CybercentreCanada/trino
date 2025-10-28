@@ -80,6 +80,8 @@ import static io.trino.SystemSessionProperties.getQueryMaxTotalMemory;
 import static io.trino.SystemSessionProperties.getRetryPolicy;
 import static io.trino.SystemSessionProperties.resourceOvercommit;
 import static io.trino.metadata.NodeState.ACTIVE;
+import static io.trino.metadata.NodeState.DRAINED;
+import static io.trino.metadata.NodeState.DRAINING;
 import static io.trino.metadata.NodeState.SHUTTING_DOWN;
 import static io.trino.spi.StandardErrorCode.CLUSTER_OUT_OF_MEMORY;
 import static java.lang.Math.min;
@@ -277,7 +279,7 @@ public class ClusterMemoryManager
                         }
                     }
                     // only record tasks actually killed
-                    ImmutableSet<TaskId> killedTasks = killedTasksBuilder.build();
+                    Set<TaskId> killedTasks = killedTasksBuilder.build();
                     if (!killedTasks.isEmpty()) {
                         lastKillTarget = Optional.of(KillTarget.selectedTasks(killedTasks));
                         logTasksKill(killedTasks, nodeMemoryInfosByNode);
@@ -330,7 +332,7 @@ public class ClusterMemoryManager
         return tasks.stream().noneMatch(runningTasks::contains);
     }
 
-    private ImmutableSet<TaskId> getRunningTasks()
+    private Set<TaskId> getRunningTasks()
     {
         return nodes.values().stream()
                 .map(RemoteNodeMemory::getInfo)
@@ -433,9 +435,11 @@ public class ClusterMemoryManager
         Set<InternalNode> aliveNodes = builder
                 .addAll(nodeManager.getNodes(ACTIVE))
                 .addAll(nodeManager.getNodes(SHUTTING_DOWN))
+                .addAll(nodeManager.getNodes(DRAINING))
+                .addAll(nodeManager.getNodes(DRAINED))
                 .build();
 
-        ImmutableSet<String> aliveNodeIds = aliveNodes.stream()
+        Set<String> aliveNodeIds = aliveNodes.stream()
                 .map(InternalNode::getNodeIdentifier)
                 .collect(toImmutableSet());
 

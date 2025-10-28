@@ -43,6 +43,7 @@ import static io.trino.plugin.clickhouse.ClickHouseQueryRunner.TPCH_SCHEMA;
 import static io.trino.plugin.jdbc.TypeHandlingJdbcSessionProperties.UNSUPPORTED_TYPE_HANDLING;
 import static io.trino.plugin.jdbc.UnsupportedTypeHandling.CONVERT_TO_VARCHAR;
 import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DateType.DATE;
 import static io.trino.spi.type.DecimalType.createDecimalType;
 import static io.trino.spi.type.DoubleType.DOUBLE;
@@ -70,7 +71,7 @@ public abstract class BaseClickHouseTypeMapping
     // no DST in 1970, but has DST in later years (e.g. 2018)
     private final ZoneId vilnius = ZoneId.of("Europe/Vilnius");
 
-    // minutes offset change since 1970-01-01, no DST
+    // minutes offset change since 1932-04-01, no DST
     private final ZoneId kathmandu = ZoneId.of("Asia/Kathmandu");
 
     protected TestingClickHouseServer clickhouseServer;
@@ -79,7 +80,7 @@ public abstract class BaseClickHouseTypeMapping
     public void setUp()
     {
         checkState(jvmZone.getId().equals("America/Bahia_Banderas"), "This test assumes certain JVM time zone");
-        LocalDate dateOfLocalTimeChangeForwardAtMidnightInJvmZone = LocalDate.of(1970, 1, 1);
+        LocalDate dateOfLocalTimeChangeForwardAtMidnightInJvmZone = LocalDate.of(1932, 4, 1);
         checkIsGap(jvmZone, dateOfLocalTimeChangeForwardAtMidnightInJvmZone.atStartOfDay());
 
         LocalDate dateOfLocalTimeChangeForwardAtMidnightInSomeZone = LocalDate.of(1983, 4, 1);
@@ -104,6 +105,28 @@ public abstract class BaseClickHouseTypeMapping
     private static void checkIsDoubled(ZoneId zone, LocalDateTime dateTime)
     {
         verify(zone.getRules().getValidOffsets(dateTime).size() == 2, "Expected %s to be doubled in %s", dateTime, zone);
+    }
+
+    @Test
+    public void testTrinoBoolean()
+    {
+        SqlDataTypeTest.create()
+                .addRoundTrip("boolean", "true", BOOLEAN, "true")
+                .addRoundTrip("boolean", "false", BOOLEAN, "false")
+                .addRoundTrip("boolean", "NULL", BOOLEAN, "CAST(NULL AS BOOLEAN)")
+                .execute(getQueryRunner(), trinoCreateAsSelect("test_boolean"))
+                .execute(getQueryRunner(), trinoCreateAndInsert("test_boolean"));
+    }
+
+    @Test
+    public void testBool()
+    {
+        SqlDataTypeTest.create()
+                .addRoundTrip("bool", "true", BOOLEAN, "true")
+                .addRoundTrip("bool", "false", BOOLEAN, "false")
+                .addRoundTrip("Nullable(bool)", "NULL", BOOLEAN, "CAST(NULL AS BOOLEAN)")
+                .execute(getQueryRunner(), clickhouseCreateAndInsert("tpch.test_boolean"))
+                .execute(getQueryRunner(), clickhouseCreateAndTrinoInsert("tpch.test_boolean"));
     }
 
     @Test
@@ -889,7 +912,7 @@ public abstract class BaseClickHouseTypeMapping
         String minSupportedDate = "1970-01-01";
         String maxSupportedDate = "2149-06-06";
 
-        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_unsupported_date", "(dt date)")) {
+        try (TestTable table = newTrinoTable("test_unsupported_date", "(dt date)")) {
             assertQueryFails(
                     format("INSERT INTO %s VALUES (DATE '%s')", table.getName(), unsupportedDate),
                     format("Date must be between %s and %s in ClickHouse: %s", minSupportedDate, maxSupportedDate, unsupportedDate));
@@ -984,7 +1007,7 @@ public abstract class BaseClickHouseTypeMapping
         String minSupportedTimestamp = "1970-01-01 00:00:00";
         String maxSupportedTimestamp = "2106-02-07 06:28:15";
 
-        try (TestTable table = new TestTable(getQueryRunner()::execute, "test_unsupported_timestamp", "(dt timestamp(0))")) {
+        try (TestTable table = newTrinoTable("test_unsupported_timestamp", "(dt timestamp(0))")) {
             assertQueryFails(
                     format("INSERT INTO %s VALUES (TIMESTAMP '%s')", table.getName(), unsupportedTimestamp),
                     format("Timestamp must be between %s and %s in ClickHouse: %s", minSupportedTimestamp, maxSupportedTimestamp, unsupportedTimestamp));

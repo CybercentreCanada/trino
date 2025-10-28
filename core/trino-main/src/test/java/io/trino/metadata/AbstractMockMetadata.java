@@ -17,6 +17,7 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimap;
 import com.google.common.util.concurrent.ListenableFuture;
 import io.airlift.slice.Slice;
 import io.trino.Session;
@@ -31,11 +32,13 @@ import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
+import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorCapabilities;
 import io.trino.spi.connector.ConnectorOutputMetadata;
 import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
+import io.trino.spi.connector.EntityKindAndName;
 import io.trino.spi.connector.JoinApplicationResult;
 import io.trino.spi.connector.JoinStatistics;
 import io.trino.spi.connector.JoinType;
@@ -182,7 +185,7 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public TableHandle makeCompatiblePartitioning(Session session, TableHandle table, PartitioningHandle partitioningHandle)
+    public Optional<TableHandle> applyPartitioning(Session session, TableHandle tableHandle, Optional<PartitioningHandle> partitioning, List<ColumnHandle> columns)
     {
         throw new UnsupportedOperationException();
     }
@@ -278,12 +281,6 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public void setSchemaAuthorization(Session session, CatalogSchemaName source, TrinoPrincipal principal)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public void createTable(Session session, String catalogName, ConnectorTableMetadata tableMetadata, SaveMode saveMode)
     {
         throw new UnsupportedOperationException();
@@ -338,7 +335,7 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public void addColumn(Session session, TableHandle tableHandle, CatalogSchemaTableName table, ColumnMetadata column)
+    public void addColumn(Session session, TableHandle tableHandle, CatalogSchemaTableName table, ColumnMetadata column, ColumnPosition position)
     {
         throw new UnsupportedOperationException();
     }
@@ -375,12 +372,6 @@ public abstract class AbstractMockMetadata
 
     @Override
     public void dropNotNullConstraint(Session session, TableHandle tableHandle, ColumnHandle column)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void setTableAuthorization(Session session, CatalogSchemaTableName table, TrinoPrincipal principal)
     {
         throw new UnsupportedOperationException();
     }
@@ -549,7 +540,7 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public MergeHandle beginMerge(Session session, TableHandle tableHandle)
+    public MergeHandle beginMerge(Session session, TableHandle tableHandle, Multimap<Integer, ColumnHandle> updateCaseColumnHandles)
     {
         throw new UnsupportedOperationException();
     }
@@ -622,12 +613,6 @@ public abstract class AbstractMockMetadata
 
     @Override
     public void renameView(Session session, QualifiedObjectName source, QualifiedObjectName target)
-    {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void setViewAuthorization(Session session, CatalogSchemaTableName view, TrinoPrincipal principal)
     {
         throw new UnsupportedOperationException();
     }
@@ -1033,6 +1018,12 @@ public abstract class AbstractMockMetadata
 
     @Override
     public WriterScalingOptions getInsertWriterScalingOptions(Session session, TableHandle tableHandle)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void setEntityAuthorization(Session session, EntityKindAndName entityKindAndName, TrinoPrincipal principal)
     {
         throw new UnsupportedOperationException();
     }

@@ -40,6 +40,7 @@ import io.trino.memory.NodeMemoryConfig;
 import io.trino.memory.QueryContext;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.metadata.InternalNode;
+import io.trino.metadata.LanguageFunctionEngineManager;
 import io.trino.metadata.WorkerLanguageFunctionProvider;
 import io.trino.operator.DirectExchangeClient;
 import io.trino.operator.DirectExchangeClientSupplier;
@@ -266,7 +267,7 @@ public abstract class BaseTestSqlTaskManager
     public void testSessionPropertyMemoryLimitOverride()
     {
         NodeMemoryConfig memoryConfig = new NodeMemoryConfig()
-                .setMaxQueryMemoryPerNode(DataSize.ofBytes(3));
+                .setMaxQueryMemoryPerNode("3B");
 
         try (SqlTaskManager sqlTaskManager = createSqlTaskManager(new TaskManagerConfig(), memoryConfig)) {
             TaskId reduceLimitsId = new TaskId(new StageId("q1", 0), 1, 0);
@@ -325,7 +326,7 @@ public abstract class BaseTestSqlTaskManager
                 new EmbedVersion("testversion"),
                 new NoConnectorServicesProvider(),
                 createTestingPlanner(),
-                new WorkerLanguageFunctionProvider(),
+                new WorkerLanguageFunctionProvider(new LanguageFunctionEngineManager()),
                 new MockLocationFactory(),
                 taskExecutor,
                 createTestSplitMonitor(),
@@ -341,7 +342,7 @@ public abstract class BaseTestSqlTaskManager
                 new ExchangeManagerRegistry(OpenTelemetry.noop(), Tracing.noopTracer(), new SecretsResolver(ImmutableMap.of())));
     }
 
-    private TaskInfo createTask(SqlTaskManager sqlTaskManager, TaskId taskId, ImmutableSet<ScheduledSplit> splits, OutputBuffers outputBuffers)
+    private TaskInfo createTask(SqlTaskManager sqlTaskManager, TaskId taskId, Set<ScheduledSplit> splits, OutputBuffers outputBuffers)
     {
         return sqlTaskManager.updateTask(TEST_SESSION,
                 taskId,

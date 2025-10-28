@@ -165,6 +165,20 @@ public class TracingHiveMetastore
     }
 
     @Override
+    public List<String> getTableNamesWithParameters(String databaseName, String parameterKey, Set<String> parameterValues)
+    {
+        Span span = tracer.spanBuilder("HiveMetastore.getTableNamesWithParameters")
+                .setAttribute(SCHEMA, databaseName)
+                .setAttribute(TABLE, parameterKey)
+                .startSpan();
+        return withTracing(span, () -> {
+            List<String> tables = delegate.getTableNamesWithParameters(databaseName, parameterKey, parameterValues);
+            span.setAttribute(TABLE_RESPONSE_COUNT, tables.size());
+            return tables;
+        });
+    }
+
+    @Override
     public void createDatabase(Database database)
     {
         Span span = tracer.spanBuilder("HiveMetastore.createDatabase")
@@ -221,13 +235,13 @@ public class TracingHiveMetastore
     }
 
     @Override
-    public void replaceTable(String databaseName, String tableName, Table newTable, PrincipalPrivileges principalPrivileges)
+    public void replaceTable(String databaseName, String tableName, Table newTable, PrincipalPrivileges principalPrivileges, Map<String, String> environmentContext)
     {
         Span span = tracer.spanBuilder("HiveMetastore.replaceTable")
                 .setAttribute(SCHEMA, databaseName)
                 .setAttribute(TABLE, tableName)
                 .startSpan();
-        withTracing(span, () -> delegate.replaceTable(databaseName, tableName, newTable, principalPrivileges));
+        withTracing(span, () -> delegate.replaceTable(databaseName, tableName, newTable, principalPrivileges, environmentContext));
     }
 
     @Override

@@ -24,7 +24,7 @@ import io.trino.plugin.eventlistener.kafka.producer.SSLKafkaProducerFactory;
 import io.trino.spi.eventlistener.QueryCompletedEvent;
 import io.trino.spi.eventlistener.QueryCreatedEvent;
 import io.trino.spi.eventlistener.SplitCompletedEvent;
-import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.InvalidRecordException;
 import org.apache.kafka.common.errors.RecordTooLargeException;
@@ -35,13 +35,14 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static io.trino.plugin.kafka.utils.PropertiesUtils.readProperties;
 import static java.util.Objects.requireNonNull;
 
 public class KafkaEventPublisher
 {
     private static final Logger LOG = Logger.get(KafkaEventPublisher.class);
 
-    private final KafkaProducer<String, String> kafkaProducer;
+    private final Producer<String, String> kafkaProducer;
     private final KafkaRecordBuilder kafkaRecordBuilder;
     private final KafkaEventListenerJmxStats stats;
 
@@ -57,7 +58,7 @@ public class KafkaEventPublisher
         String completedTopic = config.getCompletedTopicName().orElse("");
         String splitCompletedTopic = config.getSplitCompletedTopicName().orElse("");
 
-        Map<String, String> configOverrides = config.getKafkaClientOverrides();
+        Map<String, String> configOverrides = readProperties(config.getResourceConfigFiles());
         LOG.info("Creating Kafka publisher (SSL=%s) for topics: %s/%s with excluded fields: %s and kafka config overrides: %s",
                 producerFactory instanceof SSLKafkaProducerFactory, createdTopic, completedTopic, config.getExcludedFields(), configOverrides);
         kafkaProducer = producerFactory.producer(configOverrides);
