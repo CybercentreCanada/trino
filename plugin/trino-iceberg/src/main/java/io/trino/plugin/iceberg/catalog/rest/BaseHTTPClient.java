@@ -13,11 +13,12 @@
  */
 package io.trino.plugin.iceberg.catalog.rest;
 
+import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
+import org.apache.iceberg.rest.auth.AuthSession;
+import org.apache.iceberg.rest.responses.ErrorResponse;
+
 import java.util.Map;
 import java.util.function.Consumer;
-import org.apache.iceberg.rest.auth.AuthSession;
-import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
-import org.apache.iceberg.rest.responses.ErrorResponse;
 
 /**
  * A base class for {@link RESTClient} implementations.

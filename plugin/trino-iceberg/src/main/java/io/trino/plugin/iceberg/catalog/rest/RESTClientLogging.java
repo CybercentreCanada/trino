@@ -40,11 +40,11 @@ import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
-import org.apache.iceberg.rest.auth.AuthSession;
 import org.apache.iceberg.rest.ErrorHandler;
 import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
 import org.apache.iceberg.rest.RESTResponse;
 import org.apache.iceberg.rest.RESTUtil;
+import org.apache.iceberg.rest.auth.AuthSession;
 import org.apache.iceberg.rest.responses.ErrorResponse;
 import org.apache.iceberg.util.PropertyUtil;
 
