@@ -15,8 +15,8 @@ package io.trino.plugin.iceberg.catalog.rest;
 
 import java.util.Map;
 import java.util.function.Consumer;
-import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
 import org.apache.iceberg.rest.auth.AuthSession;
+import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
 import org.apache.iceberg.rest.responses.ErrorResponse;
 
 /**
@@ -44,10 +44,10 @@ public abstract class BaseHTTPClient
 
     @Override
     public <T extends RESTResponse> T delete(
-        String path,
-        Class<T> responseType,
-        Map<String, String> headers,
-        Consumer<ErrorResponse> errorHandler)
+            String path,
+            Class<T> responseType,
+            Map<String, String> headers,
+            Consumer<ErrorResponse> errorHandler)
     {
         HTTPRequest request = buildRequest(HTTPMethod.DELETE, path, null, headers, null);
         return execute(request, responseType, errorHandler, h -> {});
@@ -55,11 +55,11 @@ public abstract class BaseHTTPClient
 
     @Override
     public <T extends RESTResponse> T delete(
-        String path,
-        Map<String, String> queryParams,
-        Class<T> responseType,
-        Map<String, String> headers,
-        Consumer<ErrorResponse> errorHandler)
+            String path,
+            Map<String, String> queryParams,
+            Class<T> responseType,
+            Map<String, String> headers,
+            Consumer<ErrorResponse> errorHandler)
     {
         HTTPRequest request = buildRequest(HTTPMethod.DELETE, path, queryParams, headers, null);
         return execute(request, responseType, errorHandler, h -> {});
@@ -67,11 +67,11 @@ public abstract class BaseHTTPClient
 
     @Override
     public <T extends RESTResponse> T get(
-        String path,
-        Map<String, String> queryParams,
-        Class<T> responseType,
-        Map<String, String> headers,
-        Consumer<ErrorResponse> errorHandler)
+            String path,
+            Map<String, String> queryParams,
+            Class<T> responseType,
+            Map<String, String> headers,
+            Consumer<ErrorResponse> errorHandler)
     {
         HTTPRequest request = buildRequest(HTTPMethod.GET, path, queryParams, headers, null);
         return execute(request, responseType, errorHandler, h -> {});
@@ -79,11 +79,11 @@ public abstract class BaseHTTPClient
 
     @Override
     public <T extends RESTResponse> T post(
-        String path,
-        RESTRequest body,
-        Class<T> responseType,
-        Map<String, String> headers,
-        Consumer<ErrorResponse> errorHandler)
+            String path,
+            RESTRequest body,
+            Class<T> responseType,
+            Map<String, String> headers,
+            Consumer<ErrorResponse> errorHandler)
     {
         HTTPRequest request = buildRequest(HTTPMethod.POST, path, null, headers, body);
         return execute(request, responseType, errorHandler, h -> {});
@@ -91,12 +91,12 @@ public abstract class BaseHTTPClient
 
     @Override
     public <T extends RESTResponse> T post(
-        String path,
-        RESTRequest body,
-        Class<T> responseType,
-        Map<String, String> headers,
-        Consumer<ErrorResponse> errorHandler,
-        Consumer<Map<String, String>> responseHeaders)
+            String path,
+            RESTRequest body,
+            Class<T> responseType,
+            Map<String, String> headers,
+            Consumer<ErrorResponse> errorHandler,
+            Consumer<Map<String, String>> responseHeaders)
     {
         HTTPRequest request = buildRequest(HTTPMethod.POST, path, null, headers, body);
         return execute(request, responseType, errorHandler, responseHeaders);
@@ -104,26 +104,26 @@ public abstract class BaseHTTPClient
 
     @Override
     public <T extends RESTResponse> T postForm(
-        String path,
-        Map<String, String> formData,
-        Class<T> responseType,
-        Map<String, String> headers,
-        Consumer<ErrorResponse> errorHandler)
+            String path,
+            Map<String, String> formData,
+            Class<T> responseType,
+            Map<String, String> headers,
+            Consumer<ErrorResponse> errorHandler)
     {
         HTTPRequest request = buildRequest(HTTPMethod.POST, path, null, headers, formData);
         return execute(request, responseType, errorHandler, h -> {});
     }
 
     protected abstract HTTPRequest buildRequest(
-        HTTPMethod method,
-        String path,
-        Map<String, String> queryParams,
-        Map<String, String> headers,
-        Object body);
+            HTTPMethod method,
+            String path,
+            Map<String, String> queryParams,
+            Map<String, String> headers,
+            Object body);
 
     protected abstract <T extends RESTResponse> T execute(
-        HTTPRequest request,
-        Class<T> responseType,
-        Consumer<ErrorResponse> errorHandler,
-        Consumer<Map<String, String>> responseHeaders);
+            HTTPRequest request,
+            Class<T> responseType,
+            Consumer<ErrorResponse> errorHandler,
+            Consumer<Map<String, String>> responseHeaders);
 }

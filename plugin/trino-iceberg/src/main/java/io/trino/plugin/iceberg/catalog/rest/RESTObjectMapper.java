@@ -22,8 +22,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import org.apache.iceberg.rest.RESTSerializers;
 
-import static io.trino.plugin.base.util.JsonUtils.jsonFactory;
-
 class RESTObjectMapper
 {
     private static final JsonFactory FACTORY = new JsonFactoryBuilder()

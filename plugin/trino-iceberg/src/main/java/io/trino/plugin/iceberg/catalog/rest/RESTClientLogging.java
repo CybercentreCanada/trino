@@ -40,11 +40,9 @@ import org.apache.iceberg.exceptions.RESTException;
 import org.apache.iceberg.relocated.com.google.common.annotations.VisibleForTesting;
 import org.apache.iceberg.relocated.com.google.common.base.Preconditions;
 import org.apache.iceberg.relocated.com.google.common.collect.Maps;
-import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
 import org.apache.iceberg.rest.auth.AuthSession;
 import org.apache.iceberg.rest.ErrorHandler;
-import org.apache.iceberg.rest.RESTClient;
-import org.apache.iceberg.rest.RESTRequest;
+import org.apache.iceberg.rest.HTTPRequest.HTTPMethod;
 import org.apache.iceberg.rest.RESTResponse;
 import org.apache.iceberg.rest.RESTUtil;
 import org.apache.iceberg.rest.responses.ErrorResponse;
@@ -256,7 +254,7 @@ public class RESTClientLogging
         }
 
         ImmutableHTTPRequest.Builder builder =
-            ImmutableHTTPRequest.builder()
+                ImmutableHTTPRequest.builder()
                 .baseUri(baseUri)
                 .mapper(mapper)
                 .method(method)
@@ -276,7 +274,7 @@ public class RESTClientLogging
         // Encode maps as form data (application/x-www-form-urlencoded),
         // and other requests are assumed to contain JSON bodies (application/json).
         ContentType mimeType =
-            body instanceof Map
+                body instanceof Map
                 ? ContentType.APPLICATION_FORM_URLENCODED
                 : ContentType.APPLICATION_JSON;
         allHeaders.putIfAbsent(HttpHeaders.CONTENT_TYPE, mimeType.getMimeType());
@@ -445,7 +443,8 @@ public class RESTClientLogging
             return this;
         }
 
-        public Builder uri(URI baseUri) {
+        public Builder uri(URI baseUri)
+        {
             Preconditions.checkNotNull(baseUri, "Invalid uri for http client: null");
             this.uri = baseUri;
             return this;
