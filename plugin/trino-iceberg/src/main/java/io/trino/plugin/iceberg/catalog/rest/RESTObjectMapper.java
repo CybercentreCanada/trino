@@ -16,15 +16,16 @@ package io.trino.plugin.iceberg.catalog.rest;
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonFactoryBuilder;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import org.apache.iceberg.rest.RESTSerializers;
 
+import static io.trino.plugin.base.util.JsonUtils.jsonFactoryBuilder;
+
 class RESTObjectMapper
 {
-    private static final JsonFactory FACTORY = new JsonFactoryBuilder()
+    private static final JsonFactory FACTORY = new jsonFactoryBuilder()
             .configure(JsonFactory.Feature.INTERN_FIELD_NAMES, false)
             .configure(JsonFactory.Feature.FAIL_ON_SYMBOL_HASH_OVERFLOW, false)
             .build();
