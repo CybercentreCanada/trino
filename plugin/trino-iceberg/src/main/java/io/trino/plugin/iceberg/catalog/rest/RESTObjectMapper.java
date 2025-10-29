@@ -25,7 +25,7 @@ import static io.trino.plugin.base.util.JsonUtils.jsonFactoryBuilder;
 
 class RESTObjectMapper
 {
-    private static final JsonFactory FACTORY = new jsonFactoryBuilder()
+    private static final JsonFactory FACTORY = jsonFactoryBuilder()
             .configure(JsonFactory.Feature.INTERN_FIELD_NAMES, false)
             .configure(JsonFactory.Feature.FAIL_ON_SYMBOL_HASH_OVERFLOW, false)
             .build();
