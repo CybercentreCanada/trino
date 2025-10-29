@@ -55,12 +55,6 @@
 
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>iceberg-common</artifactId>
-            <version>${dep.iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
         </dependency>
 
