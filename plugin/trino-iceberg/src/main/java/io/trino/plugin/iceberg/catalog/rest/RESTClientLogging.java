@@ -119,11 +119,11 @@ public class RESTClientLogging
     }
 
     /**
-     * Constructor for creating a child HTTPClient associated with an AuthSession. The returned child
+     * Constructor for creating a child RESTClientLogging associated with an AuthSession. The returned child
      * shares the same base uri, mapper, and HTTP client as the parent, thus not requiring any
      * additional resource allocation.
      */
-    private HTTPClient(HTTPClient parent, AuthSession authSession)
+    private RESTClientLogging(RESTClientLogging parent, AuthSession authSession)
     {
         this.baseUri = parent.baseUri;
         this.httpClient = parent.httpClient;
@@ -134,10 +134,10 @@ public class RESTClientLogging
     }
 
     @Override
-    public HTTPClient withAuthSession(AuthSession session)
+    public RESTClientLogging withAuthSession(AuthSession session)
     {
         Preconditions.checkNotNull(session, "Invalid auth session: null");
-        return new HTTPClient(this, session);
+        return new RESTClientLogging(this, session);
     }
 
     private static String extractResponseBodyAsString(CloseableHttpResponse response)
@@ -357,8 +357,8 @@ public class RESTClientLogging
     public void close()
             throws IOException
     {
-        // Do not close the AuthSession as it's managed by the owner of this HTTPClient.
-        // Only close the underlying Apache HTTP client if this is a root HTTPClient.
+        // Do not close the AuthSession as it's managed by the owner of this RESTClientLogging.
+        // Only close the underlying Apache HTTP client if this is a root RESTClientLogging.
         if (isRootClient) {
             httpClient.close(CloseMode.GRACEFUL);
         }
