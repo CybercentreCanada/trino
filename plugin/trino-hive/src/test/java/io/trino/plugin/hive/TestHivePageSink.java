@@ -122,6 +122,14 @@ public class TestHivePageSink
                 // REGEX format is readonly
                 continue;
             }
+            if (format == HiveStorageFormat.ESRI) {
+                // ESRI format is readonly
+                continue;
+            }
+            if (format == HiveStorageFormat.SEQUENCEFILE_PROTOBUF) {
+                // SEQUENCEFILE_PROTOBUF format is readonly
+                continue;
+            }
             config.setHiveStorageFormat(format);
             config.setHiveCompressionCodec(NONE);
             long uncompressedLength = writeTestFile(fileSystemFactory, config, sortingFileWriterConfig, metastore, makeFileName(config));
@@ -386,7 +394,7 @@ public class TestHivePageSink
                 getDefaultHiveFileWriterFactories(config, fileSystemFactory),
                 HDFS_FILE_SYSTEM_FACTORY,
                 PAGE_SORTER,
-                HiveMetastoreFactory.ofInstance(metastore),
+                HiveMetastoreFactory.ofInstance(metastore, false),
                 new GroupByHashPageIndexerFactory(new FlatHashStrategyCompiler(new TypeOperators())),
                 TESTING_TYPE_MANAGER,
                 config,

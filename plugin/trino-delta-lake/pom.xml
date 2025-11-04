@@ -5,12 +5,13 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>476</version>
+        <version>478</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>trino-delta-lake</artifactId>
     <packaging>trino-plugin</packaging>
+    <name>${project.artifactId}</name>
     <description>Trino - Delta Lake connector</description>
 
     <dependencies>
@@ -38,6 +39,7 @@
         <dependency>
             <groupId>com.google.inject</groupId>
             <artifactId>guice</artifactId>
+            <classifier>classes</classifier>
         </dependency>
 
         <dependency>
@@ -83,7 +85,7 @@
         <dependency>
             <groupId>io.delta</groupId>
             <artifactId>delta-kernel-api</artifactId>
-            <version>3.3.1</version>
+            <version>4.0.0</version>
         </dependency>
 
         <dependency>
@@ -535,6 +537,7 @@
     <build>
         <plugins>
             <plugin>
+<<<<<<< HEAD
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <configuration>
@@ -549,8 +552,24 @@
             </plugin>
 
             <plugin>
+=======
+>>>>>>> tags/478
                 <groupId>org.antlr</groupId>
                 <artifactId>antlr4-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <configuration>
+                    <rules>
+                        <bannedDependencies>
+                            <includes combine.children="append">
+                                <!-- Legacy HDFS file system uses AWS S3 SDK v1 -->
+                                <include>com.amazonaws:*:*</include>
+                            </includes>
+                        </bannedDependencies>
+                    </rules>
+                </configuration>
             </plugin>
         </plugins>
     </build>

@@ -311,7 +311,7 @@ public class TestBloomFilterStore
         ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
         ColumnChunkMetadata columnChunkMetaData = getOnlyElement(getOnlyElement(parquetMetadata.getBlocks()).columns());
 
-        return new BloomFilterStore(dataSource, getOnlyElement(parquetMetadata.getBlocks()), Set.of(columnChunkMetaData.getPath()));
+        return new BloomFilterStore(dataSource, getOnlyElement(parquetMetadata.getBlocks()), Set.of(columnChunkMetaData.getPath()), Optional.empty());
     }
 
     private static class BloomFilterTypeTestCase

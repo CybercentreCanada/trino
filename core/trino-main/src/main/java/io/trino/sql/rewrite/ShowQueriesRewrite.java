@@ -20,6 +20,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Multimaps;
 import com.google.inject.Inject;
 import io.trino.Session;
+import io.trino.connector.CatalogHandle;
 import io.trino.execution.querystats.PlanOptimizersStatsCollector;
 import io.trino.execution.warnings.WarningCollector;
 import io.trino.metadata.CatalogInfo;
@@ -38,7 +39,6 @@ import io.trino.metadata.TablePropertyManager;
 import io.trino.metadata.ViewDefinition;
 import io.trino.metadata.ViewPropertyManager;
 import io.trino.security.AccessControl;
-import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.SchemaTableName;
@@ -82,6 +82,7 @@ import io.trino.sql.tree.QuerySpecification;
 import io.trino.sql.tree.Relation;
 import io.trino.sql.tree.Row;
 import io.trino.sql.tree.SelectItem;
+import io.trino.sql.tree.ShowBranches;
 import io.trino.sql.tree.ShowCatalogs;
 import io.trino.sql.tree.ShowColumns;
 import io.trino.sql.tree.ShowCreate;
@@ -99,6 +100,7 @@ import io.trino.sql.tree.StringLiteral;
 import io.trino.sql.tree.TableElement;
 import io.trino.sql.tree.Values;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -123,6 +125,7 @@ import static io.trino.metadata.MetadataUtil.processRoleCommandCatalog;
 import static io.trino.metadata.PropertyUtil.toSqlProperties;
 import static io.trino.spi.StandardErrorCode.CATALOG_NOT_FOUND;
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_PROPERTY;
+import static io.trino.spi.StandardErrorCode.INVALID_DEFAULT_COLUMN_VALUE;
 import static io.trino.spi.StandardErrorCode.INVALID_MATERIALIZED_VIEW_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_SCHEMA_PROPERTY;
 import static io.trino.spi.StandardErrorCode.INVALID_TABLE_PROPERTY;
@@ -639,6 +642,7 @@ public final class ShowQueriesRewrite
                         return new ColumnDefinition(
                                 QualifiedName.of(column.getName()),
                                 toSqlType(column.getType()),
+                                column.getDefaultValue().map(value -> parseDefaultColumnValueExpression(value, objectName, node)),
                                 column.isNullable(),
                                 propertyNodes,
                                 Optional.ofNullable(column.getComment()));
@@ -657,6 +661,16 @@ public final class ShowQueriesRewrite
                     propertyNodes,
                     connectorTableMetadata.getComment());
             return singleValueQuery("Create Table", formatSql(createTable).trim());
+        }
+
+        private Expression parseDefaultColumnValueExpression(String expression, QualifiedObjectName name, Node node)
+        {
+            try {
+                return parser.createExpression(expression);
+            }
+            catch (ParsingException e) {
+                throw semanticException(INVALID_DEFAULT_COLUMN_VALUE, node, e, "Failed parsing default column value '%s': %s", name, e.getMessage());
+            }
         }
 
         private Query showCreateSchema(ShowCreate node)
@@ -804,6 +818,45 @@ public final class ShowQueriesRewrite
                 case SCALAR -> "scalar";
                 case TABLE -> "table";
             };
+        }
+
+        @Override
+        protected Node visitShowBranches(ShowBranches showBranches, Void context)
+        {
+            QualifiedObjectName tableName = createQualifiedObjectName(session, showBranches, showBranches.getTableName());
+            accessControl.checkCanShowBranches(session.toSecurityContext(), tableName);
+            getRequiredCatalogHandle(metadata, session, showBranches, tableName.catalogName());
+            if (!metadata.schemaExists(session, new CatalogSchemaName(tableName.catalogName(), tableName.schemaName()))) {
+                throw semanticException(SCHEMA_NOT_FOUND, showBranches, "Schema '%s' does not exist", tableName.schemaName());
+            }
+            if (metadata.isMaterializedView(session, tableName)) {
+                throw semanticException(NOT_SUPPORTED, showBranches, "Relation '%s' is a materialized view, not a table", tableName);
+            }
+            if (metadata.isView(session, tableName)) {
+                throw semanticException(NOT_SUPPORTED, showBranches, "Relation '%s' is a view, not a table", tableName);
+            }
+            Optional<TableHandle> tableHandle = metadata.getRedirectionAwareTableHandle(session, tableName).tableHandle();
+            if (tableHandle.isEmpty()) {
+                throw semanticException(TABLE_NOT_FOUND, showBranches, "Table '%s' does not exist", tableName);
+            }
+
+            String columnName = "Branch";
+            List<Expression> rows = new ArrayList<>();
+            for (String branch : metadata.listBranches(session, tableName)) {
+                rows.add(row(new StringLiteral(branch)));
+            }
+
+            if (rows.isEmpty()) {
+                return emptyQuery(ImmutableList.of(columnName), ImmutableList.of(VARCHAR));
+            }
+
+            return simpleQuery(
+                    selectList(
+                            aliasedName("branch_name", "Branch")),
+                    aliased(
+                            new Values(ImmutableList.copyOf(rows)),
+                            "branches",
+                            ImmutableList.of("branch_name")));
         }
 
         @Override

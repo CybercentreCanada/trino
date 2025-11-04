@@ -24,6 +24,7 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.testing.QueryRunner;
 import io.trino.testing.TestingConnectorBehavior;
 import org.apache.iceberg.BaseTable;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 
@@ -71,7 +72,7 @@ final class TestIcebergS3TablesConnectorSmokeTest
                 .addIcebergProperty("iceberg.rest-catalog.uri", "https://glue.%s.amazonaws.com/iceberg".formatted(AWS_REGION))
                 .addIcebergProperty("iceberg.rest-catalog.warehouse", "s3tablescatalog/" + S3_TABLES_BUCKET)
                 .addIcebergProperty("iceberg.rest-catalog.view-endpoints-enabled", "false")
-                .addIcebergProperty("iceberg.rest-catalog.sigv4-enabled", "true")
+                .addIcebergProperty("iceberg.rest-catalog.security", "sigv4")
                 .addIcebergProperty("iceberg.rest-catalog.signing-name", "glue")
                 .addIcebergProperty("iceberg.writer-sort-buffer-size", "1MB")
                 .addIcebergProperty("iceberg.allowed-extra-properties", "write.metadata.delete-after-commit.enabled,write.metadata.previous-versions-max")
@@ -133,6 +134,7 @@ final class TestIcebergS3TablesConnectorSmokeTest
                         "   comment varchar\n" +
                         "\\)\n" +
                         "WITH \\(\n" +
+                        "   compression_codec = 'ZSTD',\n" +
                         "   format = 'PARQUET',\n" +
                         "   format_version = 2,\n" +
                         "   location = 's3://.*--table-s3',\n" +
@@ -291,4 +293,14 @@ final class TestIcebergS3TablesConnectorSmokeTest
     @Test
     @Override // The procedure is unsupported in S3 Tables
     public void testUnregisterTableAccessControl() {}
+
+    @Test
+    @Override
+    @Disabled // TODO https://github.com/trinodb/trino/issues/25129 Fix flaky test
+    public void testSelectInformationSchemaTables() {}
+
+    @Test
+    @Override
+    @Disabled // TODO https://github.com/trinodb/trino/issues/25129 Fix flaky test
+    public void testIcebergTablesSystemTable() {}
 }

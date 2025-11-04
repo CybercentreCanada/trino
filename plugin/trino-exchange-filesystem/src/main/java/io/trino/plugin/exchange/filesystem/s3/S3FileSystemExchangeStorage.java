@@ -40,8 +40,6 @@ import io.airlift.slice.Slice;
 import io.airlift.slice.SliceInput;
 import io.airlift.slice.Slices;
 import io.airlift.units.Duration;
-import io.netty.buffer.PooledByteBufAllocator;
-import io.netty.channel.ChannelOption;
 import io.trino.annotation.NotThreadSafe;
 import io.trino.cache.NonEvictableLoadingCache;
 import io.trino.plugin.exchange.filesystem.ExchangeSourceFile;
@@ -58,8 +56,6 @@ import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
-import software.amazon.awssdk.auth.signer.AwsS3V4Signer;
-import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
 import software.amazon.awssdk.awscore.endpoint.AwsClientEndpointProvider;
 import software.amazon.awssdk.core.async.AsyncRequestBody;
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
@@ -397,7 +393,6 @@ public class S3FileSystemExchangeStorage
             DeleteObjectsRequest request = DeleteObjectsRequest.builder()
                     .bucket(bucketName)
                     .delete(Delete.builder().objects(list.stream().map(key -> ObjectIdentifier.builder().key(key).build()).collect(toImmutableList())).build())
-                    .overrideConfiguration(disableStrongIntegrityChecksums())
                     .build();
             return toListenableFuture(s3Clients.getUnchecked(bucketName).deleteObjects(request));
         }).collect(toImmutableList())));
@@ -487,7 +482,7 @@ public class S3FileSystemExchangeStorage
                     .build();
         }
 
-        return DefaultCredentialsProvider.create();
+        return DefaultCredentialsProvider.builder().build();
     }
 
     private S3AsyncClient createS3AsyncClient(
@@ -509,9 +504,6 @@ public class S3FileSystemExchangeStorage
                 .addPlugin(LegacyMd5Plugin.create())
                 .httpClientBuilder(NettyNioAsyncHttpClient.builder()
                         .maxConcurrency(maxConcurrency)
-                        // Restore previous default allocator to circumvent:
-                        // https://github.com/netty/netty/issues/15206 & https://github.com/aws/aws-sdk-java-v2/issues/6030
-                        .putChannelOption(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
                         .maxPendingConnectionAcquires(maxPendingConnectionAcquires)
                         .connectionAcquisitionTimeout(java.time.Duration.ofMillis(connectionAcquisitionTimeout.toMillis())))
                 .endpointOverride(endpoint.map(URI::create).orElseGet(() -> AwsClientEndpointProvider.builder()
@@ -931,15 +923,5 @@ public class S3FileSystemExchangeStorage
                     .build();
             return stats.getAbortMultipartUpload().record(toListenableFuture(s3AsyncClient.abortMultipartUpload(abortMultipartUploadRequest)));
         }
-    }
-
-    // TODO (https://github.com/trinodb/trino/issues/24955):
-    // remove me once all of the S3-compatible storage support strong integrity checks
-    @SuppressWarnings("deprecation")
-    static AwsRequestOverrideConfiguration disableStrongIntegrityChecksums()
-    {
-        return AwsRequestOverrideConfiguration.builder()
-                .signer(AwsS3V4Signer.create())
-                .build();
     }
 }

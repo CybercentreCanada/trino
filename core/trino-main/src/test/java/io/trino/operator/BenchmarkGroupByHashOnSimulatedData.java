@@ -258,7 +258,7 @@ public class BenchmarkGroupByHashOnSimulatedData
                     .map(channel -> channel.columnType.type)
                     .collect(toImmutableList());
             pages = createPages(query);
-            hashMode = GroupByHash.selectGroupByHashMode(false, false, types);
+            hashMode = GroupByHash.selectGroupByHashMode(false, types);
         }
 
         private List<Page> createPages(AggregationDefinition definition)
@@ -560,7 +560,7 @@ public class BenchmarkGroupByHashOnSimulatedData
                     }
                     else {
                         int position = r.nextInt(distinctValuesCountInColumn);
-                        columnType.getType().appendTo(allValues, position, block);
+                        block.append(allValues.getUnderlyingValueBlock(), allValues.getUnderlyingValuePosition(position));
                     }
                 }
                 blocks[i] = block.build();

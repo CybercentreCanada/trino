@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.trino.Session;
+import io.trino.connector.CatalogHandle;
 import io.trino.cost.ScalarStatsCalculator;
 import io.trino.metadata.InternalFunctionBundle;
 import io.trino.metadata.ResolvedFunction;
@@ -32,7 +33,6 @@ import io.trino.plugin.iceberg.IcebergConnector;
 import io.trino.plugin.iceberg.IcebergPlugin;
 import io.trino.plugin.iceberg.IcebergTableHandle;
 import io.trino.plugin.iceberg.TestingIcebergConnectorFactory;
-import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
@@ -151,16 +151,12 @@ public class TestConnectorPushdownRulesWithIceberg
 
         Type baseType = ROW_TYPE;
 
-        IcebergColumnHandle partialColumn = new IcebergColumnHandle(
-                new ColumnIdentity(3, "struct_of_int", STRUCT, ImmutableList.of(primitiveColumnIdentity(1, "a"), primitiveColumnIdentity(2, "b"))),
-                baseType,
-                ImmutableList.of(1),
-                BIGINT,
-                true,
-                Optional.empty());
+        IcebergColumnHandle partialColumn = IcebergColumnHandle.optional(new ColumnIdentity(3, "struct_of_int", STRUCT, ImmutableList.of(primitiveColumnIdentity(1, "a"), primitiveColumnIdentity(2, "b"))))
+                .fieldType(baseType, BIGINT)
+                .path(1)
+                .build();
 
         IcebergTableHandle icebergTable = new IcebergTableHandle(
-                CatalogHandle.fromId("iceberg:NORMAL:v12345"),
                 SCHEMA_NAME,
                 tableName,
                 DATA,
@@ -245,7 +241,6 @@ public class TestConnectorPushdownRulesWithIceberg
         PushPredicateIntoTableScan pushPredicateIntoTableScan = new PushPredicateIntoTableScan(tester().getPlannerContext(), false);
 
         IcebergTableHandle icebergTable = new IcebergTableHandle(
-                CatalogHandle.fromId("iceberg:NORMAL:v12345"),
                 SCHEMA_NAME,
                 tableName,
                 DATA,
@@ -267,7 +262,7 @@ public class TestConnectorPushdownRulesWithIceberg
                 Optional.of(false));
         TableHandle table = new TableHandle(catalogHandle, icebergTable, new HiveTransactionHandle(false));
 
-        IcebergColumnHandle column = new IcebergColumnHandle(primitiveColumnIdentity(1, "a"), INTEGER, ImmutableList.of(), INTEGER, true, Optional.empty());
+        IcebergColumnHandle column = IcebergColumnHandle.optional(primitiveColumnIdentity(1, "a")).columnType(INTEGER).build();
 
         tester().assertThat(pushPredicateIntoTableScan)
                 .on(p ->
@@ -297,7 +292,6 @@ public class TestConnectorPushdownRulesWithIceberg
         PruneTableScanColumns pruneTableScanColumns = new PruneTableScanColumns(tester().getMetadata());
 
         IcebergTableHandle icebergTable = new IcebergTableHandle(
-                CatalogHandle.fromId("iceberg:NORMAL:v12345"),
                 SCHEMA_NAME,
                 tableName,
                 DATA,
@@ -319,8 +313,8 @@ public class TestConnectorPushdownRulesWithIceberg
                 Optional.of(false));
         TableHandle table = new TableHandle(catalogHandle, icebergTable, new HiveTransactionHandle(false));
 
-        IcebergColumnHandle columnA = new IcebergColumnHandle(primitiveColumnIdentity(0, "a"), INTEGER, ImmutableList.of(), INTEGER, true, Optional.empty());
-        IcebergColumnHandle columnB = new IcebergColumnHandle(primitiveColumnIdentity(1, "b"), INTEGER, ImmutableList.of(), INTEGER, true, Optional.empty());
+        IcebergColumnHandle columnA = IcebergColumnHandle.optional(primitiveColumnIdentity(0, "a")).columnType(INTEGER).build();
+        IcebergColumnHandle columnB = IcebergColumnHandle.optional(primitiveColumnIdentity(1, "b")).columnType(INTEGER).build();
 
         tester().assertThat(pruneTableScanColumns)
                 .on(p -> {
@@ -359,7 +353,6 @@ public class TestConnectorPushdownRulesWithIceberg
                 new ScalarStatsCalculator(tester().getPlannerContext()));
 
         IcebergTableHandle icebergTable = new IcebergTableHandle(
-                CatalogHandle.fromId("iceberg:NORMAL:v12345"),
                 SCHEMA_NAME,
                 tableName,
                 DATA,
@@ -381,14 +374,11 @@ public class TestConnectorPushdownRulesWithIceberg
                 Optional.of(false));
         TableHandle table = new TableHandle(catalogHandle, icebergTable, new HiveTransactionHandle(false));
 
-        IcebergColumnHandle bigintColumn = new IcebergColumnHandle(primitiveColumnIdentity(1, "just_bigint"), BIGINT, ImmutableList.of(), BIGINT, true, Optional.empty());
-        IcebergColumnHandle partialColumn = new IcebergColumnHandle(
-                new ColumnIdentity(3, "struct_of_bigint", STRUCT, ImmutableList.of(primitiveColumnIdentity(1, "a"), primitiveColumnIdentity(2, "b"))),
-                ROW_TYPE,
-                ImmutableList.of(1),
-                BIGINT,
-                true,
-                Optional.empty());
+        IcebergColumnHandle bigintColumn = IcebergColumnHandle.optional(primitiveColumnIdentity(1, "just_bigint")).columnType(BIGINT).build();
+        IcebergColumnHandle partialColumn = IcebergColumnHandle.optional(new ColumnIdentity(3, "struct_of_bigint", STRUCT, ImmutableList.of(primitiveColumnIdentity(1, "a"), primitiveColumnIdentity(2, "b"))))
+                .fieldType(ROW_TYPE, BIGINT)
+                .path(1)
+                .build();
 
         // Test projection pushdown with duplicate column references
         tester().assertThat(pushProjectionIntoTableScan)

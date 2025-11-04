@@ -19,7 +19,6 @@ import io.trino.spi.block.BlockBuilderStatus;
 import io.trino.spi.block.MapBlock;
 import io.trino.spi.block.MapBlockBuilder;
 import io.trino.spi.block.SqlMap;
-import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.function.InvocationConvention;
 import io.trino.spi.function.OperatorMethodHandle;
 
@@ -285,7 +284,7 @@ public class MapType
     }
 
     @Override
-    public Object getObjectValue(ConnectorSession session, Block block, int position)
+    public Object getObjectValue(Block block, int position)
     {
         if (block.isNull(position)) {
             return null;
@@ -298,21 +297,10 @@ public class MapType
 
         Map<Object, Object> map = new HashMap<>();
         for (int i = 0; i < sqlMap.getSize(); i++) {
-            map.put(keyType.getObjectValue(session, rawKeyBlock, rawOffset + i), valueType.getObjectValue(session, rawValueBlock, rawOffset + i));
+            map.put(keyType.getObjectValue(rawKeyBlock, rawOffset + i), valueType.getObjectValue(rawValueBlock, rawOffset + i));
         }
 
         return Collections.unmodifiableMap(map);
-    }
-
-    @Override
-    public void appendTo(Block block, int position, BlockBuilder blockBuilder)
-    {
-        if (block.isNull(position)) {
-            blockBuilder.appendNull();
-        }
-        else {
-            writeObject(blockBuilder, getObject(block, position));
-        }
     }
 
     @Override
@@ -333,10 +321,8 @@ public class MapType
         Block rawValueBlock = sqlMap.getRawValueBlock();
 
         ((MapBlockBuilder) blockBuilder).buildEntry((keyBuilder, valueBuilder) -> {
-            for (int i = 0; i < sqlMap.getSize(); i++) {
-                keyType.appendTo(rawKeyBlock, rawOffset + i, keyBuilder);
-                valueType.appendTo(rawValueBlock, rawOffset + i, valueBuilder);
-            }
+            keyBuilder.appendBlockRange(rawKeyBlock, rawOffset, sqlMap.getSize());
+            valueBuilder.appendBlockRange(rawValueBlock, rawOffset, sqlMap.getSize());
         });
     }
 

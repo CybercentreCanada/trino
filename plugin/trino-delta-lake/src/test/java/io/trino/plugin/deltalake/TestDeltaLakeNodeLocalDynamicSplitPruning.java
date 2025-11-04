@@ -27,6 +27,7 @@ import io.trino.parquet.writer.ParquetSchemaConverter;
 import io.trino.parquet.writer.ParquetWriter;
 import io.trino.parquet.writer.ParquetWriterOptions;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
+import io.trino.plugin.deltalake.metastore.NoOpVendedCredentialsProvider;
 import io.trino.plugin.deltalake.transactionlog.MetadataEntry;
 import io.trino.plugin.deltalake.transactionlog.ProtocolEntry;
 import io.trino.plugin.hive.HiveTransactionHandle;
@@ -296,7 +297,7 @@ public class TestDeltaLakeNodeLocalDynamicSplitPruning
                     assertThat(page.getPositionCount()).isEqualTo(1);
                     assertThat(INTEGER.getInt(page.getBlock(0), 0)).isEqualTo(dateColumnValue);
                     assertThat(VARCHAR.getSlice(page.getBlock(1), 0).toStringUtf8()).isEqualTo(receiptColumnValue);
-                    assertThat(((SqlDecimal) amountColumnType.getObjectValue(null, page.getBlock(2), 0)).toBigDecimal()).isEqualTo(amountColumnValue);
+                    assertThat(((SqlDecimal) amountColumnType.getObjectValue(page.getBlock(2), 0)).toBigDecimal()).isEqualTo(amountColumnValue);
                 }
             }
         }
@@ -326,7 +327,7 @@ public class TestDeltaLakeNodeLocalDynamicSplitPruning
     {
         FileFormatDataSourceStats stats = new FileFormatDataSourceStats();
         DeltaLakePageSourceProvider provider = new DeltaLakePageSourceProvider(
-                new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS),
+                new DefaultDeltaLakeFileSystemFactory(new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS), new NoOpVendedCredentialsProvider()),
                 stats,
                 PARQUET_READER_CONFIG,
                 deltaLakeConfig,

@@ -16,8 +16,8 @@ package io.trino.metadata;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
+import io.trino.connector.CatalogHandle;
 import io.trino.spi.TrinoException;
-import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorTableMetadata;
@@ -133,7 +133,7 @@ public final class MetadataUtil
                         throw new TrinoException(GENERIC_USER_ERROR, "Invalid entity %s for entity kind %s".formatted(joinName(name), entityKind));
                 }
                 break;
-            case "TABLE", "VIEW":
+            case "TABLE", "VIEW", "MATERIALIZED VIEW":
                 switch (name.size()) {
                     case 1:
                         if (session.getCatalog().isPresent() && session.getSchema().isPresent()) {

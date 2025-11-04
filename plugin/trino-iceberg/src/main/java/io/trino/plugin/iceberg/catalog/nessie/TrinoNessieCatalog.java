@@ -22,6 +22,7 @@ import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.metastore.TableInfo;
 import io.trino.plugin.iceberg.catalog.AbstractTrinoCatalog;
 import io.trino.plugin.iceberg.catalog.IcebergTableOperationsProvider;
+import io.trino.plugin.iceberg.fileio.ForwardingFileIoFactory;
 import io.trino.spi.TrinoException;
 import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.connector.CatalogSchemaTableName;
@@ -58,9 +59,11 @@ import java.util.function.UnaryOperator;
 
 import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.cache.CacheUtils.uncheckedCacheGet;
 import static io.trino.filesystem.Locations.appendPath;
 import static io.trino.plugin.iceberg.IcebergSchemaProperties.LOCATION_PROPERTY;
+import static io.trino.plugin.iceberg.IcebergSchemaProperties.SUPPORTED_SCHEMA_PROPERTIES;
 import static io.trino.plugin.iceberg.IcebergUtil.getIcebergTableWithMetadata;
 import static io.trino.plugin.iceberg.IcebergUtil.quotedTableName;
 import static io.trino.plugin.iceberg.catalog.nessie.IcebergNessieUtil.toIdentifier;
@@ -84,12 +87,13 @@ public class TrinoNessieCatalog
             CatalogName catalogName,
             TypeManager typeManager,
             TrinoFileSystemFactory fileSystemFactory,
+            ForwardingFileIoFactory fileIoFactory,
             IcebergTableOperationsProvider tableOperationsProvider,
             NessieIcebergClient nessieClient,
             String warehouseLocation,
             boolean useUniqueTableLocation)
     {
-        super(catalogName, typeManager, tableOperationsProvider, fileSystemFactory, useUniqueTableLocation);
+        super(catalogName, useUniqueTableLocation, typeManager, tableOperationsProvider, fileSystemFactory, fileIoFactory);
         this.warehouseLocation = requireNonNull(warehouseLocation, "warehouseLocation is null");
         this.nessieClient = requireNonNull(nessieClient, "nessieClient is null");
     }
@@ -123,7 +127,9 @@ public class TrinoNessieCatalog
     public Map<String, Object> loadNamespaceMetadata(ConnectorSession session, String namespace)
     {
         try {
-            return ImmutableMap.copyOf(nessieClient.loadNamespaceMetadata(Namespace.of(namespace)));
+            return nessieClient.loadNamespaceMetadata(Namespace.of(namespace)).entrySet().stream()
+                    .filter(metadata -> SUPPORTED_SCHEMA_PROPERTIES.contains(metadata.getKey()))
+                    .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
         }
         catch (NoSuchNamespaceException e) {
             throw new SchemaNotFoundException(namespace);

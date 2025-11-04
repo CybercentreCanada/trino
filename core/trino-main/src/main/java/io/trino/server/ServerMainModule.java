@@ -23,6 +23,8 @@ import com.google.inject.multibindings.ProvidesIntoSet;
 import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.airlift.http.server.HttpServerConfig;
+import io.airlift.http.server.HttpServerInfo;
+import io.airlift.node.NodeInfo;
 import io.airlift.slice.Slice;
 import io.airlift.stats.GcMonitor;
 import io.airlift.stats.JmxGcMonitor;
@@ -36,14 +38,13 @@ import io.trino.block.BlockJsonSerde;
 import io.trino.client.NodeVersion;
 import io.trino.connector.system.SystemConnectorModule;
 import io.trino.dispatcher.DispatchManager;
-import io.trino.event.SplitMonitor;
 import io.trino.execution.DynamicFilterConfig;
 import io.trino.execution.ExplainAnalyzeContext;
 import io.trino.execution.FailureInjector;
 import io.trino.execution.LocationFactory;
 import io.trino.execution.MemoryRevokingScheduler;
 import io.trino.execution.NoOpFailureInjector;
-import io.trino.execution.NodeTaskMap;
+import io.trino.execution.QueryIdGenerator;
 import io.trino.execution.QueryManagerConfig;
 import io.trino.execution.SqlTaskManager;
 import io.trino.execution.TableExecuteContextManager;
@@ -53,10 +54,7 @@ import io.trino.execution.executor.TaskExecutor;
 import io.trino.execution.executor.dedicated.ThreadPerDriverTaskExecutor;
 import io.trino.execution.executor.timesharing.MultilevelSplitQueue;
 import io.trino.execution.executor.timesharing.TimeSharingTaskExecutor;
-import io.trino.execution.scheduler.NodeScheduler;
 import io.trino.execution.scheduler.NodeSchedulerConfig;
-import io.trino.execution.scheduler.TopologyAwareNodeSelectorModule;
-import io.trino.execution.scheduler.UniformNodeSelectorModule;
 import io.trino.memory.LocalMemoryManager;
 import io.trino.memory.LocalMemoryManagerExporter;
 import io.trino.memory.MemoryInfo;
@@ -65,15 +63,12 @@ import io.trino.memory.MemoryResource;
 import io.trino.memory.NodeMemoryConfig;
 import io.trino.metadata.BlockEncodingManager;
 import io.trino.metadata.DisabledSystemSecurityMetadata;
-import io.trino.metadata.DiscoveryNodeManager;
-import io.trino.metadata.ForNodeManager;
 import io.trino.metadata.FunctionBundle;
 import io.trino.metadata.FunctionManager;
 import io.trino.metadata.GlobalFunctionCatalog;
 import io.trino.metadata.HandleJsonModule;
 import io.trino.metadata.InternalBlockEncodingSerde;
 import io.trino.metadata.InternalFunctionBundle;
-import io.trino.metadata.InternalNodeManager;
 import io.trino.metadata.LanguageFunctionEngineManager;
 import io.trino.metadata.LanguageFunctionManager;
 import io.trino.metadata.Metadata;
@@ -84,6 +79,7 @@ import io.trino.metadata.SystemSecurityMetadata;
 import io.trino.metadata.TableFunctionRegistry;
 import io.trino.metadata.TableProceduresRegistry;
 import io.trino.metadata.TypeRegistry;
+import io.trino.node.InternalNode;
 import io.trino.operator.DirectExchangeClientConfig;
 import io.trino.operator.DirectExchangeClientFactory;
 import io.trino.operator.DirectExchangeClientSupplier;
@@ -131,7 +127,6 @@ import io.trino.sql.PlannerContext;
 import io.trino.sql.SqlEnvironmentConfig;
 import io.trino.sql.analyzer.SessionTimeProvider;
 import io.trino.sql.analyzer.StatementAnalyzerFactory;
-import io.trino.sql.gen.CursorProcessorCompiler;
 import io.trino.sql.gen.ExpressionCompiler;
 import io.trino.sql.gen.JoinCompiler;
 import io.trino.sql.gen.JoinFilterFunctionCompiler;
@@ -141,8 +136,8 @@ import io.trino.sql.gen.columnar.ColumnarFilterCompiler;
 import io.trino.sql.parser.SqlParser;
 import io.trino.sql.planner.CompilerConfig;
 import io.trino.sql.planner.LocalExecutionPlanner;
-import io.trino.sql.planner.NodePartitioningManager;
 import io.trino.sql.planner.OptimizerConfig;
+import io.trino.sql.planner.PartitionFunctionProvider;
 import io.trino.sql.planner.RuleStatsRecorder;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolKeyDeserializer;
@@ -167,21 +162,19 @@ import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static com.google.inject.multibindings.Multibinder.newSetBinder;
 import static com.google.inject.multibindings.OptionalBinder.newOptionalBinder;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
-import static io.airlift.configuration.ConditionalModule.conditionalModule;
+import static io.airlift.concurrent.Threads.virtualThreadsNamed;
 import static io.airlift.configuration.ConfigBinder.configBinder;
-import static io.airlift.discovery.client.DiscoveryBinder.discoveryBinder;
 import static io.airlift.jaxrs.JaxrsBinder.jaxrsBinder;
 import static io.airlift.json.JsonBinder.jsonBinder;
 import static io.airlift.json.JsonCodecBinder.jsonCodecBinder;
 import static io.airlift.units.DataSize.Unit.MEGABYTE;
-import static io.trino.execution.scheduler.NodeSchedulerConfig.NodeSchedulerPolicy.TOPOLOGY;
-import static io.trino.execution.scheduler.NodeSchedulerConfig.NodeSchedulerPolicy.UNIFORM;
 import static io.trino.operator.RetryPolicy.TASK;
 import static io.trino.plugin.base.ClosingBinder.closingBinder;
 import static io.trino.server.InternalCommunicationHttpClientModule.internalHttpClientModule;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
+import static java.util.concurrent.Executors.newThreadPerTaskExecutor;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.weakref.jmx.guice.ExportBinder.newExporter;
 
@@ -250,34 +243,8 @@ public class ServerMainModule
         binder.bind(SystemSessionProperties.class).in(Scopes.SINGLETON);
         binder.bind(SessionPropertyDefaults.class).in(Scopes.SINGLETON);
 
-        // node manager
-        discoveryBinder(binder).bindSelector("trino");
-        binder.bind(DiscoveryNodeManager.class).in(Scopes.SINGLETON);
-        binder.bind(InternalNodeManager.class).to(DiscoveryNodeManager.class).in(Scopes.SINGLETON);
-        newExporter(binder).export(DiscoveryNodeManager.class).withGeneratedName();
-        install(internalHttpClientModule("node-manager", ForNodeManager.class)
-                .withConfigDefaults(config -> {
-                    config.setIdleTimeout(new Duration(30, SECONDS));
-                    config.setRequestTimeout(new Duration(10, SECONDS));
-                }).build());
-
-        // node scheduler
-        // TODO: remove from NodePartitioningManager and move to CoordinatorModule
+        // TODO: move to CoordinatorModule when SystemSessionProperties and DefaultCatalogFactory are moved
         configBinder(binder).bindConfig(NodeSchedulerConfig.class);
-        binder.bind(NodeScheduler.class).in(Scopes.SINGLETON);
-        binder.bind(NodeTaskMap.class).in(Scopes.SINGLETON);
-        newExporter(binder).export(NodeScheduler.class).withGeneratedName();
-
-        // network topology
-        // TODO: move to CoordinatorModule when NodeScheduler is moved
-        install(conditionalModule(
-                NodeSchedulerConfig.class,
-                config -> UNIFORM == config.getNodeSchedulerPolicy(),
-                new UniformNodeSelectorModule()));
-        install(conditionalModule(
-                NodeSchedulerConfig.class,
-                config -> TOPOLOGY == config.getNodeSchedulerPolicy(),
-                new TopologyAwareNodeSelectorModule()));
 
         // task execution
         newOptionalBinder(binder, FailureInjector.class).setDefault().to(NoOpFailureInjector.class).in(Scopes.SINGLETON);
@@ -310,8 +277,6 @@ public class ServerMainModule
         newExporter(binder).export(PageFunctionCompiler.class).withGeneratedName();
         binder.bind(ColumnarFilterCompiler.class).in(Scopes.SINGLETON);
         newExporter(binder).export(ColumnarFilterCompiler.class).withGeneratedName();
-        binder.bind(CursorProcessorCompiler.class).in(Scopes.SINGLETON);
-        newExporter(binder).export(CursorProcessorCompiler.class).withGeneratedName();
         configBinder(binder).bindConfig(TaskManagerConfig.class);
 
         // TODO: use conditional module
@@ -430,8 +395,8 @@ public class ServerMainModule
         // split manager
         binder.bind(SplitManager.class).in(Scopes.SINGLETON);
 
-        // node partitioning manager
-        binder.bind(NodePartitioningManager.class).in(Scopes.SINGLETON);
+        // partitioning function provider
+        binder.bind(PartitionFunctionProvider.class).in(Scopes.SINGLETON);
 
         // index manager
         binder.bind(IndexManager.class).in(Scopes.SINGLETON);
@@ -446,17 +411,15 @@ public class ServerMainModule
         jsonBinder(binder).addSerializerBinding(Slice.class).to(SliceSerializer.class);
         jsonBinder(binder).addDeserializerBinding(Slice.class).to(SliceDeserializer.class);
 
-        // split monitor
-        binder.bind(SplitMonitor.class).in(Scopes.SINGLETON);
+        // configurable DataSize serialization
+        jsonBinder(binder).addSerializerBinding(DataSize.class).to(DataSizeSerializer.class);
 
-        // version and announcement
+        // node version
         binder.bind(NodeVersion.class).toInstance(new NodeVersion(nodeVersion));
-        discoveryBinder(binder).bindHttpAnnouncement("trino")
-                .addProperty("node_version", nodeVersion)
-                .addProperty("coordinator", String.valueOf(serverConfig.isCoordinator()));
 
         // server info resource
         jaxrsBinder(binder).bind(ServerInfoResource.class);
+        newOptionalBinder(binder, QueryIdGenerator.class);
 
         // node status resource
         jaxrsBinder(binder).bind(StatusResource.class);
@@ -510,6 +473,22 @@ public class ServerMainModule
         closingBinder(binder).registerExecutor(Key.get(ScheduledExecutorService.class, ForExchange.class));
         closingBinder(binder).registerExecutor(Key.get(ExecutorService.class, ForAsyncHttp.class));
         closingBinder(binder).registerExecutor(Key.get(ScheduledExecutorService.class, ForAsyncHttp.class));
+    }
+
+    @Provides
+    @Singleton
+    public static InternalNode currentInternalNode(
+            NodeInfo nodeInfo,
+            HttpServerInfo httpServerInfo,
+            NodeVersion nodeVersion,
+            ServerConfig serverConfig,
+            InternalCommunicationConfig internalCommunicationConfig)
+    {
+        return new InternalNode(
+                nodeInfo.getNodeId(),
+                internalCommunicationConfig.isHttpsRequired() ? httpServerInfo.getHttpsUri() : httpServerInfo.getHttpUri(),
+                nodeVersion,
+                serverConfig.isCoordinator());
     }
 
     private static class RegisterFunctionBundles
@@ -566,9 +545,7 @@ public class ServerMainModule
         if (!config.isConcurrentStartup()) {
             return directExecutor();
         }
-        return new BoundedExecutor(
-                newCachedThreadPool(daemonThreadsNamed("startup-%s")),
-                Runtime.getRuntime().availableProcessors());
+        return newThreadPerTaskExecutor(virtualThreadsNamed("startup#v%s"));
     }
 
     @Provides

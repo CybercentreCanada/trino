@@ -156,8 +156,6 @@ final class TestHttpServerEventListener
                 0L,
                 0L,
                 0L,
-                0L,
-                0L,
                 0.0f,
                 Collections.emptyList(),
                 0,
@@ -169,6 +167,7 @@ final class TestHttpServerEventListener
                 Collections.emptyList(),
                 Collections.emptyList(),
                 Collections.emptyList(),
+                ImmutableMap.of(),
                 Optional.empty());
 
         queryCompleteEvent = new QueryCompletedEvent(

@@ -23,7 +23,6 @@ import io.trino.spi.block.BlockBuilderStatus;
 import io.trino.spi.block.Int128ArrayBlock;
 import io.trino.spi.block.Int128ArrayBlockBuilder;
 import io.trino.spi.block.PageBuilderStatus;
-import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.function.BlockIndex;
 import io.trino.spi.function.BlockPosition;
 import io.trino.spi.function.FlatFixed;
@@ -114,7 +113,7 @@ public class IpAddressType
     }
 
     @Override
-    public Object getObjectValue(ConnectorSession session, Block block, int position)
+    public Object getObjectValue(Block block, int position)
     {
         if (block.isNull(position)) {
             return null;
@@ -124,25 +123,6 @@ public class IpAddressType
         }
         catch (UnknownHostException e) {
             throw new IllegalArgumentException();
-        }
-    }
-
-    @Override
-    public void appendTo(Block block, int position, BlockBuilder blockBuilder)
-    {
-        appendTo(
-                (Int128ArrayBlock) block.getUnderlyingValueBlock(),
-                block.getUnderlyingValuePosition(position),
-                (Int128ArrayBlockBuilder) blockBuilder);
-    }
-
-    private void appendTo(Int128ArrayBlock block, int position, Int128ArrayBlockBuilder blockBuilder)
-    {
-        if (block.isNull(position)) {
-            blockBuilder.appendNull();
-        }
-        else {
-            blockBuilder.writeInt128(block.getInt128High(position), block.getInt128Low(position));
         }
     }
 

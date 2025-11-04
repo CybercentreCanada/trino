@@ -16,9 +16,11 @@ package io.trino.spi.eventlistener;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.trino.spi.Unstable;
+import io.trino.spi.metrics.Metrics;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -56,8 +58,6 @@ public class QueryStatistics
     private final long processedInputRows;
     private final long internalNetworkBytes;
     private final long internalNetworkRows;
-    private final long totalBytes;
-    private final long totalRows;
     private final long outputBytes;
     private final long outputRows;
     private final long writtenBytes;
@@ -84,6 +84,7 @@ public class QueryStatistics
      */
     private final Supplier<List<String>> operatorSummariesProvider;
     private final List<QueryPlanOptimizerStatistics> optimizerRulesSummaries;
+    private final Map<String, Metrics> catalogMetadataMetrics;
     /**
      * Plan node stats and costs serialized to JSON. Serialization format and structure
      * can change without preserving backward compatibility.
@@ -119,8 +120,6 @@ public class QueryStatistics
             long processedInputRows,
             long internalNetworkBytes,
             long internalNetworkRows,
-            long totalBytes,
-            long totalRows,
             long outputBytes,
             long outputRows,
             long writtenBytes,
@@ -138,6 +137,7 @@ public class QueryStatistics
             List<DynamicFilterDomainStatistics> dynamicFilterDomainStatistics,
             List<String> operatorSummaries,
             List<QueryPlanOptimizerStatistics> optimizerRulesSummaries,
+            Map<String, Metrics> catalogMetadataMetrics,
             Optional<String> planNodeStatsAndCosts)
     {
         this(
@@ -167,8 +167,6 @@ public class QueryStatistics
                 processedInputRows,
                 internalNetworkBytes,
                 internalNetworkRows,
-                totalBytes,
-                totalRows,
                 outputBytes,
                 outputRows,
                 writtenBytes,
@@ -186,6 +184,7 @@ public class QueryStatistics
                 dynamicFilterDomainStatistics,
                 () -> operatorSummaries,
                 optimizerRulesSummaries,
+                catalogMetadataMetrics,
                 planNodeStatsAndCosts);
     }
 
@@ -216,8 +215,6 @@ public class QueryStatistics
             long processedInputRows,
             long internalNetworkBytes,
             long internalNetworkRows,
-            long totalBytes,
-            long totalRows,
             long outputBytes,
             long outputRows,
             long writtenBytes,
@@ -235,6 +232,7 @@ public class QueryStatistics
             List<DynamicFilterDomainStatistics> dynamicFilterDomainStatistics,
             Supplier<List<String>> operatorSummariesProvider,
             List<QueryPlanOptimizerStatistics> optimizerRulesSummaries,
+            Map<String, Metrics> catalogMetadataMetrics,
             Optional<String> planNodeStatsAndCosts)
     {
         this.cpuTime = requireNonNull(cpuTime, "cpuTime is null");
@@ -263,8 +261,6 @@ public class QueryStatistics
         this.processedInputRows = processedInputRows;
         this.internalNetworkBytes = internalNetworkBytes;
         this.internalNetworkRows = internalNetworkRows;
-        this.totalBytes = totalBytes;
-        this.totalRows = totalRows;
         this.outputBytes = outputBytes;
         this.outputRows = outputRows;
         this.writtenBytes = writtenBytes;
@@ -282,6 +278,7 @@ public class QueryStatistics
         this.dynamicFilterDomainStatistics = requireNonNull(dynamicFilterDomainStatistics, "dynamicFilterDomainStatistics is null");
         this.operatorSummariesProvider = requireNonNull(operatorSummariesProvider, "operatorSummariesProvider is null");
         this.optimizerRulesSummaries = requireNonNull(optimizerRulesSummaries, "optimizerRulesSummaries is null");
+        this.catalogMetadataMetrics = requireNonNull(catalogMetadataMetrics, "catalogMetadataMetrics is null");
         this.planNodeStatsAndCosts = requireNonNull(planNodeStatsAndCosts, "planNodeStatsAndCosts is null");
     }
 
@@ -442,18 +439,6 @@ public class QueryStatistics
     }
 
     @JsonProperty
-    public long getTotalBytes()
-    {
-        return totalBytes;
-    }
-
-    @JsonProperty
-    public long getTotalRows()
-    {
-        return totalRows;
-    }
-
-    @JsonProperty
     public long getOutputBytes()
     {
         return outputBytes;
@@ -553,6 +538,12 @@ public class QueryStatistics
     public List<QueryPlanOptimizerStatistics> getOptimizerRulesSummaries()
     {
         return optimizerRulesSummaries;
+    }
+
+    @JsonProperty
+    public Map<String, Metrics> getCatalogMetadataMetrics()
+    {
+        return catalogMetadataMetrics;
     }
 
     @JsonProperty

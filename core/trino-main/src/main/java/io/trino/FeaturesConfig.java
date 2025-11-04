@@ -104,7 +104,7 @@ public class FeaturesConfig
     private boolean spillEnabled;
     private DataSize aggregationOperatorUnspillMemoryLimit = DataSize.of(4, DataSize.Unit.MEGABYTE);
     private List<Path> spillerSpillPaths = ImmutableList.of();
-    private int spillerThreads = 4;
+    private Integer spillerThreads;
     private double spillMaxUsedSpaceThreshold = 0.9;
     private double memoryRevokingTarget = 0.5;
     private double memoryRevokingThreshold = 0.9;
@@ -122,6 +122,8 @@ public class FeaturesConfig
     private boolean columnarFilterEvaluationEnabled = true;
 
     private boolean faultTolerantExecutionExchangeEncryptionEnabled = true;
+
+    private boolean legacyArithmeticDecimalOperators;
 
     public enum DataIntegrityVerification
     {
@@ -287,6 +289,10 @@ public class FeaturesConfig
     @Min(1)
     public int getSpillerThreads()
     {
+        if (spillerThreads == null) {
+            // Higher default concurrency allows to saturate spill disks better in case of multiple spill locations.
+            return Math.max(spillerSpillPaths.size() * 2, 4);
+        }
         return spillerThreads;
     }
 
@@ -518,5 +524,17 @@ public class FeaturesConfig
     public void applyFaultTolerantExecutionDefaults()
     {
         exchangeCompressionCodec = LZ4;
+    }
+
+    public boolean isLegacyArithmeticDecimalOperators()
+    {
+        return legacyArithmeticDecimalOperators;
+    }
+
+    @Config("deprecated.legacy-arithmetic-decimal-operators")
+    public FeaturesConfig setLegacyArithmeticDecimalOperators(boolean value)
+    {
+        this.legacyArithmeticDecimalOperators = value;
+        return this;
     }
 }

@@ -34,11 +34,9 @@ import io.trino.plugin.hive.orc.OrcReaderConfig;
 import io.trino.plugin.hive.orc.OrcWriterConfig;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
 import io.trino.plugin.hive.parquet.ParquetWriterConfig;
-import io.trino.plugin.iceberg.catalog.rest.DefaultIcebergFileSystemFactory;
 import io.trino.spi.Page;
 import io.trino.spi.SplitWeight;
 import io.trino.spi.block.BlockBuilder;
-import io.trino.spi.connector.CatalogHandle;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorPageSource;
 import io.trino.spi.connector.DynamicFilter;
@@ -74,6 +72,7 @@ import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
 import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.plugin.iceberg.ColumnIdentity.TypeCategory.PRIMITIVE;
 import static io.trino.plugin.iceberg.IcebergFileFormat.ORC;
+import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
 import static io.trino.plugin.iceberg.util.OrcTypeConverter.toOrcType;
 import static io.trino.spi.type.DateType.DATE;
 import static io.trino.spi.type.Decimals.writeShortDecimal;
@@ -99,11 +98,11 @@ public class TestIcebergNodeLocalDynamicSplitPruning
         String tableName = "unpartitioned_table";
         String keyColumnName = "a_integer";
         ColumnIdentity keyColumnIdentity = new ColumnIdentity(1, keyColumnName, PRIMITIVE, ImmutableList.of());
-        IcebergColumnHandle keyColumnHandle = new IcebergColumnHandle(keyColumnIdentity, INTEGER, ImmutableList.of(), INTEGER, true, Optional.empty());
+        IcebergColumnHandle keyColumnHandle = IcebergColumnHandle.optional(keyColumnIdentity).columnType(INTEGER).build();
         int keyColumnValue = 42;
         String dataColumnName = "a_varchar";
         ColumnIdentity dataColumnIdentity = new ColumnIdentity(2, dataColumnName, PRIMITIVE, ImmutableList.of());
-        IcebergColumnHandle dataColumnHandle = new IcebergColumnHandle(dataColumnIdentity, VARCHAR, ImmutableList.of(), VARCHAR, true, Optional.empty());
+        IcebergColumnHandle dataColumnHandle = IcebergColumnHandle.optional(dataColumnIdentity).columnType(VARCHAR).build();
         String dataColumnValue = "hello world";
         Schema tableSchema = new Schema(
                 optional(keyColumnIdentity.getId(), keyColumnName, Types.IntegerType.get()),
@@ -157,7 +156,6 @@ public class TestIcebergNodeLocalDynamicSplitPruning
             TableHandle tableHandle = new TableHandle(
                     TEST_CATALOG_HANDLE,
                     new IcebergTableHandle(
-                            CatalogHandle.fromId("iceberg:NORMAL:v12345"),
                             "test_schema",
                             tableName,
                             TableType.DATA,
@@ -218,7 +216,6 @@ public class TestIcebergNodeLocalDynamicSplitPruning
             tableHandle = new TableHandle(
                     TEST_CATALOG_HANDLE,
                     new IcebergTableHandle(
-                            CatalogHandle.fromId("iceberg:NORMAL:v12345"),
                             "test_schema",
                             tableName,
                             TableType.DATA,
@@ -261,16 +258,16 @@ public class TestIcebergNodeLocalDynamicSplitPruning
         String tableName = "sales_table";
         String dateColumnName = "date";
         ColumnIdentity dateColumnIdentity = new ColumnIdentity(1, dateColumnName, PRIMITIVE, ImmutableList.of());
-        IcebergColumnHandle dateColumnHandle = new IcebergColumnHandle(dateColumnIdentity, DATE, ImmutableList.of(), DATE, true, Optional.empty());
+        IcebergColumnHandle dateColumnHandle = IcebergColumnHandle.optional(dateColumnIdentity).columnType(DATE).build();
         long dateColumnValue = LocalDate.of(2023, 1, 10).toEpochDay();
         String receiptColumnName = "receipt";
         ColumnIdentity receiptColumnIdentity = new ColumnIdentity(2, receiptColumnName, PRIMITIVE, ImmutableList.of());
-        IcebergColumnHandle receiptColumnHandle = new IcebergColumnHandle(receiptColumnIdentity, VARCHAR, ImmutableList.of(), VARCHAR, true, Optional.empty());
+        IcebergColumnHandle receiptColumnHandle = IcebergColumnHandle.optional(receiptColumnIdentity).columnType(VARCHAR).build();
         String receiptColumnValue = "#12345";
         String amountColumnName = "amount";
         ColumnIdentity amountColumnIdentity = new ColumnIdentity(3, amountColumnName, PRIMITIVE, ImmutableList.of());
         DecimalType amountColumnType = DecimalType.createDecimalType(10, 2);
-        IcebergColumnHandle amountColumnHandle = new IcebergColumnHandle(amountColumnIdentity, amountColumnType, ImmutableList.of(), amountColumnType, true, Optional.empty());
+        IcebergColumnHandle amountColumnHandle = IcebergColumnHandle.optional(amountColumnIdentity).columnType(amountColumnType).build();
         BigDecimal amountColumnValue = new BigDecimal("1234567.65");
         Schema tableSchema = new Schema(
                 optional(dateColumnIdentity.getId(), dateColumnName, Types.DateType.get()),
@@ -329,7 +326,6 @@ public class TestIcebergNodeLocalDynamicSplitPruning
             TableHandle tableHandle = new TableHandle(
                     TEST_CATALOG_HANDLE,
                     new IcebergTableHandle(
-                            CatalogHandle.fromId("iceberg:NORMAL:v12345"),
                             "test_schema",
                             tableName,
                             TableType.DATA,
@@ -395,7 +391,7 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                     assertThat(page.getPositionCount()).isEqualTo(1);
                     assertThat(INTEGER.getInt(page.getBlock(0), 0)).isEqualTo(dateColumnValue);
                     assertThat(VARCHAR.getSlice(page.getBlock(1), 0).toStringUtf8()).isEqualTo(receiptColumnValue);
-                    assertThat(((SqlDecimal) amountColumnType.getObjectValue(null, page.getBlock(2), 0)).toBigDecimal()).isEqualTo(amountColumnValue);
+                    assertThat(((SqlDecimal) amountColumnType.getObjectValue(page.getBlock(2), 0)).toBigDecimal()).isEqualTo(amountColumnValue);
                 }
             }
         }
@@ -408,20 +404,20 @@ public class TestIcebergNodeLocalDynamicSplitPruning
         String tableName = "sales_table";
         String yearColumnName = "year";
         ColumnIdentity yearColumnIdentity = new ColumnIdentity(1, yearColumnName, PRIMITIVE, ImmutableList.of());
-        IcebergColumnHandle yearColumnHandle = new IcebergColumnHandle(yearColumnIdentity, INTEGER, ImmutableList.of(), INTEGER, true, Optional.empty());
+        IcebergColumnHandle yearColumnHandle = IcebergColumnHandle.optional(yearColumnIdentity).columnType(INTEGER).build();
         long yearColumnValue = 2023L;
         String monthColumnName = "month";
         ColumnIdentity monthColumnIdentity = new ColumnIdentity(2, monthColumnName, PRIMITIVE, ImmutableList.of());
-        IcebergColumnHandle monthColumnHandle = new IcebergColumnHandle(monthColumnIdentity, INTEGER, ImmutableList.of(), INTEGER, true, Optional.empty());
+        IcebergColumnHandle monthColumnHandle = IcebergColumnHandle.optional(monthColumnIdentity).columnType(INTEGER).build();
         long monthColumnValue = 1L;
         String receiptColumnName = "receipt";
         ColumnIdentity receiptColumnIdentity = new ColumnIdentity(3, receiptColumnName, PRIMITIVE, ImmutableList.of());
-        IcebergColumnHandle receiptColumnHandle = new IcebergColumnHandle(receiptColumnIdentity, VARCHAR, ImmutableList.of(), VARCHAR, true, Optional.empty());
+        IcebergColumnHandle receiptColumnHandle = IcebergColumnHandle.optional(receiptColumnIdentity).columnType(VARCHAR).build();
         String receiptColumnValue = "#12345";
         String amountColumnName = "amount";
         ColumnIdentity amountColumnIdentity = new ColumnIdentity(4, amountColumnName, PRIMITIVE, ImmutableList.of());
         DecimalType amountColumnType = DecimalType.createDecimalType(10, 2);
-        IcebergColumnHandle amountColumnHandle = new IcebergColumnHandle(amountColumnIdentity, amountColumnType, ImmutableList.of(), amountColumnType, true, Optional.empty());
+        IcebergColumnHandle amountColumnHandle = IcebergColumnHandle.optional(amountColumnIdentity).columnType(amountColumnType).build();
         BigDecimal amountColumnValue = new BigDecimal("1234567.65");
         Schema tableSchema = new Schema(
                 optional(yearColumnIdentity.getId(), yearColumnName, Types.IntegerType.get()),
@@ -485,7 +481,6 @@ public class TestIcebergNodeLocalDynamicSplitPruning
             TableHandle tableHandle = new TableHandle(
                     TEST_CATALOG_HANDLE,
                     new IcebergTableHandle(
-                            CatalogHandle.fromId("iceberg:NORMAL:v12345"),
                             "test_schema",
                             tableName,
                             TableType.DATA,
@@ -561,7 +556,7 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                     assertThat(INTEGER.getInt(page.getBlock(0), 0)).isEqualTo(2023L);
                     assertThat(INTEGER.getInt(page.getBlock(1), 0)).isEqualTo(1L);
                     assertThat(VARCHAR.getSlice(page.getBlock(2), 0).toStringUtf8()).isEqualTo(receiptColumnValue);
-                    assertThat(((SqlDecimal) amountColumnType.getObjectValue(null, page.getBlock(3), 0)).toBigDecimal()).isEqualTo(amountColumnValue);
+                    assertThat(((SqlDecimal) amountColumnType.getObjectValue(page.getBlock(3), 0)).toBigDecimal()).isEqualTo(amountColumnValue);
                 }
             }
         }
@@ -578,6 +573,7 @@ public class TestIcebergNodeLocalDynamicSplitPruning
         FileFormatDataSourceStats stats = new FileFormatDataSourceStats();
         IcebergPageSourceProviderFactory factory = new IcebergPageSourceProviderFactory(
                 new DefaultIcebergFileSystemFactory(new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS)),
+                FILE_IO_FACTORY,
                 stats,
                 ORC_READER_CONFIG,
                 PARQUET_READER_CONFIG,

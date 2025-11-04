@@ -29,6 +29,7 @@ import io.trino.operator.BlockedReason;
 import io.trino.operator.OperatorStats;
 import io.trino.operator.PipelineStats;
 import io.trino.operator.TaskStats;
+import io.trino.plugin.base.metrics.DistributionSnapshot;
 import io.trino.plugin.base.metrics.TDigestHistogram;
 import io.trino.spi.eventlistener.StageGcStatistics;
 import io.trino.spi.metrics.Metrics;
@@ -37,8 +38,8 @@ import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.tracing.TrinoAttributes;
 import io.trino.util.Failures;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
-import org.joda.time.DateTime;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -90,7 +91,7 @@ public class StageStateMachine
     private final Span stageSpan;
     private final AtomicReference<ExecutionFailureInfo> failureCause = new AtomicReference<>();
 
-    private final AtomicReference<DateTime> schedulingComplete = new AtomicReference<>();
+    private final AtomicReference<Instant> schedulingComplete = new AtomicReference<>();
     private final Map<PlanNodeId, Distribution> getSplitDistribution = new ConcurrentHashMap<>();
     private final Map<PlanNodeId, Metrics> splitSourceMetrics = new ConcurrentHashMap<>();
 
@@ -121,7 +122,7 @@ public class StageStateMachine
 
         stageSpan = tracer.spanBuilder("stage")
                 .setParent(Context.current().with(schedulerSpan))
-                .setAttribute(TrinoAttributes.QUERY_ID, stageId.getQueryId().toString())
+                .setAttribute(TrinoAttributes.QUERY_ID, stageId.queryId().toString())
                 .setAttribute(TrinoAttributes.STAGE_ID, stageId.toString())
                 .startSpan();
 
@@ -171,7 +172,7 @@ public class StageStateMachine
 
     public boolean transitionToRunning()
     {
-        schedulingComplete.compareAndSet(null, DateTime.now());
+        schedulingComplete.compareAndSet(null, Instant.now());
         return stageState.setIf(RUNNING, currentState -> currentState != RUNNING && !currentState.isDone());
     }
 
@@ -243,11 +244,15 @@ public class StageStateMachine
 
     public void updateMemoryUsage(long deltaUserMemoryInBytes, long deltaRevocableMemoryInBytes, long deltaTotalMemoryInBytes)
     {
-        currentUserMemory.addAndGet(deltaUserMemoryInBytes);
-        currentRevocableMemory.addAndGet(deltaRevocableMemoryInBytes);
+        long currentUserMemory = this.currentUserMemory.addAndGet(deltaUserMemoryInBytes);
+        long currentRevocableMemory = this.currentRevocableMemory.addAndGet(deltaRevocableMemoryInBytes);
         currentTotalMemory.addAndGet(deltaTotalMemoryInBytes);
-        peakUserMemory.updateAndGet(currentPeakValue -> max(currentUserMemory.get(), currentPeakValue));
-        peakRevocableMemory.updateAndGet(currentPeakValue -> max(currentRevocableMemory.get(), currentPeakValue));
+        if (currentUserMemory > peakUserMemory.get()) {
+            peakUserMemory.accumulateAndGet(currentUserMemory, Math::max);
+        }
+        if (currentRevocableMemory > peakRevocableMemory.get()) {
+            peakRevocableMemory.accumulateAndGet(currentRevocableMemory, Math::max);
+        }
     }
 
     public BasicStageStats getBasicStageStats(Supplier<Iterable<TaskInfo>> taskInfosSupplier)
@@ -294,8 +299,8 @@ public class StageStateMachine
         long internalNetworkInputDataSize = 0;
         long internalNetworkInputPositions = 0;
 
-        long rawInputDataSize = 0;
-        long rawInputPositions = 0;
+        long processedInputPositions = 0;
+
         long spilledDataSize = 0;
 
         boolean fullyBlocked = true;
@@ -346,15 +351,9 @@ public class StageStateMachine
             internalNetworkInputDataSize += taskStats.getInternalNetworkInputDataSize().toBytes();
             internalNetworkInputPositions += taskStats.getInternalNetworkInputPositions();
 
-            if (fragment.containsTableScanNode()) {
-                rawInputDataSize += taskStats.getRawInputDataSize().toBytes();
-                rawInputPositions += taskStats.getRawInputPositions();
-            }
+            processedInputPositions += taskStats.getProcessedInputPositions();
 
-            spilledDataSize += taskStats.getPipelines().stream()
-                    .flatMap(pipeline -> pipeline.getOperatorSummaries().stream())
-                    .mapToLong(summary -> summary.getSpilledDataSize().toBytes())
-                    .sum();
+            spilledDataSize += taskStats.getSpilledDataSize().toBytes();
         }
 
         OptionalDouble progressPercentage = OptionalDouble.empty();
@@ -385,8 +384,8 @@ public class StageStateMachine
                 succinctBytes(internalNetworkInputDataSize),
                 internalNetworkInputPositions,
 
-                succinctBytes(rawInputDataSize),
-                rawInputPositions,
+                processedInputPositions,
+
                 succinctBytes(spilledDataSize),
 
                 cumulativeUserMemory,
@@ -440,6 +439,8 @@ public class StageStateMachine
         long peakUserMemoryReservation = peakUserMemory.get();
         long peakRevocableMemoryReservation = peakRevocableMemory.get();
 
+        long spilledDataSize = 0;
+
         long totalScheduledTime = 0;
         long failedScheduledTime = 0;
         long totalCpuTime = 0;
@@ -457,11 +458,6 @@ public class StageStateMachine
         long failedInternalNetworkInputDataSize = 0;
         long internalNetworkInputPositions = 0;
         long failedInternalNetworkInputPositions = 0;
-
-        long rawInputDataSize = 0;
-        long failedRawInputDataSize = 0;
-        long rawInputPositions = 0;
-        long failedRawInputPositions = 0;
 
         long processedInputDataSize = 0;
         long failedProcessedInputDataSize = 0;
@@ -522,6 +518,8 @@ public class StageStateMachine
                 failedCumulativeUserMemory += taskStats.getCumulativeUserMemory();
             }
 
+            spilledDataSize += taskStats.getSpilledDataSize().toBytes();
+
             totalScheduledTime += taskStats.getTotalScheduledTime().roundTo(NANOSECONDS);
             totalCpuTime += taskStats.getTotalCpuTime().roundTo(NANOSECONDS);
             totalBlockedTime += taskStats.getTotalBlockedTime().roundTo(NANOSECONDS);
@@ -540,9 +538,6 @@ public class StageStateMachine
 
             internalNetworkInputDataSize += taskStats.getInternalNetworkInputDataSize().toBytes();
             internalNetworkInputPositions += taskStats.getInternalNetworkInputPositions();
-
-            rawInputDataSize += taskStats.getRawInputDataSize().toBytes();
-            rawInputPositions += taskStats.getRawInputPositions();
 
             processedInputDataSize += taskStats.getProcessedInputDataSize().toBytes();
             processedInputPositions += taskStats.getProcessedInputPositions();
@@ -569,9 +564,6 @@ public class StageStateMachine
 
                 failedInternalNetworkInputDataSize += taskStats.getInternalNetworkInputDataSize().toBytes();
                 failedInternalNetworkInputPositions += taskStats.getInternalNetworkInputPositions();
-
-                failedRawInputDataSize += taskStats.getRawInputDataSize().toBytes();
-                failedRawInputPositions += taskStats.getRawInputPositions();
 
                 failedProcessedInputDataSize += taskStats.getProcessedInputDataSize().toBytes();
                 failedProcessedInputPositions += taskStats.getProcessedInputPositions();
@@ -628,6 +620,7 @@ public class StageStateMachine
                 succinctBytes(totalMemoryReservation),
                 succinctBytes(peakUserMemoryReservation),
                 succinctBytes(peakRevocableMemoryReservation),
+                succinctBytes(spilledDataSize),
                 succinctDuration(totalScheduledTime, NANOSECONDS),
                 succinctDuration(failedScheduledTime, NANOSECONDS),
                 succinctDuration(totalCpuTime, NANOSECONDS),
@@ -648,11 +641,6 @@ public class StageStateMachine
                 internalNetworkInputPositions,
                 failedInternalNetworkInputPositions,
 
-                succinctBytes(rawInputDataSize),
-                succinctBytes(failedRawInputDataSize),
-                rawInputPositions,
-                failedRawInputPositions,
-
                 succinctBytes(processedInputDataSize),
                 succinctBytes(failedProcessedInputDataSize),
                 processedInputPositions,
@@ -660,7 +648,7 @@ public class StageStateMachine
                 succinctDuration(inputBlockedTime, NANOSECONDS),
                 succinctDuration(failedInputBlockedTime, NANOSECONDS),
                 succinctBytes(bufferedDataSize),
-                TDigestHistogram.merge(bufferUtilizationHistograms.build()).map(DistributionSnapshot::new),
+                TDigestHistogram.merge(bufferUtilizationHistograms.build()).map(DistributionSnapshot::fromDistribution),
                 succinctBytes(outputDataSize),
                 succinctBytes(failedOutputDataSize),
                 outputPositions,
@@ -672,7 +660,7 @@ public class StageStateMachine
                 succinctBytes(failedPhysicalWrittenDataSize),
 
                 new StageGcStatistics(
-                        stageId.getId(),
+                        stageId.id(),
                         totalTasks,
                         fullGcTaskCount,
                         minFullGcSec,
