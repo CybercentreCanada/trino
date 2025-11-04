@@ -48,20 +48,22 @@ CMD [ "sleep", "infinity" ]
 ARG TRINO_VERSION
 LABEL cccs.trino.upstream.version=${TRINO_VERSION}
 
-# Install Maven 3.9.9
+ARG MAVEN_VERSION
+
+# Install Maven
 RUN mkdir -p /tmp \
     # Install additional OS packages.
     && apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends bash-completion vim wget \
     && apt-get autoremove -y && apt-get clean -y && rm -rf /var/lib/apt/lists/* \
-    # Download and install Maven 3.9.9 manually
-    && wget https://archive.apache.org/dist/maven/maven-3/3.9.9/binaries/apache-maven-3.9.9-bin.tar.gz -P /tmp \
-    && tar xzvf /tmp/apache-maven-3.9.9-bin.tar.gz -C /opt \
-    && ln -s /opt/apache-maven-3.9.9/bin/mvn /usr/bin/mvn \
+    # Download and install Maven manually
+    && wget https://archive.apache.org/dist/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz -P /tmp \
+    && tar xzvf /tmp/apache-maven-${MAVEN_VERSION}-bin.tar.gz -C /opt \
+    && ln -s /opt/apache-maven-${MAVEN_VERSION}/bin/mvn /usr/bin/mvn \
     # Install Trino CLI
-    && wget https://repo1.maven.org/maven2/io/trino/trino-cli/${TRINO_VERSION}/trino-cli-${TRINO_VERSION}-executable.jar -P /usr/local/bin \
-    && chmod +x /usr/local/bin/trino-cli-${TRINO_VERSION}-executable.jar \
-    && ln -s /usr/local/bin/trino-cli-${TRINO_VERSION}-executable.jar /usr/local/bin/trino \
+    && wget https://github.com/trinodb/trino/releases/download/${TRINO_VERSION}/trino-cli-${TRINO_VERSION} -P /usr/local/bin \
+    && chmod +x /usr/local/bin/trino-cli-${TRINO_VERSION} \
+    && ln -s /usr/local/bin/trino-cli-${TRINO_VERSION} /usr/local/bin/trino \
     # Clean up
     && rm -rf /tmp/*
 

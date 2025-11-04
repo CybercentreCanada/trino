@@ -195,19 +195,11 @@
         <dep.frontend-maven-plugin.version>1.15.4</dep.frontend-maven-plugin.version>
         <dep.frontend-node.version>v22.14.0</dep.frontend-node.version>
         <dep.frontend-npm.version>11.2.0</dep.frontend-npm.version>
-<<<<<<< HEAD
-        <dep.gib.version>4.5.4</dep.gib.version>
-        <dep.httpcore5.version>5.3.4</dep.httpcore5.version>
-        <dep.iceberg.version>1.9.1.0-SNAPSHOT</dep.iceberg.version>
-        <dep.jna.version>5.17.0</dep.jna.version>
-        <dep.jsonwebtoken.version>0.12.6</dep.jsonwebtoken.version>
-=======
         <dep.gib.version>4.5.6</dep.gib.version>
         <dep.httpcore5.version>5.3.6</dep.httpcore5.version>
-        <dep.iceberg.version>1.10.0</dep.iceberg.version>
+        <dep.iceberg.version>1.10.0.0-SNAPSHOT</dep.iceberg.version>
         <dep.jna.version>5.18.1</dep.jna.version>
         <dep.jsonwebtoken.version>0.13.0</dep.jsonwebtoken.version>
->>>>>>> tags/478
         <dep.jts.version>1.20.0</dep.jts.version>
         <dep.kafka-clients.version>4.1.0</dep.kafka-clients.version>
         <dep.okhttp.version>5.2.1</dep.okhttp.version>

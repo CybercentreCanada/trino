@@ -59,14 +59,10 @@ public class AlluxioInput
         this.inputFile = requireNonNull(inputFile, "inputFile is null");
         this.fileLength = requireNonNull(status, "status is null").getLength();
         this.statistics = requireNonNull(statistics, "statistics is null");
-<<<<<<< HEAD
         this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
         this.skipCache = skipCache;
         this.helper = new AlluxioInputHelper(tracer, inputFile.location(), cacheKey, status, cacheManager, configuration, statistics, accessStatistics);
-=======
-        this.helper = new AlluxioInputHelper(tracer, inputFile.location(), cacheKey, status, cacheManager, configuration, statistics);
         this.externalReadBytes = new AtomicLong();
->>>>>>> tags/478
     }
 
     @Override
@@ -113,11 +109,8 @@ public class AlluxioInput
         helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, aligned.length());
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, length);
         statistics.recordExternalRead(readBuffer.length);
-<<<<<<< HEAD
         accessStatistics.recordExternalRead(readBuffer.length, inputFile.location());
-=======
         externalReadBytes.addAndGet(readBuffer.length);
->>>>>>> tags/478
         return length;
     }
 

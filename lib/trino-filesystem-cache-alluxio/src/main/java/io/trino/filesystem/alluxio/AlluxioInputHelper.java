@@ -61,9 +61,6 @@ public class AlluxioInputHelper
     private long bufferStartPosition;
     private long bufferEndPosition;
 
-<<<<<<< HEAD
-    public AlluxioInputHelper(Tracer tracer, Location location, String cacheKey, URIStatus status, CacheManager cacheManager, AlluxioConfiguration configuration, AlluxioCacheStats statistics, AlluxioAccessStats accessStatistics)
-=======
     public AlluxioInputHelper(
             Tracer tracer,
             Location location,
@@ -71,8 +68,8 @@ public class AlluxioInputHelper
             URIStatus status,
             CacheManager cacheManager,
             AlluxioConfiguration configuration,
-            AlluxioCacheStats statistics)
->>>>>>> tags/478
+            AlluxioCacheStats statistics,
+            AlluxioAccessStats accessStatistics)
     {
         this.tracer = requireNonNull(tracer, "tracer is null");
         this.status = requireNonNull(status, "status is null");
@@ -137,11 +134,8 @@ public class AlluxioInputHelper
         }
         int bytesRead = length - remainingLength;
         statistics.recordCacheRead(bytesRead);
-<<<<<<< HEAD
         accessStatistics.recordCacheRead(bytesRead, location);
-=======
         cacheReadBytes.addAndGet(bytesRead);
->>>>>>> tags/478
         return bytesRead;
     }
 

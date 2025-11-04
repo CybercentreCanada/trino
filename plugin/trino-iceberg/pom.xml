@@ -40,12 +40,6 @@
             <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-aws</artifactId>
             <version>${dep.iceberg.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.jspecify</groupId>
-                    <artifactId>jspecify</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
 
         <dependency>
@@ -250,40 +244,6 @@
         </dependency>
 
         <dependency>
-<<<<<<< HEAD
-=======
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-api</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-aws</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-nessie</artifactId>
-            <version>${dep.iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-parquet</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-snowflake</artifactId>
-        </dependency>
-
-        <dependency>
->>>>>>> tags/478
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-column</artifactId>
         </dependency>
