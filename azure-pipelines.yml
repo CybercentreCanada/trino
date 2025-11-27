@@ -22,6 +22,7 @@ jobs:
       - checkout: none
       - bash: |
           mkdir -p ${{ variables.m2RepoNodePath }}
+          mkdir -p /root/.m2
         displayName: Create required directories
 
   - job: ContainerBuild
@@ -37,13 +38,14 @@ jobs:
       DOCKER_BUILDKIT: 1
       MAVEN_INSTALL_OPTS: "-Xmx4G -XX:+ExitOnOutOfMemoryError"
       MAVEN_FAST_INSTALL: "-B -V -T 1C -DskipTests -Dmaven.source.skip=true"
-      SKIPPED_PROJECTS: "!:trino-docs,!:trino-blackhole,!:trino-duckdb,!:trino-exasol,!:trino-faker,!:trino-hdfs,!:trino-hive,!:trino-hudi,!:trino-ignite,!:trino-kafka,!:trino-kafka-event-listener,!:trino-loki,!:trino-pinot,!:trino-ranger,!:trino-snowflake,!:trino-google-sheets,!:trino-druid,!:trino-exchange-hdfs,!:trino-openlineage,!:trino-thrift-api,!:trino-thrift-testing-server,!:trino-thrift,!:trino-clickhouse,!:trino-vertica,!:trino-singlestore,!:trino-teradata-functions,!:trino-elasticsearch,!:trino-bigquery,!:trino-testing-resources,!:trino-delta-lake,!:trino-prometheus,!:trino-cassandra,!:trino-sqlserver,!:trino-mariadb,!:trino-redis,!:trino-redshift,!:trino-example-jdbc,!:trino-proxy,!:trino-verifier,!:trino-benchmark-queries,!:trino-benchto-benchmarks,!:trino-tests,!:trino-faulttolerant-tests,!:trino-plugin-reader,!:trino-product-tests-groups,!:trino-product-tests,!:trino-product-tests-launcher,!:trino-server-dev,!:trino-test-jdbc-compatibility-old-driver,!:trino-test-jdbc-compatibility-old-server,!:trino-testing-services,!:trino-testing,!:trino-testing-containers,!:trino-testing-kafka"
+      SKIPPED_PROJECTS: "!:trino-docs,!:trino-duckdb,!:trino-exasol,!:trino-faker,!:trino-hdfs,!:trino-hive,!:trino-hudi,!:trino-ignite,!:trino-kafka,!:trino-kafka-event-listener,!:trino-lakehouse,!:trino-loki,!:trino-pinot,!:trino-ranger,!:trino-snowflake,!:trino-google-sheets,!:trino-druid,!:trino-exchange-hdfs,!:trino-openlineage,!:trino-thrift-api,!:trino-thrift-testing-server,!:trino-thrift,!:trino-clickhouse,!:trino-vertica,!:trino-singlestore,!:trino-teradata-functions,!:trino-elasticsearch,!:trino-bigquery,!:trino-testing-resources,!:trino-delta-lake,!:trino-prometheus,!:trino-cassandra,!:trino-sqlserver,!:trino-mariadb,!:trino-redis,!:trino-redshift,!:trino-example-jdbc,!:trino-proxy,!:trino-verifier,!:trino-benchmark-queries,!:trino-benchto-benchmarks,!:trino-tests,!:trino-faulttolerant-tests,!:trino-plugin-reader,!:trino-product-tests-groups,!:trino-product-tests,!:trino-product-tests-launcher,!:trino-server-dev,!:trino-test-jdbc-compatibility-old-driver,!:trino-test-jdbc-compatibility-old-server,!:trino-testing-services,!:trino-testing,!:trino-testing-containers,!:trino-testing-kafka"
     container:
-      image: uchimera.azurecr.io/cccs/dev/trino-build:476_trino-476_20250606193353_b12470
-      options: --entrypoint="" --user=0
+      image: uchimera.azurecr.io/cccs/dev/trino-build:478_trino-478-merge-fixes
+      options: --entrypoint="" --user=0 -e M2_STRATUS_TOKEN
       endpoint: uchimera
       volumes:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
+        - "/root/.m2/settings.xml:/root/.m2/settings.xml"
     steps:
       - task: Bash@3
         displayName: Parse Source Control Branch Name
@@ -52,17 +54,16 @@ jobs:
           script: |
             BRANCH_NAME=$(echo "$SYSTEM_PULLREQUEST_SOURCEBRANCH $BUILD_SOURCEBRANCH" | sed -r 's/^\s*(refs\/heads\/)?(\S*).*$/\2/' | sed 's/\//_/g')
             echo "##vso[task.setvariable variable=BRANCH_NAME]$BRANCH_NAME"
-      - task: MavenAuthenticate@0
-        displayName: Authenticate to cccs-stratus Feed
-        inputs:
-          mavenServiceConnections: cccs-stratus
+            echo "##vso[task.setvariable variable=M2_STRATUS_TOKEN;issecret=true]$M2_STRATUS_TOKEN"
       - task: Bash@3
         displayName: Maven build
         inputs:
           targetType: 'inline'
           script: |
             export MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
-            $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
+            $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -U -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }} -s /root/.m2/settings.xml -Pcccs-stratus,cccs-trino
+        env:
+          M2_CCCS_TRINO_TOKEN: $(System.AccessToken)
         condition: ne('${{ parameters.skipChecks }}', true)
       - task: Bash@3
         displayName: Maven build without checks
@@ -70,7 +71,9 @@ jobs:
           targetType: 'inline'
           script: |
             export MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
-            $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -Dair.check.skip-all -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }}
+            $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -U -Dair.check.skip-all -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }} -s /root/.m2/settings.xml -Pcccs-stratus,cccs-trino
+        env:
+          M2_CCCS_TRINO_TOKEN: $(System.AccessToken)
         condition: eq('${{ parameters.skipChecks }}', true)
       - task: Docker@2
         displayName: Login to ${{ variables.containerRegistry }}
