@@ -43,7 +43,9 @@ export const Texts = {
         Forbidden: 'Forbidden',
         Network: 'The network has wandered off, please try again later!',
         NodeInformationNotLoaded: 'Node information could not be loaded',
+        QueryInformationNotLoaded: 'Query information could not be loaded',
         QueryListNotLoaded: 'Query list could not be loaded',
+        QueryNotFound: 'Query not found',
     },
     Menu: {
         Header: {
@@ -51,6 +53,7 @@ export const Texts = {
             Settings: 'Settings',
             Profile: 'Profile',
             Logout: 'Logout',
+            ClassicUi: 'Classic UI',
         },
         Drawer: {
             Dashboard: 'Dashboard',
@@ -65,7 +68,7 @@ export const Texts = {
         Filter: {
             Search: 'Search',
             SearchPlaceholder:
-                'User, source, query ID, query state, resource group, error name, query text or client tags',
+                'User, source, query ID, state, resource group, error name, query text, client tags or trace token',
             State: 'State',
             Type: {
                 RUNNING: 'Running',

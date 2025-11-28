@@ -26,6 +26,8 @@ import io.trino.plugin.deltalake.cache.DeltaLakeCacheKeyProvider;
 import io.trino.plugin.deltalake.functions.tablechanges.TableChangesFunctionProvider;
 import io.trino.plugin.deltalake.functions.tablechanges.TableChangesProcessorProvider;
 import io.trino.plugin.deltalake.metastore.DeltaLakeTableMetadataScheduler;
+import io.trino.plugin.deltalake.metastore.NoOpVendedCredentialsProvider;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsProvider;
 import io.trino.plugin.deltalake.procedure.DropExtendedStatsProcedure;
 import io.trino.plugin.deltalake.procedure.FlushMetadataCacheProcedure;
 import io.trino.plugin.deltalake.procedure.OptimizeTableProcedure;
@@ -41,6 +43,9 @@ import io.trino.plugin.deltalake.transactionlog.TransactionLogAccess;
 import io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointSchemaManager;
 import io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointWriterManager;
 import io.trino.plugin.deltalake.transactionlog.checkpoint.LastCheckpoint;
+import io.trino.plugin.deltalake.transactionlog.reader.FileSystemTransactionLogReaderFactory;
+import io.trino.plugin.deltalake.transactionlog.reader.TransactionLogReaderFactory;
+import io.trino.plugin.deltalake.transactionlog.writer.FileSystemTransactionLogWriterFactory;
 import io.trino.plugin.deltalake.transactionlog.writer.NoIsolationSynchronizer;
 import io.trino.plugin.deltalake.transactionlog.writer.TransactionLogSynchronizer;
 import io.trino.plugin.deltalake.transactionlog.writer.TransactionLogSynchronizerManager;
@@ -113,7 +118,10 @@ public class DeltaLakeModule
         newExporter(binder).export(DeltaLakeTableMetadataScheduler.class)
                 .as(generator -> generator.generatedNameOf(DeltaLakeTableMetadataScheduler.class, catalogName.get().toString()));
 
-        binder.bind(TransactionLogWriterFactory.class).in(Scopes.SINGLETON);
+        newOptionalBinder(binder, TransactionLogReaderFactory.class)
+                .setDefault().to(FileSystemTransactionLogReaderFactory.class).in(Scopes.SINGLETON);
+        newOptionalBinder(binder, TransactionLogWriterFactory.class)
+                .setDefault().to(FileSystemTransactionLogWriterFactory.class).in(Scopes.SINGLETON);
         binder.bind(TransactionLogSynchronizerManager.class).in(Scopes.SINGLETON);
         binder.bind(NoIsolationSynchronizer.class).in(Scopes.SINGLETON);
         newMapBinder(binder, String.class, TransactionLogSynchronizer.class);
@@ -140,6 +148,9 @@ public class DeltaLakeModule
         binder.bind(TableChangesProcessorProvider.class).in(Scopes.SINGLETON);
 
         newOptionalBinder(binder, CacheKeyProvider.class).setBinding().to(DeltaLakeCacheKeyProvider.class).in(Scopes.SINGLETON);
+
+        newOptionalBinder(binder, DeltaLakeFileSystemFactory.class).setDefault().to(DefaultDeltaLakeFileSystemFactory.class).in(Scopes.SINGLETON);
+        newOptionalBinder(binder, VendedCredentialsProvider.class).setDefault().to(NoOpVendedCredentialsProvider.class).in(Scopes.SINGLETON);
 
         binder.install(new DeltaLakeExecutorModule());
     }

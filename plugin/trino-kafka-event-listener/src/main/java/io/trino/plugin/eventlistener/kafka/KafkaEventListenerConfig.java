@@ -19,6 +19,7 @@ import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.DefunctConfig;
 import io.airlift.configuration.validation.FileExists;
+import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.airlift.units.MinDuration;
 import jakarta.validation.constraints.AssertTrue;
@@ -33,21 +34,27 @@ import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static io.airlift.units.DataSize.Unit.KILOBYTE;
+import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
-@DefunctConfig("kafka-event-listener.client-config-overrides")
+@DefunctConfig({
+        "kafka-event-listener.client-config-overrides",
+        "kafka-event-listener.publish-split-completed-event",
+        "kafka-event-listener.split-completed-event.topic",
+})
 public class KafkaEventListenerConfig
 {
     private boolean anonymizationEnabled;
     private boolean publishCreatedEvent = true;
     private boolean publishCompletedEvent = true;
-    private boolean publishSplitCompletedEvent;
     private Optional<String> completedTopicName = Optional.empty();
     private Optional<String> createdTopicName = Optional.empty();
-    private Optional<String> splitCompletedTopicName = Optional.empty();
     private String brokerEndpoints;
     private Optional<String> clientId = Optional.empty();
+    private DataSize maxRequestSize = DataSize.of(5, MEGABYTE); // Greater than default value because the size of completed events are quite large
+    private DataSize batchSize = DataSize.of(16, KILOBYTE); // Default value of batch.size
     private Set<String> excludedFields = Collections.emptySet();
     private Duration requestTimeout = new Duration(10, SECONDS);
     private boolean terminateOnInitializationFailure = true;
@@ -91,6 +98,32 @@ public class KafkaEventListenerConfig
         return this;
     }
 
+    public DataSize getMaxRequestSize()
+    {
+        return maxRequestSize;
+    }
+
+    @ConfigDescription("The maximum size of a request/message in bytes")
+    @Config("kafka-event-listener.max-request-size")
+    public KafkaEventListenerConfig setMaxRequestSize(DataSize maxRequestSize)
+    {
+        this.maxRequestSize = maxRequestSize;
+        return this;
+    }
+
+    public DataSize getBatchSize()
+    {
+        return batchSize;
+    }
+
+    @ConfigDescription("Value that specifies the size to batch before sending records to Kafka")
+    @Config("kafka-event-listener.batch-size")
+    public KafkaEventListenerConfig setBatchSize(DataSize batchSize)
+    {
+        this.batchSize = batchSize;
+        return this;
+    }
+
     public Optional<String> getCompletedTopicName()
     {
         return completedTopicName;
@@ -112,18 +145,6 @@ public class KafkaEventListenerConfig
     public KafkaEventListenerConfig setCreatedTopicName(String createdTopicName)
     {
         this.createdTopicName = Optional.ofNullable(createdTopicName);
-        return this;
-    }
-
-    public Optional<String> getSplitCompletedTopicName()
-    {
-        return splitCompletedTopicName;
-    }
-
-    @Config("kafka-event-listener.split-completed-event.topic")
-    public KafkaEventListenerConfig setSplitCompletedTopicName(String splitCompletedTopicName)
-    {
-        this.splitCompletedTopicName = Optional.ofNullable(splitCompletedTopicName);
         return this;
     }
 
@@ -150,19 +171,6 @@ public class KafkaEventListenerConfig
     public KafkaEventListenerConfig setPublishCompletedEvent(boolean publishCompletedEvent)
     {
         this.publishCompletedEvent = publishCompletedEvent;
-        return this;
-    }
-
-    public boolean getPublishSplitCompletedEvent()
-    {
-        return publishSplitCompletedEvent;
-    }
-
-    @ConfigDescription("Whether to publish io.trino.spi.eventlistener.SplitCompletedEvent")
-    @Config("kafka-event-listener.publish-split-completed-event")
-    public KafkaEventListenerConfig setPublishSplitCompletedEvent(boolean publishSplitCompletedEvent)
-    {
-        this.publishSplitCompletedEvent = publishSplitCompletedEvent;
         return this;
     }
 
@@ -248,11 +256,5 @@ public class KafkaEventListenerConfig
     public boolean isCompletedTopicNamePresent()
     {
         return !publishCompletedEvent || !completedTopicName.orElse("").isBlank();
-    }
-
-    @AssertTrue(message = "Split completed topic name must be configured when publishing split completed events is enabled.")
-    public boolean isSplitCompletedTopicNamePresent()
-    {
-        return !publishSplitCompletedEvent || !splitCompletedTopicName.orElse("").isBlank();
     }
 }

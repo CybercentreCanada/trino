@@ -13,9 +13,13 @@
  */
 package io.trino.plugin.deltalake.transactionlog.checkpoint;
 
-import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
+import io.trino.plugin.deltalake.DefaultDeltaLakeFileSystemFactory;
+import io.trino.plugin.deltalake.metastore.NoOpVendedCredentialsProvider;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsHandle;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeTransactionLogEntry;
+import io.trino.plugin.deltalake.transactionlog.reader.FileSystemTransactionLogReader;
+import io.trino.plugin.deltalake.transactionlog.reader.TransactionLogReader;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -49,18 +53,22 @@ public class TestTransactionLogTail
     private List<DeltaLakeTransactionLogEntry> updateJsonTransactionLogTails(String tableLocation)
             throws Exception
     {
-        TrinoFileSystem fileSystem = new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS).create(SESSION);
-        TransactionLogTail transactionLogTail = TransactionLogTail.loadNewTail(fileSystem, tableLocation, Optional.of(10L), Optional.of(12L), DEFAULT_TRANSACTION_LOG_MAX_CACHED_SIZE);
-        Optional<TransactionLogTail> updatedLogTail = transactionLogTail.getUpdatedTail(fileSystem, tableLocation, Optional.empty(), DEFAULT_TRANSACTION_LOG_MAX_CACHED_SIZE);
+        DefaultDeltaLakeFileSystemFactory fileSystemFactory = new DefaultDeltaLakeFileSystemFactory(new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS), new NoOpVendedCredentialsProvider());
+        VendedCredentialsHandle credentialsHandle = VendedCredentialsHandle.empty(tableLocation);
+        TransactionLogReader transactionLogReader = new FileSystemTransactionLogReader(tableLocation, credentialsHandle, fileSystemFactory);
+        TransactionLogTail transactionLogTail = transactionLogReader.loadNewTail(SESSION, Optional.of(10L), Optional.of(12L), DEFAULT_TRANSACTION_LOG_MAX_CACHED_SIZE);
+        Optional<TransactionLogTail> updatedLogTail = transactionLogReader.getUpdatedTail(SESSION, transactionLogTail, Optional.empty(), DEFAULT_TRANSACTION_LOG_MAX_CACHED_SIZE);
         assertThat(updatedLogTail).isPresent();
-        return updatedLogTail.get().getFileEntries(fileSystem);
+        return updatedLogTail.get().getFileEntries(fileSystemFactory.create(SESSION, credentialsHandle));
     }
 
     private List<DeltaLakeTransactionLogEntry> readJsonTransactionLogTails(String tableLocation)
             throws Exception
     {
-        TrinoFileSystem fileSystem = new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS).create(SESSION);
-        TransactionLogTail transactionLogTail = TransactionLogTail.loadNewTail(fileSystem, tableLocation, Optional.of(10L), Optional.empty(), DEFAULT_TRANSACTION_LOG_MAX_CACHED_SIZE);
-        return transactionLogTail.getFileEntries(fileSystem);
+        DefaultDeltaLakeFileSystemFactory fileSystemFactory = new DefaultDeltaLakeFileSystemFactory(new HdfsFileSystemFactory(HDFS_ENVIRONMENT, HDFS_FILE_SYSTEM_STATS), new NoOpVendedCredentialsProvider());
+        VendedCredentialsHandle credentialsHandle = VendedCredentialsHandle.empty(tableLocation);
+        TransactionLogReader transactionLogReader = new FileSystemTransactionLogReader(tableLocation, credentialsHandle, fileSystemFactory);
+        TransactionLogTail transactionLogTail = transactionLogReader.loadNewTail(SESSION, Optional.of(10L), Optional.empty(), DEFAULT_TRANSACTION_LOG_MAX_CACHED_SIZE);
+        return transactionLogTail.getFileEntries(fileSystemFactory.create(SESSION, credentialsHandle));
     }
 }

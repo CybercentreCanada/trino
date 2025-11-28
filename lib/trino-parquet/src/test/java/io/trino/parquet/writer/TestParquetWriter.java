@@ -77,6 +77,7 @@ import static io.trino.parquet.ParquetTestUtils.createParquetReader;
 import static io.trino.parquet.ParquetTestUtils.createParquetWriter;
 import static io.trino.parquet.ParquetTestUtils.generateInputPages;
 import static io.trino.parquet.ParquetTestUtils.writeParquetFile;
+import static io.trino.parquet.metadata.HiddenColumnChunkMetadata.isHiddenColumn;
 import static io.trino.parquet.writer.ParquetWriterOptions.DEFAULT_BLOOM_FILTER_FPP;
 import static io.trino.parquet.writer.ParquetWriters.BLOOM_FILTER_EXPECTED_ENTRIES;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -144,6 +145,7 @@ public class TestParquetWriter
                 chunkMetaData,
                 new ColumnDescriptor(new String[] {"columna"}, new PrimitiveType(REQUIRED, INT32, "columna"), 0, 0),
                 null,
+                Optional.empty(),
                 Optional.empty());
 
         pageReader.readDictionaryPage();
@@ -197,6 +199,7 @@ public class TestParquetWriter
                 columnAMetaData,
                 new ColumnDescriptor(new String[] {"columna"}, new PrimitiveType(REQUIRED, INT32, "columna"), 0, 0),
                 null,
+                Optional.empty(),
                 Optional.empty());
 
         pageReader.readDictionaryPage();
@@ -216,6 +219,7 @@ public class TestParquetWriter
                 columnAMetaData,
                 new ColumnDescriptor(new String[] {"columnb"}, new PrimitiveType(REQUIRED, INT64, "columnb"), 0, 0),
                 null,
+                Optional.empty(),
                 Optional.empty());
 
         pageReader.readDictionaryPage();
@@ -410,7 +414,12 @@ public class TestParquetWriter
             RowGroup rowGroup = rowGroups.get(rowGroupIndex);
             assertThat(rowGroup.isSetFile_offset()).isTrue();
             BlockMetadata blockMetadata = blocks.get(rowGroupIndex);
-            assertThat(blockMetadata.getStartingPos()).isEqualTo(rowGroup.getFile_offset());
+            assertThat(blockMetadata.columns().stream()
+                    .filter(column -> !isHiddenColumn(column))
+                    .findFirst()
+                    .map(ColumnChunkMetadata::getStartingPos)
+                    .orElseThrow())
+                    .isEqualTo(rowGroup.getFile_offset());
             assertThat(blockMetadata.fileRowCountOffset()).isEqualTo(fileRowCountOffset);
             fileRowCountOffset += rowGroup.getNum_rows();
         }

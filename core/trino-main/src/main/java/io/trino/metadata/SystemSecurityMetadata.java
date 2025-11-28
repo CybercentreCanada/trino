@@ -14,15 +14,19 @@
 package io.trino.metadata;
 
 import io.trino.Session;
+import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.connector.CatalogSchemaName;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.EntityKindAndName;
 import io.trino.spi.connector.EntityPrivilege;
 import io.trino.spi.function.CatalogSchemaFunctionName;
+import io.trino.spi.security.FunctionAuthorization;
 import io.trino.spi.security.GrantInfo;
 import io.trino.spi.security.Identity;
 import io.trino.spi.security.Privilege;
 import io.trino.spi.security.RoleGrant;
+import io.trino.spi.security.SchemaAuthorization;
+import io.trino.spi.security.TableAuthorization;
 import io.trino.spi.security.TrinoPrincipal;
 
 import java.util.Optional;
@@ -116,6 +120,21 @@ public interface SystemSecurityMetadata
      */
     Set<GrantInfo> listTablePrivileges(Session session, QualifiedTablePrefix prefix);
 
+    /**
+     * Grants the specified privilege to the specified user on the specified branch
+     */
+    void grantTableBranchPrivileges(Session session, QualifiedObjectName tableName, String branchName, Set<Privilege> privileges, TrinoPrincipal grantee, boolean grantOption);
+
+    /**
+     * Denies the specified privilege to the specified user on the specified branch
+     */
+    void denyTableBranchPrivileges(Session session, QualifiedObjectName tableName, String branchName, Set<Privilege> privileges, TrinoPrincipal grantee);
+
+    /**
+     * Revokes the specified privilege on the specified branch from the specified user
+     */
+    void revokeTableBranchPrivileges(Session session, QualifiedObjectName tableName, String branchName, Set<Privilege> privileges, TrinoPrincipal grantee, boolean grantOption);
+
     default Set<EntityPrivilege> getAllEntityKindPrivileges(String entityKind)
     {
         throw new UnsupportedOperationException();
@@ -168,6 +187,16 @@ public interface SystemSecurityMetadata
      * Get the identity to run the function as
      */
     Optional<Identity> getFunctionRunAsIdentity(Session session, CatalogSchemaFunctionName functionName);
+
+    /**
+     * A catalog was created
+     */
+    void catalogCreated(Session session, CatalogName catalog);
+
+    /**
+     * A catalog was dropped
+     */
+    void catalogDropped(Session session, CatalogName catalog);
 
     /**
      * A function is created
@@ -240,4 +269,10 @@ public interface SystemSecurityMetadata
      * to be fully qualified, i.e., if the entity is a table, the name is of size three.
      */
     void setEntityOwner(Session session, EntityKindAndName entityKindAndName, TrinoPrincipal principal);
+
+    Set<SchemaAuthorization> getSchemasAuthorizationInfo(Session session, QualifiedSchemaPrefix prefix);
+
+    Set<TableAuthorization> getTablesAuthorizationInfo(Session session, QualifiedTablePrefix prefix);
+
+    Set<FunctionAuthorization> getFunctionsAuthorizationInfo(Session session, QualifiedObjectPrefix prefix);
 }

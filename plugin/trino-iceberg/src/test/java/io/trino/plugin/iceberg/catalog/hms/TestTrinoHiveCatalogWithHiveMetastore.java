@@ -24,6 +24,7 @@ import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.s3.S3FileSystemConfig;
 import io.trino.filesystem.s3.S3FileSystemFactory;
 import io.trino.filesystem.s3.S3FileSystemStats;
+import io.trino.metastore.Database;
 import io.trino.metastore.Table;
 import io.trino.metastore.TableInfo;
 import io.trino.metastore.cache.CachingHiveMetastore;
@@ -67,9 +68,11 @@ import static io.trino.metastore.PrincipalPrivileges.NO_PRIVILEGES;
 import static io.trino.metastore.cache.CachingHiveMetastore.createPerTransactionCache;
 import static io.trino.plugin.hive.TestingThriftHiveMetastoreBuilder.testingThriftHiveMetastoreBuilder;
 import static io.trino.plugin.hive.containers.HiveHadoop.HIVE3_IMAGE;
+import static io.trino.plugin.hive.metastore.thrift.ThriftMetastoreUtil.toMetastoreApiDatabase;
 import static io.trino.plugin.iceberg.IcebergFileFormat.PARQUET;
 import static io.trino.plugin.iceberg.IcebergTableProperties.FILE_FORMAT_PROPERTY;
 import static io.trino.plugin.iceberg.IcebergTableProperties.FORMAT_VERSION_PROPERTY;
+import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.testing.containers.Minio.MINIO_ACCESS_KEY;
@@ -119,6 +122,20 @@ public class TestTrinoHiveCatalogWithHiveMetastore
     }
 
     @Override
+    protected void createNamespaceWithProperties(TrinoCatalog catalog, String namespace, Map<String, String> properties)
+    {
+        ThriftMetastore thriftMetastore = testingThriftHiveMetastoreBuilder()
+                .metastoreClient(dataLake.getHiveMetastoreEndpoint())
+                .build(closer::register);
+        thriftMetastore.createDatabase(toMetastoreApiDatabase(Database.builder()
+                .setDatabaseName(namespace)
+                .setOwnerName(Optional.of("test"))
+                .setOwnerType(Optional.of(PrincipalType.USER))
+                .setParameters(properties)
+                .build()));
+    }
+
+    @Override
     protected TrinoCatalog createTrinoCatalog(boolean useUniqueTableLocations)
     {
         TrinoFileSystemFactory fileSystemFactory = new S3FileSystemFactory(
@@ -144,9 +161,11 @@ public class TestTrinoHiveCatalogWithHiveMetastore
                 metastore,
                 new TrinoViewHiveMetastore(metastore, false, "trino-version", "Test"),
                 fileSystemFactory,
+                FILE_IO_FACTORY,
                 new TestingTypeManager(),
                 new HiveMetastoreTableOperationsProvider(
                         fileSystemFactory,
+                        FILE_IO_FACTORY,
                         new ThriftMetastoreFactory()
                         {
                             @Override

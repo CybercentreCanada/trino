@@ -25,6 +25,7 @@ import io.opentelemetry.api.trace.Tracer;
 import io.trino.filesystem.Location;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.filesystem.tracing.CacheSystemAttributes.CACHE_FILE_LOCATION;
@@ -54,12 +55,21 @@ public class AlluxioInputHelper
     private final long fileLength;
     private final int bufferSize;
     private final byte[] readBuffer;
+    private final AtomicLong cacheReadBytes;
 
     // Tracks the start and end positions of the portion of the file in the buffer
     private long bufferStartPosition;
     private long bufferEndPosition;
 
-    public AlluxioInputHelper(Tracer tracer, Location location, String cacheKey, URIStatus status, CacheManager cacheManager, AlluxioConfiguration configuration, AlluxioCacheStats statistics, AlluxioAccessStats accessStatistics)
+    public AlluxioInputHelper(
+            Tracer tracer,
+            Location location,
+            String cacheKey,
+            URIStatus status,
+            CacheManager cacheManager,
+            AlluxioConfiguration configuration,
+            AlluxioCacheStats statistics,
+            AlluxioAccessStats accessStatistics)
     {
         this.tracer = requireNonNull(tracer, "tracer is null");
         this.status = requireNonNull(status, "status is null");
@@ -73,6 +83,7 @@ public class AlluxioInputHelper
         // Buffer to reduce the cost of doing page aligned reads for small sequential reads pattern
         this.bufferSize = pageSize;
         this.readBuffer = new byte[bufferSize];
+        this.cacheReadBytes = new AtomicLong();
     }
 
     public int doCacheRead(long position, byte[] bytes, int offset, int length)
@@ -124,6 +135,7 @@ public class AlluxioInputHelper
         int bytesRead = length - remainingLength;
         statistics.recordCacheRead(bytesRead);
         accessStatistics.recordCacheRead(bytesRead, location);
+        cacheReadBytes.addAndGet(bytesRead);
         return bytesRead;
     }
 
@@ -214,5 +226,10 @@ public class AlluxioInputHelper
                 offset += pageSize;
             }
         });
+    }
+
+    long getCacheReadBytes()
+    {
+        return cacheReadBytes.get();
     }
 }

@@ -56,6 +56,7 @@ public class MysqlEventListenerFactory
     public EventListener create(Map<String, String> config, EventListenerContext context)
     {
         Bootstrap app = new Bootstrap(
+                "io.trino.bootstrap.listener." + getName(),
                 new JsonModule(),
                 new MysqlDataSourceModule(),
                 binder -> {
@@ -113,6 +114,7 @@ public class MysqlEventListenerFactory
         {
             this.dao = jdbi
                     .installPlugin(new SqlObjectPlugin())
+                    .registerRowMapper(new RecordAndAnnotatedConstructorMapper())
                     .onDemand(QueryDao.class);
         }
 

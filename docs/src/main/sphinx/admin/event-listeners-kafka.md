@@ -61,7 +61,7 @@ kafka-event-listener.broker-endpoints=kafka.example.com:9093
 kafka-event-listener.created-event.topic=query_create
 kafka-event-listener.completed-event.topic=query_complete
 kafka-event-listener.client-id=trino-example
-kafka.config.resources=/etc/kafka-configuration.properties
+kafka-event-listener.config.resources=/etc/kafka-configuration.properties
 ```
 
 The contents of `/etc/kafka-configuration.properties` can for example be:
@@ -96,19 +96,19 @@ Use the following properties for further configuration.
     distinction in Kafka, if multiple Trino clusters send events to the same
     Kafka system.
   - 
+* - `kafka-event-listener.max-request-size`
+  - [Size value](prop-type-data-size) that specifies the maximum request size the Kafka producer can send; 
+    messages exceeding this size will fail.
+  - `5MB`
+* - `kafka-event-listener.batch-size`
+  - [Size value](prop-type-data-size) that specifies the size to batch before sending records to Kafka.
+  - `16KB`
 * - `kafka-event-listener.publish-created-event`
   - [Boolean](prop-type-boolean) switch to control publishing of query creation
     events.
   - `true`
 * - `kafka-event-listener.created-event.topic`
   - Name of the Kafka topic for the query creation event data.
-  - 
-* - `kafka-event-listener.publish-split-completed-event`
-  - [Boolean](prop-type-boolean) switch to control publishing of
-    [split](trino-concept-splits) completion events.
-  - `false`
-* - `kafka-event-listener.split-completed-event.topic`
-  - Name of the Kafka topic for the split completion event data.
   - 
 * - `kafka-event-listener.publish-completed-event`
   - [Boolean](prop-type-boolean) switch to control publishing of query

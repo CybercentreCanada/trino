@@ -24,13 +24,13 @@
     </artifactSet>
 -->
 
-<!--
+
     <artifactSet to="plugin/blackhole">
         <artifact id="${project.groupId}:trino-blackhole:zip:${project.version}">
             <unpack />
         </artifact>
     </artifactSet>
--->
+
 
 <!--
     <artifactSet to="plugin/cassandra">
@@ -132,12 +132,6 @@
         </artifact>
     </artifactSet>
 
-    <artifactSet to="plugin/http-server-event-listener">
-        <artifact id="${project.groupId}:trino-http-server-event-listener:zip:${project.version}">
-            <unpack />
-        </artifact>
-    </artifactSet>
-
 <!--
     <artifactSet to="plugin/hudi">
         <artifact id="${project.groupId}:trino-hudi:zip:${project.version}">
@@ -184,6 +178,17 @@
     <artifactSet to="plugin/kafka-event-listener">
         <artifact id="${project.groupId}:trino-kafka-event-listener:zip:${project.version}">
             <unpack />
+        </artifact>
+    </artifactSet>
+-->
+
+<!--
+    <artifactSet to="plugin/lakehouse">
+        <artifact id="${project.groupId}:trino-lakehouse:zip:${project.version}">
+            <unpack />
+        </artifact>
+        <artifact id="${project.groupId}:trino-hdfs:zip:${project.version}">
+            <unpack useRoot="true" />
         </artifact>
     </artifactSet>
 -->

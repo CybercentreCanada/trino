@@ -16,12 +16,16 @@ package io.trino.filesystem.alluxio;
 import alluxio.client.file.URIStatus;
 import alluxio.client.file.cache.CacheManager;
 import alluxio.conf.AlluxioConfiguration;
+import com.google.common.collect.ImmutableMap;
 import io.opentelemetry.api.trace.Tracer;
 import io.trino.filesystem.TrinoInput;
 import io.trino.filesystem.TrinoInputFile;
+import io.trino.plugin.base.metrics.LongCount;
+import io.trino.spi.metrics.Metrics;
 
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static java.lang.Math.min;
 import static java.util.Objects.checkFromIndexSize;
@@ -36,6 +40,7 @@ public class AlluxioInput
     private final AlluxioAccessStats accessStatistics;
     private final boolean skipCache;
     private final AlluxioInputHelper helper;
+    private final AtomicLong externalReadBytes;
 
     private TrinoInput input;
     private boolean closed;
@@ -57,6 +62,7 @@ public class AlluxioInput
         this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
         this.skipCache = skipCache;
         this.helper = new AlluxioInputHelper(tracer, inputFile.location(), cacheKey, status, cacheManager, configuration, statistics, accessStatistics);
+        this.externalReadBytes = new AtomicLong();
     }
 
     @Override
@@ -104,6 +110,7 @@ public class AlluxioInput
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, length);
         statistics.recordExternalRead(readBuffer.length);
         accessStatistics.recordExternalRead(readBuffer.length, inputFile.location());
+        externalReadBytes.addAndGet(readBuffer.length);
         return length;
     }
 
@@ -134,6 +141,14 @@ public class AlluxioInput
         if (closed) {
             throw new IOException("Stream closed: " + inputFile.location());
         }
+    }
+
+    @Override
+    public Metrics getMetrics()
+    {
+        return new Metrics(ImmutableMap.of(
+                "bytesReadFromCache", new LongCount(helper.getCacheReadBytes()),
+                "bytesReadExternally", new LongCount(externalReadBytes.get())));
     }
 
     @Override

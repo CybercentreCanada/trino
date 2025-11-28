@@ -22,6 +22,8 @@ import io.airlift.json.JsonCodecFactory;
 import io.airlift.json.ObjectMapperProvider;
 import io.airlift.units.DataSize;
 import io.trino.Session;
+import io.trino.connector.MockConnectorFactory;
+import io.trino.connector.MockConnectorPlugin;
 import io.trino.execution.QueryInfo;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
@@ -40,9 +42,11 @@ import io.trino.metastore.Table;
 import io.trino.spi.connector.CatalogSchemaTableName;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.Constraint;
+import io.trino.spi.metrics.Metrics;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.security.Identity;
 import io.trino.spi.security.SelectedRole;
+import io.trino.spi.statistics.TableStatistics;
 import io.trino.spi.type.DateType;
 import io.trino.spi.type.TimestampType;
 import io.trino.spi.type.Type;
@@ -64,11 +68,13 @@ import io.trino.testing.QueryFailedException;
 import io.trino.testing.QueryRunner;
 import io.trino.testing.QueryRunner.MaterializedResultWithPlan;
 import io.trino.testing.TestingConnectorBehavior;
+import io.trino.testing.TestingSession;
 import io.trino.testing.sql.TestTable;
 import io.trino.testing.sql.TrinoSqlExecutor;
 import io.trino.type.TypeDeserializer;
 import org.assertj.core.api.AbstractLongAssert;
 import org.intellij.lang.annotations.Language;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -119,6 +125,7 @@ import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_ARBITRAR
 import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_ARBITRARY_DISTRIBUTION_WRITE_TASK_TARGET_SIZE_MIN;
 import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_HASH_DISTRIBUTION_COMPUTE_TASK_TARGET_SIZE;
 import static io.trino.SystemSessionProperties.FAULT_TOLERANT_EXECUTION_HASH_DISTRIBUTION_WRITE_TASK_TARGET_SIZE;
+import static io.trino.SystemSessionProperties.ITERATIVE_OPTIMIZER_TIMEOUT;
 import static io.trino.SystemSessionProperties.MAX_WRITER_TASK_COUNT;
 import static io.trino.SystemSessionProperties.QUERY_MAX_MEMORY_PER_NODE;
 import static io.trino.SystemSessionProperties.REDISTRIBUTE_WRITES;
@@ -142,9 +149,11 @@ import static io.trino.plugin.hive.HiveMetadata.TRINO_VERSION_NAME;
 import static io.trino.plugin.hive.HiveQueryRunner.HIVE_CATALOG;
 import static io.trino.plugin.hive.HiveQueryRunner.TPCH_SCHEMA;
 import static io.trino.plugin.hive.HiveQueryRunner.createBucketedSession;
+import static io.trino.plugin.hive.HiveStorageFormat.ESRI;
 import static io.trino.plugin.hive.HiveStorageFormat.ORC;
 import static io.trino.plugin.hive.HiveStorageFormat.PARQUET;
 import static io.trino.plugin.hive.HiveStorageFormat.REGEX;
+import static io.trino.plugin.hive.HiveStorageFormat.SEQUENCEFILE_PROTOBUF;
 import static io.trino.plugin.hive.HiveTableProperties.AUTO_PURGE;
 import static io.trino.plugin.hive.HiveTableProperties.BUCKETED_BY_PROPERTY;
 import static io.trino.plugin.hive.HiveTableProperties.BUCKET_COUNT_PROPERTY;
@@ -195,6 +204,7 @@ import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toSet;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Fail.fail;
 import static org.junit.jupiter.api.Assumptions.abort;
 
 public abstract class BaseHiveConnectorTest
@@ -243,6 +253,29 @@ public abstract class BaseHiveConnectorTest
         return queryRunner;
     }
 
+    @BeforeAll
+    public void initMockMetricsCatalog()
+    {
+        QueryRunner queryRunner = getQueryRunner();
+        String mockConnector = "mock_metrics";
+        queryRunner.installPlugin(new MockConnectorPlugin(MockConnectorFactory.builder()
+                .withName(mockConnector)
+                .withListSchemaNames(_ -> ImmutableList.of("default"))
+                .withGetTableStatistics(_ -> {
+                    try {
+                        Thread.sleep(110);
+                    }
+                    catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException(e);
+                    }
+                    return TableStatistics.empty();
+                })
+                .build()));
+
+        queryRunner.createCatalog("mock_metrics", mockConnector);
+    }
+
     @Override
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
@@ -252,9 +285,11 @@ public abstract class BaseHiveConnectorTest
             case SUPPORTS_ADD_COLUMN_WITH_POSITION,
                  SUPPORTS_ADD_FIELD,
                  SUPPORTS_CREATE_MATERIALIZED_VIEW,
+                 SUPPORTS_DEFAULT_COLUMN_VALUE,
                  SUPPORTS_DROP_FIELD,
                  SUPPORTS_MERGE,
                  SUPPORTS_NOT_NULL_CONSTRAINT,
+                 SUPPORTS_REFRESH_VIEW,
                  SUPPORTS_RENAME_FIELD,
                  SUPPORTS_SET_COLUMN_TYPE,
                  SUPPORTS_TOPN_PUSHDOWN,
@@ -4551,44 +4586,42 @@ public abstract class BaseHiveConnectorTest
 
     private void testCreateTableWithHeaderAndFooter(String format)
     {
-        String name = format.toLowerCase(ENGLISH);
-        String catalog = getSession().getCatalog().get();
-        String schema = getSession().getSchema().get();
+        String tableName = "%s.%s.%s_table_skip_header_%s".formatted(getSession().getCatalog().get(), getSession().getSchema().get(), format.toLowerCase(ENGLISH), randomNameSuffix());
 
         @Language("SQL") String createTableSql = format("" +
-                        "CREATE TABLE %s.%s.%s_table_skip_header (\n" +
+                        "CREATE TABLE %s (\n" +
                         "   name varchar\n" +
                         ")\n" +
                         "WITH (\n" +
                         "   format = '%s',\n" +
                         "   skip_header_line_count = 1\n" +
                         ")",
-                catalog, schema, name, format);
+                tableName, format);
 
         assertUpdate(createTableSql);
 
-        MaterializedResult actual = computeActual(format("SHOW CREATE TABLE %s_table_skip_header", format));
+        MaterializedResult actual = computeActual("SHOW CREATE TABLE " + tableName);
         assertThat(actual.getOnlyValue()).isEqualTo(createTableSql);
-        assertUpdate(format("DROP TABLE %s_table_skip_header", format));
+        assertUpdate("DROP TABLE " + tableName);
 
         createTableSql = format("" +
-                        "CREATE TABLE %s.%s.%s_table_skip_footer (\n" +
+                        "CREATE TABLE %s (\n" +
                         "   name varchar\n" +
                         ")\n" +
                         "WITH (\n" +
                         "   format = '%s',\n" +
                         "   skip_footer_line_count = 1\n" +
                         ")",
-                catalog, schema, name, format);
+                tableName, format);
 
         assertUpdate(createTableSql);
 
-        actual = computeActual(format("SHOW CREATE TABLE %s_table_skip_footer", format));
+        actual = computeActual("SHOW CREATE TABLE " + tableName);
         assertThat(actual.getOnlyValue()).isEqualTo(createTableSql);
-        assertUpdate(format("DROP TABLE %s_table_skip_footer", format));
+        assertUpdate("DROP TABLE " + tableName);
 
         createTableSql = format("" +
-                        "CREATE TABLE %s.%s.%s_table_skip_header_footer (\n" +
+                        "CREATE TABLE %s (\n" +
                         "   name varchar\n" +
                         ")\n" +
                         "WITH (\n" +
@@ -4596,31 +4629,31 @@ public abstract class BaseHiveConnectorTest
                         "   skip_footer_line_count = 1,\n" +
                         "   skip_header_line_count = 1\n" +
                         ")",
-                catalog, schema, name, format);
+                tableName, format);
 
         assertUpdate(createTableSql);
 
-        actual = computeActual(format("SHOW CREATE TABLE %s_table_skip_header_footer", format));
+        actual = computeActual("SHOW CREATE TABLE " + tableName);
         assertThat(actual.getOnlyValue()).isEqualTo(createTableSql);
-        assertUpdate(format("DROP TABLE %s_table_skip_header_footer", format));
+        assertUpdate("DROP TABLE " + tableName);
 
         createTableSql = format("" +
-                        "CREATE TABLE %s.%s.%s_table_skip_header " +
+                        "CREATE TABLE %s " +
                         "WITH (\n" +
                         "   format = '%s',\n" +
                         "   skip_header_line_count = 1\n" +
                         ") AS SELECT CAST(1 AS VARCHAR) AS col_name1, CAST(2 AS VARCHAR) as col_name2",
-                catalog, schema, name, format);
+                tableName, format);
 
         assertUpdate(createTableSql, 1);
-        assertUpdate(format("INSERT INTO %s.%s.%s_table_skip_header VALUES('3', '4')", catalog, schema, name), 1);
-        MaterializedResult materializedRows = computeActual(format("SELECT * FROM %s_table_skip_header", name));
+        assertUpdate("INSERT INTO " + tableName + " VALUES('3', '4')", 1);
+        MaterializedResult materializedRows = computeActual("SELECT * FROM " + tableName);
         assertEqualsIgnoreOrder(materializedRows, resultBuilder(getSession(), VARCHAR, VARCHAR)
                 .row("1", "2")
                 .row("3", "4")
                 .build()
                 .getMaterializedRows());
-        assertUpdate(format("DROP TABLE %s_table_skip_header", format));
+        assertUpdate("DROP TABLE " + tableName);
     }
 
     @Test
@@ -4638,50 +4671,43 @@ public abstract class BaseHiveConnectorTest
     @Test
     public void testInsertTableWithHeaderAndFooterForCsv()
     {
+        String tableName = "%s.%s.csv_table_skip_header_%s".formatted(getSession().getCatalog().get(), getSession().getSchema().get(), randomNameSuffix());
         @Language("SQL") String createTableSql = format("" +
-                        "CREATE TABLE %s.%s.csv_table_skip_header (\n" +
+                        "CREATE TABLE %s (\n" +
                         "   name VARCHAR\n" +
                         ")\n" +
                         "WITH (\n" +
                         "   format = 'CSV',\n" +
                         "   skip_header_line_count = 2\n" +
                         ")",
-                getSession().getCatalog().get(),
-                getSession().getSchema().get());
+                tableName);
 
         assertUpdate(createTableSql);
 
-        assertThatThrownBy(() -> assertUpdate(
-                format("INSERT INTO %s.%s.csv_table_skip_header VALUES ('name')",
-                        getSession().getCatalog().get(),
-                        getSession().getSchema().get())))
+        assertThatThrownBy(() -> assertUpdate("INSERT INTO " + tableName + " VALUES ('name')"))
                 .hasMessageMatching("Inserting into Hive table with value of skip.header.line.count property greater than 1 is not supported");
 
-        assertUpdate("DROP TABLE csv_table_skip_header");
+        assertUpdate("DROP TABLE " + tableName);
 
         createTableSql = format("" +
-                        "CREATE TABLE %s.%s.csv_table_skip_footer (\n" +
+                        "CREATE TABLE %s (\n" +
                         "   name VARCHAR\n" +
                         ")\n" +
                         "WITH (\n" +
                         "   format = 'CSV',\n" +
                         "   skip_footer_line_count = 1\n" +
                         ")",
-                getSession().getCatalog().get(),
-                getSession().getSchema().get());
+                tableName);
 
         assertUpdate(createTableSql);
 
-        assertThatThrownBy(() -> assertUpdate(
-                format("INSERT INTO %s.%s.csv_table_skip_footer VALUES ('name')",
-                        getSession().getCatalog().get(),
-                        getSession().getSchema().get())))
+        assertThatThrownBy(() -> assertUpdate("INSERT INTO " + tableName + " VALUES ('name')"))
                 .hasMessageMatching("Inserting into Hive table with skip.footer.line.count property not supported");
 
-        assertUpdate("DROP TABLE csv_table_skip_footer");
+        assertUpdate("DROP TABLE " + tableName);
 
         createTableSql = format("" +
-                        "CREATE TABLE %s.%s.csv_table_skip_header_footer (\n" +
+                        "CREATE TABLE %s (\n" +
                         "   name VARCHAR\n" +
                         ")\n" +
                         "WITH (\n" +
@@ -4689,18 +4715,14 @@ public abstract class BaseHiveConnectorTest
                         "   skip_footer_line_count = 1,\n" +
                         "   skip_header_line_count = 1\n" +
                         ")",
-                getSession().getCatalog().get(),
-                getSession().getSchema().get());
+                tableName);
 
         assertUpdate(createTableSql);
 
-        assertThatThrownBy(() -> assertUpdate(
-                format("INSERT INTO %s.%s.csv_table_skip_header_footer VALUES ('name')",
-                        getSession().getCatalog().get(),
-                        getSession().getSchema().get())))
+        assertThatThrownBy(() -> assertUpdate("INSERT INTO " + tableName + " VALUES ('name')"))
                 .hasMessageMatching("Inserting into Hive table with skip.footer.line.count property not supported");
 
-        assertUpdate("DROP TABLE csv_table_skip_header_footer");
+        assertUpdate("DROP TABLE " + tableName);
     }
 
     @Test
@@ -5362,7 +5384,7 @@ public abstract class BaseHiveConnectorTest
                 queryStats -> {
                     assertThat(queryStats.getProcessedInputDataSize().toBytes()).isGreaterThan(0);
                 },
-                results -> { });
+                results -> {});
     }
 
     @Test
@@ -5409,7 +5431,7 @@ public abstract class BaseHiveConnectorTest
                 queryStats -> {
                     assertThat(queryStats.getProcessedInputDataSize().toBytes()).isGreaterThan(0);
                 },
-                results -> { });
+                results -> {});
     }
 
     private static String formatTimestamp(LocalDateTime timestamp)
@@ -5609,6 +5631,33 @@ public abstract class BaseHiveConnectorTest
     }
 
     @Test
+    void testPathConstraintSplitPruning()
+    {
+        String tableName = "test_path_constraint_split_pruning_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (id bigint, data varchar)");
+        assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a'), (2, 'b'), (3, 'c')", 3);
+        assertUpdate("INSERT INTO " + tableName + " VALUES (1, 'a'), (2, 'b'), (3, 'c')", 3);
+
+        try {
+            Set<String> files = getTableFiles(tableName);
+            assertThat(files).hasSizeGreaterThanOrEqualTo(2);
+            String fileName = files.stream().findAny().orElseThrow();
+            String query = "SELECT * FROM " + tableName + " WHERE \"$path\" LIKE '%" + fileName + "%'";
+            assertQueryStats(
+                    getSession(),
+                    query,
+                    queryStats -> {
+                        assertThat(queryStats.getTotalDrivers()).isEqualTo(1);
+                        assertThat(queryStats.getPhysicalInputPositions()).isEqualTo(3);
+                    },
+                    results -> assertThat(results.getRowCount()).isEqualTo(3));
+        }
+        finally {
+            assertUpdate("DROP TABLE " + tableName);
+        }
+    }
+
+    @Test
     public void testSchemaMismatchesWithDereferenceProjections()
     {
         testWithAllStorageFormats(this::testSchemaMismatchesWithDereferenceProjections);
@@ -5697,10 +5746,12 @@ public abstract class BaseHiveConnectorTest
             case RCBINARY -> false;
             case RCTEXT -> false;
             case SEQUENCEFILE -> false;
+            case SEQUENCEFILE_PROTOBUF -> false;
             case OPENX_JSON -> false;
             case TEXTFILE -> false;
             case CSV -> false;
             case REGEX -> false;
+            case ESRI -> true;
         };
     }
 
@@ -6825,7 +6876,7 @@ public abstract class BaseHiveConnectorTest
         assertQueryFails(format("ANALYZE %s WITH (partitions = ARRAY[NULL])", tableName), ".*Invalid null value in analyze partitions property.*");
 
         // Test non-existed partition
-        assertQueryFails(format("ANALYZE %s WITH (partitions = ARRAY[ARRAY['p4', '10']])", tableName), ".*Partition.*not found.*");
+        assertQueryFails(format("ANALYZE %s WITH (partitions = ARRAY[ARRAY['p4', '10']])", tableName), "Partition .* no longer exists.*|Partition.*not found.*");
 
         // Test partition schema mismatch
         assertQueryFails(format("ANALYZE %s WITH (partitions = ARRAY[ARRAY['p4']])", tableName), "Partition value count does not match partition column count");
@@ -9096,6 +9147,9 @@ public abstract class BaseHiveConnectorTest
         assertExplainAnalyze(
                 "EXPLAIN ANALYZE VERBOSE SELECT * FROM nation WHERE nationkey > 1",
                 "Physical input time: .*s");
+        assertExplainAnalyze(
+                "EXPLAIN ANALYZE VERBOSE SELECT * FROM nation WHERE nationkey > 1000",
+                "Physical input time: .*s");
     }
 
     @Test
@@ -9402,6 +9456,39 @@ public abstract class BaseHiveConnectorTest
         assertQuerySucceeds("CALL system.flush_metadata_cache()");
     }
 
+    @Test
+    public void testCatalogMetadataMetrics()
+    {
+        MaterializedResultWithPlan result = getQueryRunner().executeWithPlan(
+                getSession(),
+                "SELECT count(*) FROM region r, nation n WHERE r.regionkey = n.regionkey");
+        Map<String, Metrics> metrics = getCatalogMetadataMetrics(result.queryId());
+        assertCountMetricExists(metrics, "hive", "metastore.all.time.total");
+        assertDistributionMetricExists(metrics, "hive", "metastore.all.time.distribution");
+        assertCountMetricExists(metrics, "hive", "metastore.getTable.time.total");
+        assertDistributionMetricExists(metrics, "hive", "metastore.getTable.time.distribution");
+        assertCountMetricExists(metrics, "hive", "metastore.getTableColumnStatistics.time.total");
+    }
+
+    @Test
+    public void testCatalogMetadataMetricsWithOptimizerTimeoutExceeded()
+    {
+        String query = "SELECT count(*) FROM region r, nation n, mock_metrics.default.mock_table m WHERE r.regionkey = n.regionkey";
+        try {
+            Session smallOptimizerTimeout = TestingSession.testSessionBuilder(getSession())
+                    .setSystemProperty(ITERATIVE_OPTIMIZER_TIMEOUT, "100ms")
+                    .build();
+            MaterializedResultWithPlan result = getQueryRunner().executeWithPlan(smallOptimizerTimeout, query);
+            fail(format("Expected query to fail: %s [QueryId: %s]", query, result.queryId()));
+        }
+        catch (QueryFailedException e) {
+            assertThat(e.getMessage()).contains("The optimizer exhausted the time limit");
+            Map<String, Metrics> metrics = getCatalogMetadataMetrics(e.getQueryId());
+            assertCountMetricExists(metrics, "hive", "metastore.all.time.total");
+            assertCountMetricExists(metrics, "hive", "metastore.getTable.time.total");
+        }
+    }
+
     private static final Set<HiveStorageFormat> NAMED_COLUMN_ONLY_FORMATS = ImmutableSet.of(HiveStorageFormat.AVRO, HiveStorageFormat.JSON);
 
     private Session getParallelWriteSession(Session baseSession)
@@ -9503,6 +9590,14 @@ public abstract class BaseHiveConnectorTest
             }
             if (hiveStorageFormat == REGEX) {
                 // REGEX format is read-only
+                continue;
+            }
+            if (hiveStorageFormat == ESRI) {
+                // ESRI format is read-only
+                continue;
+            }
+            if (hiveStorageFormat == SEQUENCEFILE_PROTOBUF) {
+                // SEQUENCEFILE_PROTOBUF format is read-only
                 continue;
             }
 

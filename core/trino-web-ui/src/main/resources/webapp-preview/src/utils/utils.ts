@@ -11,22 +11,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { QueryInfo } from '../api/webapp/api.ts'
+import { QueryInfoBase } from '../api/webapp/api.ts'
 
-export const getHumanReadableState = (queryInfo: QueryInfo) => {
-    if (queryInfo.state === 'RUNNING') {
+export const getHumanReadableState = (queryInfoBase: QueryInfoBase) => {
+    if (queryInfoBase.state === 'RUNNING') {
         let title = 'RUNNING'
 
-        if (queryInfo.scheduled && queryInfo.queryStats.totalDrivers > 0 && queryInfo.queryStats.runningDrivers >= 0) {
-            if (queryInfo.queryStats.fullyBlocked) {
+        if (
+            queryInfoBase.scheduled &&
+            queryInfoBase.queryStats.totalDrivers > 0 &&
+            queryInfoBase.queryStats.runningDrivers >= 0
+        ) {
+            if (queryInfoBase.queryStats.fullyBlocked) {
                 title = 'BLOCKED'
 
-                if (queryInfo.queryStats.blockedReasons?.length > 0) {
-                    title += ' (' + queryInfo.queryStats.blockedReasons.join(', ') + ')'
+                if (queryInfoBase.queryStats.blockedReasons?.length > 0) {
+                    title += ' (' + queryInfoBase.queryStats.blockedReasons.join(', ') + ')'
                 }
             }
 
-            if (queryInfo.memoryPool === 'reserved') {
+            if (queryInfoBase.memoryPool === 'reserved') {
                 title += ' (RESERVED)'
             }
 
@@ -34,12 +38,12 @@ export const getHumanReadableState = (queryInfo: QueryInfo) => {
         }
     }
 
-    if (queryInfo.state === 'FAILED') {
+    if (queryInfoBase.state === 'FAILED') {
         let errorMsg = ''
-        switch (queryInfo.errorType) {
+        switch (queryInfoBase.errorType) {
             case 'USER_ERROR':
                 errorMsg = 'USER ERROR'
-                if (queryInfo.errorCode.name === 'USER_CANCELED') {
+                if (queryInfoBase.errorCode.name === 'USER_CANCELED') {
                     errorMsg = 'USER CANCELED'
                 }
                 break
@@ -53,13 +57,13 @@ export const getHumanReadableState = (queryInfo: QueryInfo) => {
                 errorMsg = 'EXTERNAL ERROR'
                 break
         }
-        if (queryInfo.errorCode && queryInfo.errorCode.name) {
-            errorMsg += ` - ${queryInfo.errorCode.name}`
+        if (queryInfoBase.errorCode && queryInfoBase.errorCode.name) {
+            errorMsg += ` - ${queryInfoBase.errorCode.name}`
         }
         return errorMsg
     }
 
-    return queryInfo.state
+    return queryInfoBase.state
 }
 
 // Sparkline-related functions
@@ -101,6 +105,33 @@ export function truncateString(inputString: string, length: number): string {
     return inputString
 }
 
+export function getStageNumber(stageId: string): number {
+    return Number.parseInt(stageId.slice(stageId.indexOf('.') + 1, stageId.length))
+}
+
+export function getTaskIdSuffix(taskId: string): string {
+    return taskId.slice(taskId.indexOf('.') + 1, taskId.length)
+}
+
+export function getTaskNumber(taskId: string): number {
+    return Number.parseInt(getTaskIdSuffix(getTaskIdSuffix(taskId)))
+}
+
+export function getHostname(url: string): string {
+    let hostname = new URL(url).hostname
+    if (hostname.charAt(0) === '[' && hostname.charAt(hostname.length - 1) === ']') {
+        hostname = hostname.substring(1, hostname.length - 1)
+    }
+    return hostname
+}
+
+export function computeRate(count: number, ms: number): number {
+    if (ms === 0) {
+        return 0
+    }
+    return (count / ms) * 1000.0
+}
+
 export function precisionRound(n: number | null): string {
     if (n === null) {
         return ''
@@ -116,6 +147,43 @@ export function precisionRound(n: number | null): string {
         return n.toFixed(1)
     }
     return Math.round(n).toString()
+}
+
+export function formatDuration(duration: number | null): string {
+    if (duration == null) {
+        return ''
+    }
+
+    let unit = 'ms'
+    if (duration > 1000) {
+        duration /= 1000
+        unit = 's'
+    }
+    if (unit === 's' && duration > 60) {
+        duration /= 60
+        unit = 'm'
+    }
+    if (unit === 'm' && duration > 60) {
+        duration /= 60
+        unit = 'h'
+    }
+    if (unit === 'h' && duration > 24) {
+        duration /= 24
+        unit = 'd'
+    }
+    if (unit === 'd' && duration > 7) {
+        duration /= 7
+        unit = 'w'
+    }
+    return precisionRound(duration) + unit
+}
+
+export function formatRows(count: number): string {
+    if (count === 1) {
+        return '1 row'
+    }
+
+    return formatCount(count) + ' rows'
 }
 
 export function formatCount(count: number | null): string {
@@ -151,7 +219,7 @@ export function formatDataSizeBytes(size: number | null): string {
     return formatDataSizeMinUnit(size, '')
 }
 
-export function formatDataSize(size: number): string {
+export function formatDataSize(size: number | null): string {
     return formatDataSizeMinUnit(size, 'B')
 }
 
@@ -254,4 +322,19 @@ export function formatShortTime(date: Date): string {
     const hours = date.getHours() % 12 || 12
     const minutes = (date.getMinutes() < 10 ? '0' : '') + date.getMinutes()
     return hours + ':' + minutes + (date.getHours() >= 12 ? 'pm' : 'am')
+}
+
+export function formatShortDateTime(date: Date): string {
+    const year = date.getFullYear()
+    const month = '' + (date.getMonth() + 1)
+    const dayOfMonth = '' + date.getDate()
+    return (
+        year +
+        '-' +
+        (month[1] ? month : '0' + month[0]) +
+        '-' +
+        (dayOfMonth[1] ? dayOfMonth : '0' + dayOfMonth[0]) +
+        ' ' +
+        formatShortTime(date)
+    )
 }

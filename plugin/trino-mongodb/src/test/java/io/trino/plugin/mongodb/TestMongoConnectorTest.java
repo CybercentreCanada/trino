@@ -104,6 +104,7 @@ public class TestMongoConnectorTest
                  SUPPORTS_ADD_FIELD,
                  SUPPORTS_CREATE_MATERIALIZED_VIEW,
                  SUPPORTS_CREATE_VIEW,
+                 SUPPORTS_DEFAULT_COLUMN_VALUE,
                  SUPPORTS_DROP_FIELD,
                  SUPPORTS_MERGE,
                  SUPPORTS_NOT_NULL_CONSTRAINT,
@@ -120,6 +121,30 @@ public class TestMongoConnectorTest
     protected TestTable createTableWithDefaultColumns()
     {
         return abort("MongoDB connector does not support column default values");
+    }
+
+    @Test
+    void testMongoMixedTypeArrayType()
+    {
+        String schema = getSession().getSchema().orElseThrow();
+        String table = "test_mixed_array_" + randomNameSuffix();
+        MongoDatabase db = client.getDatabase(schema);
+
+        db.createCollection(table);
+        db.getCollection(table)
+                .insertOne(new Document("mixed_array_col", ImmutableList.of(1, "two", 3.0, new Document("nested_arr", ImmutableList.of(4, 5)))));
+
+        assertThat(query("SHOW COLUMNS FROM " + table))
+                .skippingTypesCheck()
+                .matches("VALUES " +
+                         "('mixed_array_col', 'row(_pos1 bigint, _pos2 varchar, _pos3 double, _pos4 row(nested_arr array(bigint)))', '', '')");
+
+        assertThat(query("SELECT mixed_array_col._pos1, mixed_array_col._pos2, mixed_array_col._pos3 FROM " + table))
+                .matches("VALUES (BIGINT '1', VARCHAR 'two', DOUBLE '3.0')");
+        assertThat(query("SELECT mixed_array_col._pos4.nested_arr[1], mixed_array_col._pos4.nested_arr[2] FROM " + table))
+                .matches("VALUES (BIGINT '4', BIGINT '5')");
+
+        assertUpdate("DROP TABLE " + table);
     }
 
     @Test

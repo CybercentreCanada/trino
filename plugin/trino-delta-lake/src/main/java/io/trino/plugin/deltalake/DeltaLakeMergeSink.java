@@ -21,7 +21,6 @@ import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.TrinoInputFile;
 import io.trino.parquet.ParquetDataSource;
 import io.trino.parquet.ParquetReaderOptions;
@@ -31,6 +30,7 @@ import io.trino.parquet.reader.MetadataReader;
 import io.trino.parquet.writer.ParquetWriterOptions;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
 import io.trino.plugin.deltalake.delete.RoaringBitmapArray;
+import io.trino.plugin.deltalake.metastore.VendedCredentialsHandle;
 import io.trino.plugin.deltalake.transactionlog.DeletionVectorEntry;
 import io.trino.plugin.hive.parquet.ParquetFileWriter;
 import io.trino.plugin.hive.parquet.ParquetPageSourceFactory;
@@ -76,6 +76,7 @@ import static io.trino.plugin.deltalake.DeltaLakeColumnType.SYNTHESIZED;
 import static io.trino.plugin.deltalake.DeltaLakeErrorCode.DELTA_LAKE_BAD_WRITE;
 import static io.trino.plugin.deltalake.DeltaLakeErrorCode.DELTA_LAKE_FILESYSTEM_ERROR;
 import static io.trino.plugin.deltalake.DeltaLakeMetadata.relativePath;
+import static io.trino.plugin.deltalake.DeltaLakeMetadata.toUriFormat;
 import static io.trino.plugin.deltalake.DeltaLakeSessionProperties.getCompressionCodec;
 import static io.trino.plugin.deltalake.DeltaLakeSessionProperties.getParquetWriterBlockSize;
 import static io.trino.plugin.deltalake.DeltaLakeSessionProperties.getParquetWriterPageSize;
@@ -139,7 +140,7 @@ public class DeltaLakeMergeSink
 
     public DeltaLakeMergeSink(
             TypeOperators typeOperators,
-            TrinoFileSystemFactory fileSystemFactory,
+            DeltaLakeFileSystemFactory fileSystemFactory,
             ConnectorSession session,
             DateTimeZone parquetDateTimeZone,
             String trinoVersion,
@@ -147,6 +148,7 @@ public class DeltaLakeMergeSink
             JsonCodec<DeltaLakeMergeResult> mergeResultJsonCodec,
             DeltaLakeWriterStats writerStats,
             Location rootTableLocation,
+            VendedCredentialsHandle credentialsHandle,
             ConnectorPageSink insertPageSink,
             List<DeltaLakeColumnHandle> tableColumns,
             int domainCompactionThreshold,
@@ -162,7 +164,7 @@ public class DeltaLakeMergeSink
     {
         this.typeOperators = requireNonNull(typeOperators, "typeOperators is null");
         this.session = requireNonNull(session, "session is null");
-        this.fileSystem = fileSystemFactory.create(session);
+        this.fileSystem = fileSystemFactory.create(session, credentialsHandle);
         this.parquetDateTimeZone = requireNonNull(parquetDateTimeZone, "parquetDateTimeZone is null");
         this.trinoVersion = requireNonNull(trinoVersion, "trinoVersion is null");
         this.dataFileInfoCodec = requireNonNull(dataFileInfoCodec, "dataFileInfoCodec is null");
@@ -413,8 +415,8 @@ public class DeltaLakeMergeSink
     {
         String tablePath = rootTableLocation.toString();
         String sourceReferencePath = getReferencedPath(tablePath, sourcePath);
-        DeletionVectorEntry oldDeletionVector = deletionVectors.get(sourceReferencePath);
-
+        // The deletionVectors key is the path in AddFileEntry, which is the URI-formatted sourceReferencePath
+        DeletionVectorEntry oldDeletionVector = deletionVectors.get(uriFormatReferencedPath(tablePath, sourcePath));
         DeletionVectorEntry deletionVectorEntry;
         try {
             deletionVectorEntry = writeDeletionVectors(fileSystem, rootTableLocation, deletedRows, randomPrefixLength);
@@ -451,7 +453,7 @@ public class DeltaLakeMergeSink
     private Slice onlySourceFile(String sourcePath, FileDeletion deletion)
     {
         String sourceReferencePath = getReferencedPath(rootTableLocation.toString(), sourcePath);
-        DeletionVectorEntry deletionVector = deletionVectors.get(sourceReferencePath);
+        DeletionVectorEntry deletionVector = deletionVectors.get(uriFormatReferencedPath(rootTableLocation.toString(), sourcePath));
         DeltaLakeMergeResult result = new DeltaLakeMergeResult(deletion.partitionValues(), Optional.of(sourceReferencePath), Optional.ofNullable(deletionVector), Optional.empty());
         return utf8Slice(mergeResultJsonCodec.toJson(result));
     }
@@ -538,8 +540,7 @@ public class DeltaLakeMergeSink
 
     private RoaringBitmapArray loadDeletionVector(Location path)
     {
-        String referencedPath = getReferencedPath(rootTableLocation.toString(), path.toString());
-        DeletionVectorEntry deletionVector = deletionVectors.get(referencedPath);
+        DeletionVectorEntry deletionVector = deletionVectors.get(uriFormatReferencedPath(rootTableLocation.toString(), path.toString()));
         if (deletionVector == null) {
             return new RoaringBitmapArray();
         }
@@ -689,6 +690,7 @@ public class DeltaLakeMergeSink
                 new FileFormatDataSourceStats(),
                 ParquetReaderOptions.builder().withBloomFilter(false).build(),
                 Optional.empty(),
+                Optional.empty(),
                 domainCompactionThreshold,
                 OptionalLong.of(fileSize));
     }
@@ -703,12 +705,24 @@ public class DeltaLakeMergeSink
         return relativePath(basePath, sourcePath);
     }
 
+    private String uriFormatReferencedPath(String basePath, String sourcePath)
+    {
+        if (shallowCloneSourceTableLocation.isPresent() && sourcePath.startsWith(shallowCloneSourceTableLocation.get())) {
+            // It's the absolute path of shallow clone source table file
+            return sourcePath;
+        }
+
+        return toUriFormat(relativePath(basePath, sourcePath));
+    }
+
     @Override
     public void abort()
     {
         if (cdfPageSink != null) {
             cdfPageSink.abort();
         }
+
+        insertPageSink.abort();
     }
 
     private static class FileDeletion

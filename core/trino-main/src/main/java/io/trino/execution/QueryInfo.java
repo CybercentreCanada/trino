@@ -71,7 +71,7 @@ public class QueryInfo
     private final Optional<TransactionId> startedTransactionId;
     private final boolean clearTransactionId;
     private final String updateType;
-    private final Optional<StageInfo> outputStage;
+    private final Optional<StagesInfo> stages;
     private final List<TableInfo> referencedTables;
     private final List<RoutineInfo> routines;
     private final ExecutionFailureInfo failureInfo;
@@ -111,7 +111,7 @@ public class QueryInfo
             @JsonProperty("startedTransactionId") Optional<TransactionId> startedTransactionId,
             @JsonProperty("clearTransactionId") boolean clearTransactionId,
             @JsonProperty("updateType") String updateType,
-            @JsonProperty("outputStage") Optional<StageInfo> outputStage,
+            @JsonProperty("stages") Optional<StagesInfo> stages,
             @JsonProperty("failureInfo") ExecutionFailureInfo failureInfo,
             @JsonProperty("errorCode") ErrorCode errorCode,
             @JsonProperty("warnings") List<TrinoWarning> warnings,
@@ -144,7 +144,7 @@ public class QueryInfo
         requireNonNull(startedTransactionId, "startedTransactionId is null");
         requireNonNull(query, "query is null");
         requireNonNull(preparedQuery, "preparedQuery is null");
-        requireNonNull(outputStage, "outputStage is null");
+        requireNonNull(stages, "stages is null");
         requireNonNull(inputs, "inputs is null");
         requireNonNull(output, "output is null");
         requireNonNull(referencedTables, "referencedTables is null");
@@ -177,7 +177,7 @@ public class QueryInfo
         this.startedTransactionId = startedTransactionId;
         this.clearTransactionId = clearTransactionId;
         this.updateType = updateType;
-        this.outputStage = outputStage;
+        this.stages = stages;
         this.failureInfo = failureInfo;
         this.errorType = errorCode == null ? null : errorCode.getType();
         this.errorCode = errorCode;
@@ -347,9 +347,9 @@ public class QueryInfo
     }
 
     @JsonProperty
-    public Optional<StageInfo> getOutputStage()
+    public Optional<StagesInfo> getStages()
     {
-        return outputStage;
+        return stages;
     }
 
     @Nullable
@@ -447,46 +447,5 @@ public class QueryInfo
                 .add("state", state)
                 .add("fieldNames", fieldNames)
                 .toString();
-    }
-
-    public QueryInfo pruneDigests()
-    {
-        return new QueryInfo(
-                queryId,
-                session,
-                state,
-                self,
-                fieldNames,
-                query,
-                preparedQuery,
-                queryStats,
-                setCatalog,
-                setSchema,
-                setPath,
-                setAuthorizationUser,
-                resetAuthorizationUser,
-                setOriginalRoles,
-                setSessionProperties,
-                resetSessionProperties,
-                setRoles,
-                addedPreparedStatements,
-                deallocatedPreparedStatements,
-                startedTransactionId,
-                clearTransactionId,
-                updateType,
-                outputStage.map(StageInfo::pruneDigests),
-                failureInfo,
-                errorCode,
-                warnings,
-                inputs,
-                output,
-                referencedTables,
-                routines,
-                finalQueryInfo,
-                resourceGroupId,
-                queryType,
-                retryPolicy,
-                pruned,
-                version);
     }
 }

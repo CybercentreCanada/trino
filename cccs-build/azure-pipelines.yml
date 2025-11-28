@@ -11,8 +11,9 @@ variables:
   containerRegistry: uchimera
   imageRepository: cccs/dev/trino-build
   buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
-  baseImageTag: 24-jdk-noble
-  trinoVersion: 476
+  baseImageTag: 25-jdk-noble
+  trinoVersion: 478
+  mavenVersion: 3.9.11
 
 pool:
   vmImage: ubuntu-latest
@@ -29,6 +30,8 @@ steps:
       echo "##vso[task.setvariable variable=BRANCH_NAME]$BRANCH_NAME"
       TRINO_VERSION=${{ variables.trinoVersion }}
       echo "##vso[task.setvariable variable=TRINO_VERSION]$TRINO_VERSION"
+      MAVEN_VERSION=${{ variables.mavenVersion }}
+      echo "##vso[task.setvariable variable=MAVEN_VERSION]$MAVEN_VERSION"
     displayName: Parse Required Variables
   - task: Docker@2
     displayName: Build Image ${{ variables.imageRepository }}
@@ -38,7 +41,7 @@ steps:
       repository: ${{ variables.imageRepository }}
       Dockerfile: cccs-build/Dockerfile
       buildContext: cccs-build
-      arguments: --build-arg TRINO_VERSION=$(TRINO_VERSION) --build-arg BASE_IMAGE_TAG=$(baseImageTag)
+      arguments: --build-arg TRINO_VERSION=$(TRINO_VERSION) --build-arg MAVEN_VERSION=$(MAVEN_VERSION) --build-arg BASE_IMAGE_TAG=$(baseImageTag)
       tags: |
         $(TRINO_VERSION)_$(BRANCH_NAME)
         $(TRINO_VERSION)_$(BRANCH_NAME)_$(buildTimestamp)_b$(Build.BuildId)

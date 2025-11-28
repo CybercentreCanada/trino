@@ -18,8 +18,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.Injector;
 import io.airlift.bootstrap.Bootstrap;
-import io.trino.plugin.base.CatalogNameModule;
 import io.trino.spi.QueryId;
+import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.connector.ConnectorAccessControl;
 import io.trino.spi.connector.ConnectorSecurityContext;
 import io.trino.spi.connector.ConnectorTransactionHandle;
@@ -765,6 +765,31 @@ public abstract class BaseFileBasedConnectorAccessControlTest
     }
 
     @Test
+    public void testMaterializedViewAuthorization()
+            throws Exception
+    {
+        ConnectorAccessControl accessControl = createAccessControl("authorization-no-roles.json");
+
+        SchemaTableName table = new SchemaTableName("test", "table");
+        SchemaTableName ownedByUser = new SchemaTableName("test", "owned_by_user");
+        SchemaTableName ownedByGroup = new SchemaTableName("test", "owned_by_group");
+
+        assertDenied(() -> accessControl.checkCanSetMaterializedViewAuthorization(user("user", "group"), table, new TrinoPrincipal(ROLE, "new_role")));
+
+        // access to schema granted to user
+        accessControl.checkCanSetMaterializedViewAuthorization(user("owner_authorized", "group"), ownedByUser, new TrinoPrincipal(USER, "new_user"));
+        assertDenied(() -> accessControl.checkCanSetMaterializedViewAuthorization(user("owner_DENY_authorized", "group"), ownedByUser, new TrinoPrincipal(USER, "new_user")));
+        assertDenied(() -> accessControl.checkCanSetMaterializedViewAuthorization(user("owner", "group"), ownedByUser, new TrinoPrincipal(USER, "new_user")));
+        assertDenied(() -> accessControl.checkCanSetMaterializedViewAuthorization(user("owner_authorized", "group"), ownedByUser, new TrinoPrincipal(ROLE, "new_role")));
+
+        // access to schema granted to group
+        accessControl.checkCanSetMaterializedViewAuthorization(user("authorized", "owner"), ownedByGroup, new TrinoPrincipal(USER, "new_user"));
+        assertDenied(() -> accessControl.checkCanSetMaterializedViewAuthorization(user("DENY_authorized", "owner"), ownedByGroup, new TrinoPrincipal(USER, "new_user")));
+        assertDenied(() -> accessControl.checkCanSetMaterializedViewAuthorization(user("user", "owner"), ownedByGroup, new TrinoPrincipal(USER, "new_user")));
+        assertDenied(() -> accessControl.checkCanSetMaterializedViewAuthorization(user("authorized", "owner"), ownedByGroup, new TrinoPrincipal(ROLE, "new_role")));
+    }
+
+    @Test
     public void testFunctionFilter()
             throws Exception
     {
@@ -830,7 +855,7 @@ public abstract class BaseFileBasedConnectorAccessControlTest
 
     protected ConnectorAccessControl createAccessControl(Map<String, String> configProperties)
     {
-        Bootstrap bootstrap = new Bootstrap(new CatalogNameModule("test_catalog"), new FileBasedAccessControlModule());
+        Bootstrap bootstrap = new Bootstrap(binder -> binder.bind(CatalogName.class).toInstance(new CatalogName("test_catalog")), new FileBasedAccessControlModule());
 
         Injector injector = bootstrap
                 .doNotInitializeLogging()

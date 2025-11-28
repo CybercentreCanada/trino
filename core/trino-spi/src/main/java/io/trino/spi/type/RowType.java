@@ -21,7 +21,6 @@ import io.trino.spi.block.BlockBuilderStatus;
 import io.trino.spi.block.RowBlock;
 import io.trino.spi.block.RowBlockBuilder;
 import io.trino.spi.block.SqlRow;
-import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.function.InvocationConvention;
 import io.trino.spi.function.OperatorMethodHandle;
 
@@ -233,7 +232,7 @@ public class RowType
     }
 
     @Override
-    public Object getObjectValue(ConnectorSession session, Block block, int position)
+    public Object getObjectValue(Block block, int position)
     {
         if (block.isNull(position)) {
             return null;
@@ -244,21 +243,10 @@ public class RowType
 
         int rawIndex = sqlRow.getRawIndex();
         for (int i = 0; i < sqlRow.getFieldCount(); i++) {
-            values.add(fields.get(i).getType().getObjectValue(session, sqlRow.getRawFieldBlock(i), rawIndex));
+            values.add(fields.get(i).getType().getObjectValue(sqlRow.getRawFieldBlock(i), rawIndex));
         }
 
         return Collections.unmodifiableList(values);
-    }
-
-    @Override
-    public void appendTo(Block block, int position, BlockBuilder blockBuilder)
-    {
-        if (block.isNull(position)) {
-            blockBuilder.appendNull();
-        }
-        else {
-            writeObject(blockBuilder, getObject(block, position));
-        }
     }
 
     @Override
@@ -274,7 +262,8 @@ public class RowType
         int rawIndex = sqlRow.getRawIndex();
         ((RowBlockBuilder) blockBuilder).buildEntry(fieldBuilders -> {
             for (int i = 0; i < sqlRow.getFieldCount(); i++) {
-                fields.get(i).getType().appendTo(sqlRow.getRawFieldBlock(i), rawIndex, fieldBuilders.get(i));
+                Block block = sqlRow.getRawFieldBlock(i);
+                fieldBuilders.get(i).append(block.getUnderlyingValueBlock(), block.getUnderlyingValuePosition(rawIndex));
             }
         });
     }

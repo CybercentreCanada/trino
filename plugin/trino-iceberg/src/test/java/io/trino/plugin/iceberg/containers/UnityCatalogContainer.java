@@ -23,13 +23,15 @@ import io.trino.plugin.iceberg.IcebergQueryRunner;
 import io.trino.testing.QueryRunner;
 import io.trino.tpch.TpchTable;
 import org.intellij.lang.annotations.Language;
+import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -38,11 +40,12 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Verify.verify;
 import static io.airlift.http.client.StaticBodyGenerator.createStaticBodyGenerator;
 import static io.airlift.http.client.StringResponseHandler.createStringResponseHandler;
-import static io.trino.testing.TestingProperties.getDockerImagesVersion;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.Files.createTempDirectory;
@@ -55,7 +58,7 @@ public class UnityCatalogContainer
 
     private final String catalogName;
     private final String schemaName;
-    private final PostgreSQLContainer<?> postgreSql;
+    private final PostgreSQLContainer postgreSql;
     private final GenericContainer<?> unityCatalog;
     private final QueryRunner queryRunner;
     private final AutoCloseableCloser closer = AutoCloseableCloser.create();
@@ -69,8 +72,7 @@ public class UnityCatalogContainer
         Network network = Network.newNetwork();
         closer.register(network);
 
-        //noinspection resource
-        postgreSql = new PostgreSQLContainer<>(DockerImageName.parse("postgres"))
+        postgreSql = new PostgreSQLContainer(DockerImageName.parse("postgres"))
                 .withNetwork(network)
                 .withNetworkAliases("postgres");
         postgreSql.start();
@@ -89,10 +91,10 @@ public class UnityCatalogContainer
         Files.writeString(hibernateProperties.toPath(), hibernate);
 
         //noinspection resource
-        unityCatalog = new GenericContainer<>(DockerImageName.parse("ghcr.io/trinodb/testing/unity-catalog:" + getDockerImagesVersion()))
+        unityCatalog = new GenericContainer<>(DockerImageName.parse("unitycatalog/unitycatalog:v0.3.0"))
                 .withExposedPorts(8080)
                 .withNetwork(network)
-                .withCopyFileToContainer(MountableFile.forHostPath(hibernateProperties.toPath()), "/unity/etc/conf/hibernate.properties");
+                .withCopyFileToContainer(MountableFile.forHostPath(hibernateProperties.toPath(), 0744), "/home/unitycatalog/etc/conf/hibernate.properties");
         unityCatalog.start();
         closer.register(unityCatalog);
 
@@ -115,34 +117,28 @@ public class UnityCatalogContainer
 
     private void createCatalog()
     {
-        @Language("JSON")
-        String body = "{\"name\": \"" + catalogName + "\"}";
-        Request request = Request.Builder.preparePost()
-                .setUri(URI.create(uri() + "/catalogs"))
-                .setHeader("Content-Type", "application/json")
-                .setBodyGenerator(createStaticBodyGenerator(body, UTF_8))
-                .build();
-        execute(request);
+        execInContainer("bin/uc", "catalog", "create", "--name", catalogName);
     }
 
     public void createSchema(String schemaName)
     {
-        @Language("JSON")
-        String body = "{\"name\": \"" + schemaName + "\", \"catalog_name\": \"" + catalogName + "\"}";
-        Request request = Request.Builder.preparePost()
-                .setUri(URI.create(uri() + "/schemas"))
-                .setHeader("Content-Type", "application/json")
-                .setBodyGenerator(createStaticBodyGenerator(body, UTF_8))
-                .build();
-        execute(request);
+        execInContainer("bin/uc", "schema", "create", "--catalog", catalogName, "--name", schemaName);
     }
 
     public void dropSchema(String schema)
     {
-        Request request = Request.Builder.prepareDelete()
-                .setUri(URI.create(uri() + "/schemas/%s.%s?catalog_name=%s".formatted(catalogName, schema, schema)))
-                .build();
-        execute(request);
+        execInContainer("bin/uc", "schema", "delete", "--full_name", "%s.%s".formatted(catalogName, schema));
+    }
+
+    private void execInContainer(String... command)
+    {
+        try {
+            Container.ExecResult result = unityCatalog.execInContainer(command);
+            checkState(result.getExitCode() == 0, "Command %s failed: %s", Arrays.toString(command), result.getStdout());
+        }
+        catch (IOException | InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public void copyTpchTables(Iterable<TpchTable<?>> tpchTables)

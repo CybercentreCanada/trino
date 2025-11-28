@@ -21,14 +21,15 @@ import io.trino.execution.StateMachine.StateChangeListener;
 import io.trino.execution.TaskId;
 import io.trino.execution.TaskInfo;
 import io.trino.execution.TaskState;
-import io.trino.metadata.NodeState;
+import io.trino.node.NodeState;
 import io.trino.operator.TaskStats;
-import org.joda.time.DateTime;
+import io.trino.server.NodeStateManager.CurrentNodeState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -47,10 +48,10 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
-import static io.trino.metadata.NodeState.ACTIVE;
-import static io.trino.metadata.NodeState.DRAINED;
-import static io.trino.metadata.NodeState.DRAINING;
-import static io.trino.metadata.NodeState.SHUTTING_DOWN;
+import static io.trino.node.NodeState.ACTIVE;
+import static io.trino.node.NodeState.DRAINED;
+import static io.trino.node.NodeState.DRAINING;
+import static io.trino.node.NodeState.SHUTTING_DOWN;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -136,7 +137,7 @@ class TestNodeStateManager
         ticker.increment(1, SECONDS);
         executor.run();
         // 2 gracePeriods or more
-        await().atMost(2 * GRACE_PERIOD_MILLIS + 100, SECONDS)
+        await().atMost(2 * GRACE_PERIOD_MILLIS + 100, MILLISECONDS)
                 .untilAsserted(() -> assertThat(nodeStateManager.getServerState()).isEqualTo(DRAINED));
 
         // now test the shutdown from the DRAINED state
@@ -159,7 +160,7 @@ class TestNodeStateManager
                 "1",
                 false,
                 Optional.empty(),
-                new TaskStats(DateTime.now(), null));
+                new TaskStats(Instant.now(), null));
         taskInfos.add(task);
         tasks.set(taskInfos);
 
@@ -193,7 +194,7 @@ class TestNodeStateManager
                 "1",
                 false,
                 Optional.empty(),
-                new TaskStats(DateTime.now(), null));
+                new TaskStats(Instant.now(), null));
         taskInfos.add(task);
         tasks.set(taskInfos);
 
@@ -238,7 +239,7 @@ class TestNodeStateManager
                 "1",
                 false,
                 Optional.empty(),
-                new TaskStats(DateTime.now(), null));
+                new TaskStats(Instant.now(), null));
         taskInfos.add(task);
         tasks.set(taskInfos);
 
@@ -280,11 +281,12 @@ class TestNodeStateManager
 
         Supplier<List<TaskInfo>> taskInfoSupplier = () -> tasks.get();
         return new NodeStateManager(
+                new CurrentNodeState(),
                 sqlTasksObservable,
                 taskInfoSupplier,
                 serverConfig,
                 shutdownAction,
-                new LifeCycleManager(Collections.emptyList(), null),
+                new LifeCycleManager("node-state-manager", Collections.emptyList(), null),
                 executor);
     }
 

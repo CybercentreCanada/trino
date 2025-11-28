@@ -21,7 +21,6 @@ import io.trino.spi.block.BlockBuilderStatus;
 import io.trino.spi.block.DictionaryBlock;
 import io.trino.spi.block.RunLengthEncodedBlock;
 import io.trino.spi.block.ValueBlock;
-import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.function.InvocationConvention;
 import io.trino.spi.function.OperatorMethodHandle;
 
@@ -221,39 +220,28 @@ public class ArrayType
     }
 
     @Override
-    public Object getObjectValue(ConnectorSession session, Block block, int position)
+    public Object getObjectValue(Block block, int position)
     {
         if (block.isNull(position)) {
             return null;
         }
 
         if (block instanceof ArrayBlock arrayBlock) {
-            return arrayBlock.apply((valuesBlock, start, length) -> arrayBlockToObjectValues(session, valuesBlock, start, length), position);
+            return arrayBlock.apply((valuesBlock, start, length) -> arrayBlockToObjectValues(valuesBlock, start, length), position);
         }
         Block arrayBlock = getObject(block, position);
-        return arrayBlockToObjectValues(session, arrayBlock, 0, arrayBlock.getPositionCount());
+        return arrayBlockToObjectValues(arrayBlock, 0, arrayBlock.getPositionCount());
     }
 
-    private List<Object> arrayBlockToObjectValues(ConnectorSession session, Block block, int start, int length)
+    private List<Object> arrayBlockToObjectValues(Block block, int start, int length)
     {
         List<Object> values = new ArrayList<>(length);
 
         for (int i = 0; i < length; i++) {
-            values.add(elementType.getObjectValue(session, block, i + start));
+            values.add(elementType.getObjectValue(block, i + start));
         }
 
         return Collections.unmodifiableList(values);
-    }
-
-    @Override
-    public void appendTo(Block block, int position, BlockBuilder blockBuilder)
-    {
-        if (block.isNull(position)) {
-            blockBuilder.appendNull();
-        }
-        else {
-            writeObject(blockBuilder, getObject(block, position));
-        }
     }
 
     @Override
@@ -266,11 +254,8 @@ public class ArrayType
     public void writeObject(BlockBuilder blockBuilder, Object value)
     {
         Block arrayBlock = (Block) value;
-        ((ArrayBlockBuilder) blockBuilder).buildEntry(elementBuilder -> {
-            for (int i = 0; i < arrayBlock.getPositionCount(); i++) {
-                elementType.appendTo(arrayBlock, i, elementBuilder);
-            }
-        });
+        ((ArrayBlockBuilder) blockBuilder).buildEntry(elementBuilder ->
+                elementBuilder.appendBlockRange(arrayBlock, 0, arrayBlock.getPositionCount()));
     }
 
     // FLAT MEMORY LAYOUT
