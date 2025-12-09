@@ -850,6 +850,7 @@ public class TrinoRestCatalog
         return switch (sessionType) {
             case NONE -> {
                 String sessionId = hashCredentials(credentials);
+                log.debug("Session identity: %s", session.getIdentity().toString());
                 log.debug("Generated sessionId for NONE sessionType: %s", sessionId);
 
                 yield new SessionCatalog.SessionContext(sessionId, null, credentials, ImmutableMap.of(), session.getIdentity());
