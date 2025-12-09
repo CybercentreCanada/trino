@@ -94,7 +94,7 @@ public class OraclePoolConnectionFactory
 
         if (connection.isWrapperFor(oracle.jdbc.OracleConnection.class)) {
             oracle.jdbc.OracleConnection ora = connection.unwrap(oracle.jdbc.OracleConnection.class);
-            ora.setModule(session.getUser());
+            ora.setClientInfo(OracleConnection.OCSID_MODULE_KEY, session.getUser());
         }
 
         return connection;
