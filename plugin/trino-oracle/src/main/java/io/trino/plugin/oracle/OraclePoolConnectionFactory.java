@@ -19,6 +19,7 @@ import io.opentelemetry.instrumentation.jdbc.datasource.OpenTelemetryDataSource;
 import io.trino.plugin.jdbc.ConnectionFactory;
 import io.trino.plugin.jdbc.credential.CredentialProvider;
 import io.trino.spi.connector.ConnectorSession;
+import oracle.jdbc.OracleConnection;
 import oracle.jdbc.pool.OracleDataSource;
 import oracle.ucp.jdbc.PoolDataSource;
 import oracle.ucp.jdbc.PoolDataSourceFactory;
@@ -90,6 +91,12 @@ public class OraclePoolConnectionFactory
         // Oracle's pool doesn't reset autocommit state of connections when reusing them so we explicitly enable
         // autocommit by default to match the JDBC specification.
         connection.setAutoCommit(true);
+
+        if (connection.isWrapperFor(oracle.jdbc.OracleConnection.class)) {
+            oracle.jdbc.OracleConnection ora = connection.unwrap(oracle.jdbc.OracleConnection.class);
+            ora.setModule(session.getUser());
+        }
+
         return connection;
     }
 }
