@@ -19,12 +19,12 @@ import io.opentelemetry.instrumentation.jdbc.datasource.OpenTelemetryDataSource;
 import io.trino.plugin.jdbc.ConnectionFactory;
 import io.trino.plugin.jdbc.credential.CredentialProvider;
 import io.trino.spi.connector.ConnectorSession;
-import oracle.jdbc.OracleConnection;
 import oracle.jdbc.pool.OracleDataSource;
 import oracle.ucp.jdbc.PoolDataSource;
 import oracle.ucp.jdbc.PoolDataSourceFactory;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Optional;
 import java.util.Properties;
@@ -92,9 +92,10 @@ public class OraclePoolConnectionFactory
         // autocommit by default to match the JDBC specification.
         connection.setAutoCommit(true);
 
-        if (connection.isWrapperFor(oracle.jdbc.OracleConnection.class)) {
-            oracle.jdbc.OracleConnection ora = connection.unwrap(oracle.jdbc.OracleConnection.class);
-            ora.setClientInfo(OracleConnection.OCSID_MODULE_KEY, session.getUser());
+        try (PreparedStatement ps = connection.prepareStatement(
+                "BEGIN DBMS_APPLICATION_INFO.SET_MODULE(:module, NULL); END;")) {
+            ps.setString(1, session.getUser());
+            ps.execute();
         }
 
         return connection;
