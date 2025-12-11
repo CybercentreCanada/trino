@@ -98,6 +98,19 @@ public class OraclePoolConnectionFactory
             ps.execute();
         }
 
+        try (PreparedStatement ps = connection.prepareStatement(
+                "BEGIN " +
+                        "DBMS_APPLICATION_INFO.SET_MODULE(:module, :action); " +
+                        "DBMS_APPLICATION_INFO.SET_CLIENT_INFO(:clientInfo); " +
+                        "DBMS_SESSION.SET_IDENTIFIER(:clientId); " +
+                        "END;")) {
+            ps.setString(1, session.getUser());
+            ps.setString(2, session.getQueryId());
+            ps.setString(3, session.getSource());
+            ps.setString(4, "Trino");
+            ps.execute();
+        }
+
         return connection;
     }
 }
