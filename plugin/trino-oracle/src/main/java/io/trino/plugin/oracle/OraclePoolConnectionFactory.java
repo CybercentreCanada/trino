@@ -24,6 +24,7 @@ import oracle.ucp.jdbc.PoolDataSource;
 import oracle.ucp.jdbc.PoolDataSourceFactory;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Optional;
 import java.util.Properties;
@@ -90,6 +91,18 @@ public class OraclePoolConnectionFactory
         // Oracle's pool doesn't reset autocommit state of connections when reusing them so we explicitly enable
         // autocommit by default to match the JDBC specification.
         connection.setAutoCommit(true);
+
+        try (PreparedStatement ps = connection.prepareStatement(
+                "BEGIN " +
+                        "DBMS_APPLICATION_INFO.SET_MODULE(:module, :action);" +
+                        "DBMS_APPLICATION_INFO.SET_CLIENT_INFO(:clientInfo);" +
+                        "END;")) {
+            ps.setString(1, session.getUser());
+            ps.setString(2, session.getQueryId());
+            ps.setString(3, session.getSource().orElse(null));
+            ps.execute();
+        }
+
         return connection;
     }
 }
