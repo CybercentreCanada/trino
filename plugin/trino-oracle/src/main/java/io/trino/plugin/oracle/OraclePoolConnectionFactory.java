@@ -93,12 +93,6 @@ public class OraclePoolConnectionFactory
         connection.setAutoCommit(true);
 
         try (PreparedStatement ps = connection.prepareStatement(
-                "BEGIN DBMS_APPLICATION_INFO.SET_MODULE(:module, NULL); END;")) {
-            ps.setString(1, session.getUser());
-            ps.execute();
-        }
-
-        try (PreparedStatement ps = connection.prepareStatement(
                 "BEGIN " +
                         "DBMS_APPLICATION_INFO.SET_MODULE(:module, :action); " +
                         "DBMS_APPLICATION_INFO.SET_CLIENT_INFO(:clientInfo); " +
