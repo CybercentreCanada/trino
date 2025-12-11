@@ -90,6 +90,13 @@ public class OraclePoolConnectionFactory
         // Oracle's pool doesn't reset autocommit state of connections when reusing them so we explicitly enable
         // autocommit by default to match the JDBC specification.
         connection.setAutoCommit(true);
+
+        try (PreparedStatement ps = connection.prepareStatement(
+                "BEGIN DBMS_APPLICATION_INFO.SET_MODULE(:module, NULL); END;")) {
+            ps.setString(1, session.getUser());
+            ps.execute();
+        }
+
         return connection;
     }
 }
