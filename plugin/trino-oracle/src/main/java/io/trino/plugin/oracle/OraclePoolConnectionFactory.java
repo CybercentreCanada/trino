@@ -100,7 +100,7 @@ public class OraclePoolConnectionFactory
                         "END;")) {
             ps.setString(1, session.getUser());
             ps.setString(2, session.getQueryId());
-            ps.setString(3, session.getSource());
+            ps.setString(3, session.getSource().orElse(null));
             ps.setString(4, "Trino");
             ps.execute();
         }
