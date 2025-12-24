@@ -61,7 +61,7 @@ public class OraclePoolConnectionFactory
         dataSource.setValidateConnectionOnBorrow(true);
         dataSource.setConnectionProperties(connectionProperties);
         dataSource.setInactiveConnectionTimeout(toIntExact(inactiveConnectionTimeout.roundTo(SECONDS)));
-        dataSource.setConnectionWaitDuration(toIntExact(connectionWaitDuration.roundTo(SECONDS)));
+        dataSource.setConnectionWaitDuration(connectionWaitDuration);
         credentialProvider.getConnectionUser(Optional.empty())
                 .ifPresent(user -> {
                     try {
