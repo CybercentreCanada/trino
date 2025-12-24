@@ -39,7 +39,7 @@ public class OracleConfig
     private int connectionPoolMinSize = 1;
     private int connectionPoolMaxSize = 30;
     private Duration inactiveConnectionTimeout = new Duration(20, MINUTES);
-    private Duration connectionWaitTimeout = new Duration(5, SECONDS);
+    private Duration connectionWaitDuration = new Duration(5, SECONDS);
     private Integer fetchSize;
 
     public boolean isSynonymsEnabled()
@@ -164,16 +164,16 @@ public class OracleConfig
     }
 
     @NotNull
-    public Duration getConnectionWaitTimeout()
+    public Duration getConnectionWaitDuration()
     {
-        return connectionWaitTimeout;
+        return connectionWaitDuration;
     }
 
-    @Config("oracle.connection-pool.wait-timeout")
+    @Config("oracle.connection-pool.wait-duration")
     @ConfigDescription("How long to wait for a used connection to be released by a client")
-    public OracleConfig setConnectionWaitTimeout(Duration connectionWaitTimeout)
+    public OracleConfig setConnectionWaitDuration(Duration connectionWaitDuration)
     {
-        this.connectionWaitTimeout = connectionWaitTimeout;
+        this.connectionWaitDuration = connectionWaitDuration;
         return this;
     }
 }
