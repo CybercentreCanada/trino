@@ -37,6 +37,7 @@ public class IcebergRestCatalogConfig
     {
         NONE,
         OAUTH2,
+        DREMIO,
         SIGV4,
     }
 
