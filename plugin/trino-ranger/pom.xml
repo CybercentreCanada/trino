@@ -16,7 +16,7 @@
 
     <properties>
         <dep.graalvm.version>25.0.1</dep.graalvm.version>
-        <dep.ranger.version>2.7.0</dep.ranger.version>
+        <dep.ranger.version>2.8.0</dep.ranger.version>
     </properties>
 
     <dependencies>
