@@ -22,16 +22,17 @@ import java.util.Optional;
 
 public class DremioSecurityConfig
 {
-    private Optional<URI> issuerUrl = Optional.empty();          // rest.auth.oauth2.issuer-url
-    private Optional<URI> tokenEndpoint = Optional.empty();      // rest.auth.oauth2.token-endpoint
-    private String grantType = "client_credentials";             // rest.auth.oauth2.grant-type
-    private String clientAuthMethod = "client_secret_basic";     // rest.auth.oauth2.client-auth
-    private Optional<String> clientId = Optional.empty();        // rest.auth.oauth2.client-id
-    private Optional<String> clientSecret = Optional.empty();    // rest.auth.oauth2.client-secret
-    private Optional<String> scope = Optional.empty();           // rest.auth.oauth2.scope
-    private Optional<String> token = Optional.empty();           // rest.auth.oauth2.token
-    private boolean tokenRefreshEnabled = true;                  // rest.auth.oauth2.token-refresh.enabled
-    private Optional<String> httpClientType = Optional.empty();  // rest.auth.oauth2.http.client-type
+    private Optional<URI> issuerUrl = Optional.empty();               // rest.auth.oauth2.issuer-url
+    private Optional<URI> tokenEndpoint = Optional.empty();           // rest.auth.oauth2.token-endpoint
+    private String grantType = "client_credentials";                  // rest.auth.oauth2.grant-type
+    private String clientAuthMethod = "client_secret_basic";          // rest.auth.oauth2.client-auth
+    private Optional<String> clientId = Optional.empty();             // rest.auth.oauth2.client-id
+    private Optional<String> clientSecret = Optional.empty();         // rest.auth.oauth2.client-secret
+    private Optional<String> scope = Optional.empty();                // rest.auth.oauth2.scope
+    private Optional<String> token = Optional.empty();                // rest.auth.oauth2.token
+    private boolean tokenRefreshEnabled = true;                       // rest.auth.oauth2.token-refresh.enabled
+    private Optional<String> httpClientType = Optional.empty();       // rest.auth.oauth2.http.client-type
+    private Optional<String> sessionCacheTimeout = Optional.empty();  // rest.auth.oauth2.system.session-cache-timeout
     private Optional<String> smallRyeConfigLocations = Optional.empty();
 
     @Config("iceberg.rest-catalog.oauth2.issuer-url")
@@ -164,6 +165,19 @@ public class DremioSecurityConfig
     public Optional<String> getHttpClientType()
     {
         return httpClientType;
+    }
+
+    @Config("iceberg.rest-catalog.oauth2.system.session-cache-timeout")
+    @ConfigDescription("Session cache idle timeout for the OAuth2 manager (ISO-8601 duration, e.g., PT30S, PT1H)")
+    public DremioSecurityConfig setSessionCacheTimeout(String timeout)
+    {
+        this.sessionCacheTimeout = Optional.ofNullable(timeout);
+        return this;
+    }
+
+    public Optional<String> getSessionCacheTimeout()
+    {
+        return sessionCacheTimeout;
     }
 
     @Config("iceberg.rest-catalog.smallrye-config-locations")

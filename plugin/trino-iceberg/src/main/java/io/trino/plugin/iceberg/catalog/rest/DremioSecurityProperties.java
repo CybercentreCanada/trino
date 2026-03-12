@@ -39,6 +39,7 @@ public class DremioSecurityProperties
     private static final String TOKEN = OAUTH2_PREFIX + "token";
     private static final String TOKEN_REFRESH_ENABLED = OAUTH2_PREFIX + "token-refresh.enabled";
     private static final String HTTP_CLIENT_TYPE = OAUTH2_PREFIX + "http.client-type";
+    private static final String SYSTEM_SESSION_CACHE_TIMEOUT = OAUTH2_PREFIX + "system.session-cache-timeout";
     private static final String SMALLRYE_CONFIG_LOCATIONS = "smallrye.config.locations";
 
     private final Map<String, String> properties;
@@ -61,6 +62,7 @@ public class DremioSecurityProperties
         config.getClientId().ifPresent(value -> builder.put(CLIENT_ID, value));
         config.getClientSecret().ifPresent(value -> builder.put(CLIENT_SECRET, value));
         config.getHttpClientType().ifPresent(value -> builder.put(HTTP_CLIENT_TYPE, value));
+        config.getSessionCacheTimeout().ifPresent(value -> builder.put(SYSTEM_SESSION_CACHE_TIMEOUT, value));
         config.getSmallRyeConfigLocations().ifPresent(value -> builder.put(SMALLRYE_CONFIG_LOCATIONS, value));
 
         this.properties = builder.buildOrThrow();
