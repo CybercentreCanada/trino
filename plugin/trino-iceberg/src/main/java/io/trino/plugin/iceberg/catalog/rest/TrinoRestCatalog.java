@@ -862,7 +862,7 @@ public class TrinoRestCatalog
                 
                 if (providedToken != null && !providedToken.isEmpty()) {
                     // Use the token hash to force a new SessionContext when the token changes
-                    sessionId = hashCredentials(providedToken);
+                    sessionId = hashCredentials(ImmutableMap.of("rest.auth.oauth2.token", providedToken));
                 }
                 else {
                     // Fallback to existing behaviour if no token
