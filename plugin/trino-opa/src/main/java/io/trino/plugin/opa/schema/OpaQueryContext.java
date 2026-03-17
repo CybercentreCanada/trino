@@ -19,12 +19,18 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-public record OpaQueryContext(TrinoIdentity identity, OpaPluginContext softwareStack, Optional<QueryId> queryId)
+public record OpaQueryContext(TrinoIdentity identity, OpaPluginContext softwareStack, Optional<QueryId> queryId, Optional<String> source)
 {
     public OpaQueryContext
     {
         requireNonNull(identity, "identity is null");
         requireNonNull(softwareStack, "softwareStack is null");
         requireNonNull(queryId, "queryId is null");
+        requireNonNull(source, "source is null");
+    }
+
+    public OpaQueryContext(TrinoIdentity identity, OpaPluginContext softwareStack, Optional<QueryId> queryId)
+    {
+        this(identity, softwareStack, queryId, Optional.empty());
     }
 }
