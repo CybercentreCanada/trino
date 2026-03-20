@@ -859,7 +859,7 @@ public class TrinoRestCatalog
                 String user = session.getUser();
                 String source = session.getSource().orElse("default");
                 String providedToken = session.getIdentity().getExtraCredentials().get("rest.auth.oauth2.token");
-                
+
                 if (providedToken != null && !providedToken.isEmpty()) {
                     // Use the token hash to force a new SessionContext when the token changes
                     sessionId = hashCredentials(ImmutableMap.of("rest.auth.oauth2.token", providedToken));
