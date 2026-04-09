@@ -5,7 +5,8 @@
     "build": {
         "dockerfile": "Dockerfile",
         "args": {
-            "BASE_IMAGE_TAG": "452_cccs-main_20240920131647_b10980"
+            "BASE_IMAGE_TAG": "478_cccs-main_20251128154310_b13214",
+            "USERNAME": "ubuntu"
         }
     },
     "runArgs": [
@@ -13,12 +14,24 @@
         "--privileged"
     ],
     "mounts": [
-        "source=trino-dind-var-lib-docker,target=/var/lib/docker,type=volume"
-    ],
+		"source=${env:SSH_AUTH_SOCK},target=/usr/local/share/ssh-agent.sock,type=bind",
+		"source=${env:HOME}/.devcontainers/trino-bashhistory,target=/usr/local/share/bash_history,type=bind",
+        "source=${env:HOME}/.m2,target=/home/ubuntu/.m2,type=bind",
+		"source=${env:HOME}/scratch,target=${containerWorkspaceFolder}/scratch,type=bind",
+		"source=trino-dind-var-lib-docker,target=/var/lib/docker,type=volume"
+	],
+	"remoteEnv": {
+		"SSH_AUTH_SOCK": "/usr/local/share/ssh-agent.sock",
+		"HISTFILE": "/usr/local/share/bash_history",
+		"PROMPT_COMMAND": "history -a"
+	},
+    "workspaceMount": "source=${localWorkspaceFolder}/..,target=${containerWorkspaceFolder}/development,type=bind,consistency=cached",
+	"workspaceFolder": "/workspace",
     "customizations": {
         "vscode": {
             // Set *default* container specific settings.json values on container create.
             "settings": {
+                "terminal.integrated.cwd": "${containerWorkspaceFolder}/development",
                 "terminal.integrated.defaultProfile.linux": "bash",
                 "java.progressReports.enabled": false
             },
@@ -31,6 +44,7 @@
             ]
         }
     },
+    "initializeCommand": "bash ${localWorkspaceFolder}/.devcontainer/initializeCommand.sh",
     "overrideCommand": false,
-    "remoteUser": "vscode"
+    "remoteUser": "ubuntu"
 }
