@@ -362,7 +362,7 @@ public final class Session
                 throw new TrinoException(CATALOG_NOT_FOUND, "Catalog '%s' not found".formatted(catalogName));
             }
             if (role.getType() == SelectedRole.Type.ROLE) {
-                accessControl.checkCanSetCatalogRole(new SecurityContext(transactionId, identity, queryId, start), role.getRole().orElseThrow(), catalogName);
+                accessControl.checkCanSetCatalogRole(new SecurityContext(transactionId, identity, queryId, start, source), role.getRole().orElseThrow(), catalogName);
             }
             connectorRoles.put(catalogName, role);
         }
@@ -621,7 +621,7 @@ public final class Session
         for (Entry<String, String> property : catalogProperties.entrySet()) {
             // verify permissions
             if (transactionId.isPresent()) {
-                accessControl.checkCanSetCatalogSessionProperty(new SecurityContext(transactionId.get(), identity, queryId, start), catalogName, property.getKey());
+                accessControl.checkCanSetCatalogSessionProperty(new SecurityContext(transactionId.get(), identity, queryId, start, source), catalogName, property.getKey());
             }
 
             // validate catalog session property value
@@ -679,7 +679,7 @@ public final class Session
 
     public SecurityContext toSecurityContext()
     {
-        return new SecurityContext(getRequiredTransactionId(), getIdentity(), queryId, start);
+        return new SecurityContext(getRequiredTransactionId(), getIdentity(), queryId, start, source);
     }
 
     public static class SessionBuilder

@@ -103,7 +103,7 @@ public class Analyzer
             analysis.getTableColumnReferences().forEach((accessControlInfo, tableColumnReferences) ->
                     tableColumnReferences.forEach((tableName, columns) ->
                             accessControlInfo.getAccessControl().checkCanSelectFromColumns(
-                                    accessControlInfo.getSecurityContext(session.getRequiredTransactionId(), session.getQueryId(), session.getStart()),
+                                    accessControlInfo.getSecurityContext(session.getRequiredTransactionId(), session.getQueryId(), session.getStart(), session.getSource()),
                                     tableName,
                                     columns)));
         }

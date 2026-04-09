@@ -2030,6 +2030,11 @@ public class Analysis
             return new SecurityContext(transactionId, identity, queryId, queryStart);
         }
 
+        public SecurityContext getSecurityContext(TransactionId transactionId, QueryId queryId, Instant queryStart, Optional<String> source)
+        {
+            return new SecurityContext(transactionId, identity, queryId, queryStart, source);
+        }
+
         @Override
         public boolean equals(Object o)
         {
