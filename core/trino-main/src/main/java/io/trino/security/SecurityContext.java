@@ -21,6 +21,7 @@ import io.trino.transaction.TransactionId;
 
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static java.util.Objects.requireNonNull;
@@ -30,13 +31,14 @@ public class SecurityContext
     public static SecurityContext of(Session session)
     {
         requireNonNull(session, "session is null");
-        return new SecurityContext(session.getRequiredTransactionId(), session.getIdentity(), session.getQueryId(), session.getStart());
+        return new SecurityContext(session.getRequiredTransactionId(), session.getIdentity(), session.getQueryId(), session.getStart(), session.getSource());
     }
 
     private final TransactionId transactionId;
     private final Identity identity;
     private final QueryId queryId;
     private final Instant queryStart;
+    private final Optional<String> source;
 
     public SecurityContext(TransactionId transactionId, Identity identity, QueryId queryId, Instant queryStart)
     {
@@ -44,6 +46,16 @@ public class SecurityContext
         this.identity = requireNonNull(identity, "identity is null");
         this.queryId = requireNonNull(queryId, "queryId is null");
         this.queryStart = requireNonNull(queryStart, "queryStart is null");
+        this.source = Optional.empty();
+    }
+
+    public SecurityContext(TransactionId transactionId, Identity identity, QueryId queryId, Instant queryStart, Optional<String> source)
+    {
+        this.transactionId = requireNonNull(transactionId, "transactionId is null");
+        this.identity = requireNonNull(identity, "identity is null");
+        this.queryId = requireNonNull(queryId, "queryId is null");
+        this.queryStart = requireNonNull(queryStart, "queryStart is null");
+        this.source = requireNonNull(source, "source is null");
     }
 
     public TransactionId getTransactionId()
@@ -61,9 +73,14 @@ public class SecurityContext
         return queryId;
     }
 
+    public Optional<String> getSource()
+    {
+        return source;
+    }
+
     public SystemSecurityContext toSystemSecurityContext()
     {
-        return new SystemSecurityContext(identity, queryId, queryStart);
+        return new SystemSecurityContext(identity, queryId, queryStart, source);
     }
 
     @Override
