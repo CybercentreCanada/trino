@@ -40,6 +40,10 @@ public class IcebergRestCatalogModule
                 new OAuth2SecurityModule()));
         install(conditionalModule(
                 IcebergRestCatalogConfig.class,
+                config -> config.getSecurity() == Security.DREMIO,
+                new DremioSecurityModule()));
+        install(conditionalModule(
+                IcebergRestCatalogConfig.class,
                 config -> config.getSecurity() == Security.SIGV4,
                 new SigV4SecurityModule()));
         install(conditionalModule(

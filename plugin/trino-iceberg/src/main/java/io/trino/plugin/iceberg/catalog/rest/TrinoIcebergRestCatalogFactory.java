@@ -126,6 +126,7 @@ public class TrinoIcebergRestCatalogFactory
             properties.put("trino-version", trinoVersion);
             properties.put(AUTH_SESSION_TIMEOUT_MS, String.valueOf(sessionTimeout.toMillis()));
             properties.putAll(securityProperties.get());
+            properties.putAll(identity.getExtraCredentials());
 
             if (vendedCredentialsEnabled) {
                 properties.put("header.X-Iceberg-Access-Delegation", "vended-credentials");
