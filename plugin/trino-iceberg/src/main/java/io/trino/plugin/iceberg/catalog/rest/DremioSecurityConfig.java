@@ -18,6 +18,7 @@ import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.ConfigSecuritySensitive;
 
 import java.net.URI;
+import java.util.Map;
 import java.util.Optional;
 
 public class DremioSecurityConfig
@@ -33,6 +34,7 @@ public class DremioSecurityConfig
     private boolean tokenRefreshEnabled = true;                       // rest.auth.oauth2.token-refresh.enabled
     private Optional<String> httpClientType = Optional.empty();       // rest.auth.oauth2.http.client-type
     private Optional<String> sessionCacheTimeout = Optional.empty();  // rest.auth.oauth2.system.session-cache-timeout
+    private Map<String, String> extraParams = Map.of();               // rest.auth.oauth2.extra-params.*
     private Optional<String> smallRyeConfigLocations = Optional.empty();
 
     @Config("iceberg.rest-catalog.oauth2.issuer-url")
@@ -178,6 +180,19 @@ public class DremioSecurityConfig
     public Optional<String> getSessionCacheTimeout()
     {
         return sessionCacheTimeout;
+    }
+
+    @Config("iceberg.rest-catalog.oauth2.extra-params")
+    @ConfigDescription("Additional OAuth2 token request parameters as a comma-separated map of key=value pairs")
+    public DremioSecurityConfig setExtraParams(Map<String, String> extraParams)
+    {
+        this.extraParams = extraParams == null ? Map.of() : Map.copyOf(extraParams);
+        return this;
+    }
+
+    public Map<String, String> getExtraParams()
+    {
+        return extraParams;
     }
 
     @Config("iceberg.rest-catalog.smallrye-config-locations")
