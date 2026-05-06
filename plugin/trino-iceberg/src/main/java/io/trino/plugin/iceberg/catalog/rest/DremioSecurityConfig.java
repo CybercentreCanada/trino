@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.iceberg.catalog.rest;
 
+import com.google.common.collect.ImmutableMap;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.ConfigSecuritySensitive;
@@ -183,16 +184,38 @@ public class DremioSecurityConfig
     }
 
     @Config("iceberg.rest-catalog.oauth2.extra-params")
-    @ConfigDescription("Additional OAuth2 token request parameters as a comma-separated map of key=value pairs")
-    public DremioSecurityConfig setExtraParams(Map<String, String> extraParams)
+    @ConfigDescription("Additional OAuth2 token request parameters as a comma-separated list of key=value pairs")
+    public DremioSecurityConfig setExtraParams(String extraParams)
     {
-        this.extraParams = extraParams == null ? Map.of() : Map.copyOf(extraParams);
+        this.extraParams = extraParams == null ? Map.of() : parseExtraParams(extraParams);
         return this;
     }
 
     public Map<String, String> getExtraParams()
     {
         return extraParams;
+    }
+
+    private static Map<String, String> parseExtraParams(String raw)
+    {
+        ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
+        for (String entry : raw.split(",")) {
+            String trimmed = entry.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            int idx = trimmed.indexOf('=');
+            if (idx <= 0 || idx == trimmed.length() - 1) {
+                // ignore malformed entries
+                continue;
+            }
+            String key = trimmed.substring(0, idx).trim();
+            String value = trimmed.substring(idx + 1).trim();
+            if (!key.isEmpty() && !value.isEmpty()) {
+                builder.put(key, value);
+            }
+        }
+        return builder.build();
     }
 
     @Config("iceberg.rest-catalog.smallrye-config-locations")
