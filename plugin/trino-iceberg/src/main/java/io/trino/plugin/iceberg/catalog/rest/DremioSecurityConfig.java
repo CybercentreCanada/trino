@@ -215,7 +215,7 @@ public class DremioSecurityConfig
                 builder.put(key, value);
             }
         }
-        return builder.build();
+        return builder.buildOrThrow();
     }
 
     @Config("iceberg.rest-catalog.smallrye-config-locations")
