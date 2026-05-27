@@ -13,7 +13,8 @@
  */
 package io.trino.plugin.iceberg.catalog.rest;
 
-import com.google.common.collect.ImmutableMap;
+import com.google.common.base.Splitter;
+import com.google.common.base.Splitter.MapSplitter;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.ConfigSecuritySensitive;
@@ -24,6 +25,8 @@ import java.util.Optional;
 
 public class DremioSecurityConfig
 {
+    private static final MapSplitter MAP_SPLITTER = Splitter.on(",").trimResults().omitEmptyStrings().withKeyValueSeparator("=");
+
     private Optional<URI> issuerUrl = Optional.empty();               // rest.auth.oauth2.issuer-url
     private Optional<URI> tokenEndpoint = Optional.empty();           // rest.auth.oauth2.token-endpoint
     private String grantType = "client_credentials";                  // rest.auth.oauth2.grant-type
@@ -198,24 +201,7 @@ public class DremioSecurityConfig
 
     private static Map<String, String> parseExtraParams(String raw)
     {
-        ImmutableMap.Builder<String, String> builder = ImmutableMap.builder();
-        for (String entry : raw.split(",")) {
-            String trimmed = entry.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            int idx = trimmed.indexOf('=');
-            if (idx <= 0 || idx == trimmed.length() - 1) {
-                throw new IllegalArgumentException("Invalid value for iceberg.rest-catalog.oauth2.extra-params: malformed entry '" + trimmed + "'. Expected key=value");
-            }
-            String key = trimmed.substring(0, idx).trim();
-            String value = trimmed.substring(idx + 1).trim();
-            if (key.isEmpty() || value.isEmpty()) {
-                throw new IllegalArgumentException("Invalid value for iceberg.rest-catalog.oauth2.extra-params: malformed entry '" + trimmed + "'. Expected non-empty key and value");
-            }
-            builder.put(key, value);
-        }
-        return builder.buildOrThrow();
+        return MAP_SPLITTER.split(raw);
     }
 
     @Config("iceberg.rest-catalog.smallrye-config-locations")
