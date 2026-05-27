@@ -206,14 +206,14 @@ public class DremioSecurityConfig
             }
             int idx = trimmed.indexOf('=');
             if (idx <= 0 || idx == trimmed.length() - 1) {
-                // ignore malformed entries
-                continue;
+                throw new IllegalArgumentException("Invalid value for iceberg.rest-catalog.oauth2.extra-params: malformed entry '" + trimmed + "'. Expected key=value");
             }
             String key = trimmed.substring(0, idx).trim();
             String value = trimmed.substring(idx + 1).trim();
-            if (!key.isEmpty() && !value.isEmpty()) {
-                builder.put(key, value);
+            if (key.isEmpty() || value.isEmpty()) {
+                throw new IllegalArgumentException("Invalid value for iceberg.rest-catalog.oauth2.extra-params: malformed entry '" + trimmed + "'. Expected non-empty key and value");
             }
+            builder.put(key, value);
         }
         return builder.buildOrThrow();
     }
