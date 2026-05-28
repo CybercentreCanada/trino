@@ -190,18 +190,13 @@ public class DremioSecurityConfig
     @ConfigDescription("Additional OAuth2 token request parameters as a comma-separated list of key=value pairs")
     public DremioSecurityConfig setExtraParams(String extraParams)
     {
-        this.extraParams = extraParams == null ? Map.of() : parseExtraParams(extraParams);
+        this.extraParams = extraParams == null ? Map.of() : MAP_SPLITTER.split(extraParams);
         return this;
     }
 
     public Map<String, String> getExtraParams()
     {
         return extraParams;
-    }
-
-    private static Map<String, String> parseExtraParams(String raw)
-    {
-        return MAP_SPLITTER.split(raw);
     }
 
     @Config("iceberg.rest-catalog.smallrye-config-locations")
