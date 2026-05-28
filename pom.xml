@@ -2850,6 +2850,35 @@
                                     <resource>iso3166_3-codes.properties</resource>
                                 </resources>
                             </exception>
+                            <exception>
+                                <conflictingDependencies>
+                                    <dependency>
+                                        <groupId>com.dremio.iceberg.authmgr</groupId>
+                                        <artifactId>authmgr-oauth2-runtime</artifactId>
+                                    </dependency>
+                                    <dependency>
+                                        <groupId>jakarta.annotation</groupId>
+                                        <artifactId>jakarta.annotation-api</artifactId>
+                                    </dependency>
+                                </conflictingDependencies>
+                                <classes>
+                                    <class>jakarta.annotation.Generated</class>
+                                    <class>jakarta.annotation.Nonnull</class>
+                                    <class>jakarta.annotation.Nullable</class>
+                                    <class>jakarta.annotation.PostConstruct</class>
+                                    <class>jakarta.annotation.PreDestroy</class>
+                                    <class>jakarta.annotation.Priority</class>
+                                    <class>jakarta.annotation.Resource</class>
+                                    <class>jakarta.annotation.Resources</class>
+                                    <class>jakarta.annotation.security.DeclareRoles</class>
+                                    <class>jakarta.annotation.security.DenyAll</class>
+                                    <class>jakarta.annotation.security.PermitAll</class>
+                                    <class>jakarta.annotation.security.RolesAllowed</class>
+                                    <class>jakarta.annotation.security.RunAs</class>
+                                    <class>jakarta.annotation.sql.DataSourceDefinition</class>
+                                    <class>jakarta.annotation.sql.DataSourceDefinitions</class>
+                                </classes>
+                            </exception>
                         </exceptions>
                     </configuration>
                 </plugin>
