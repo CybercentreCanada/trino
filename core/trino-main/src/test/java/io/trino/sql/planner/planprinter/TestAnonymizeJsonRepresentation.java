@@ -16,6 +16,7 @@ package io.trino.sql.planner.planprinter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.json.JsonCodec;
+import io.trino.connector.TestingColumnHandle;
 import io.trino.cost.StatsAndCosts;
 import io.trino.execution.TableInfo;
 import io.trino.metadata.QualifiedObjectName;
@@ -24,7 +25,6 @@ import io.trino.plugin.tpch.TpchPlugin;
 import io.trino.plugin.tpch.TpchTableHandle;
 import io.trino.plugin.tpch.TpchTransactionHandle;
 import io.trino.spi.connector.ColumnHandle;
-import io.trino.spi.connector.TestingColumnHandle;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.ValueSet;
@@ -239,7 +239,7 @@ public class TestAnonymizeJsonRepresentation
             ValuePrinter valuePrinter = new ValuePrinter(queryRunner.getPlannerContext().getMetadata(), queryRunner.getPlannerContext().getFunctionManager(), session);
             String jsonRenderedNode = new PlanPrinter(
                     sourceNodeSupplier.apply(planBuilder),
-                    scanNode -> TABLE_INFO,
+                    _ -> TABLE_INFO,
                     ImmutableMap.of(),
                     valuePrinter,
                     StatsAndCosts.empty(),

@@ -226,7 +226,8 @@ public class TestDefaultJdbcQueryBuilder
                                         Range.equal(INTEGER, 96L),
                                         Range.lessThan(INTEGER, 0L))),
                         false))
-                .put(columns.get(2), Domain.create(SortedRangeSet.copyOf(BOOLEAN,
+                .put(columns.get(2), Domain.create(SortedRangeSet.copyOf(
+                                BOOLEAN,
                                 ImmutableList.of(Range.equal(BOOLEAN, true))),
                         false))
                 .buildOrThrow());
@@ -731,7 +732,7 @@ public class TestDefaultJdbcQueryBuilder
 
     private static long toTimeRepresentation(int hour, int minute, int second)
     {
-        SqlTime time = sqlTimeOf(hour, minute, second, 0);
+        SqlTime time = sqlTimeOf(3, hour, minute, second, 0);
         return time.getPicos();
     }
 

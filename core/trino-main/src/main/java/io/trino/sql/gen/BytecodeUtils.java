@@ -172,7 +172,7 @@ public final class BytecodeUtils
     {
         return generateInvocation(
                 scope,
-                resolvedFunction.signature().getName().getFunctionName(),
+                resolvedFunction.signature().getName().functionName(),
                 resolvedFunction.functionNullability(),
                 invocationConvention -> functionManager.getScalarFunctionImplementation(resolvedFunction, invocationConvention),
                 arguments,
@@ -193,7 +193,7 @@ public final class BytecodeUtils
                 functionNullability,
                 Collections.nCopies(arguments.size(), false),
                 functionImplementationProvider,
-                instanceFactory -> {
+                _ -> {
                     throw new IllegalArgumentException("Simple method invocation can not be used with functions that require an instance factory");
                 },
                 arguments.stream()
@@ -220,7 +220,7 @@ public final class BytecodeUtils
     {
         return generateFullInvocation(
                 scope,
-                resolvedFunction.signature().getName().getFunctionName(),
+                resolvedFunction.signature().getName().functionName(),
                 resolvedFunction.functionNullability(),
                 resolvedFunction.signature().getArgumentTypes().stream()
                         .map(FunctionType.class::isInstance)
@@ -291,7 +291,7 @@ public final class BytecodeUtils
             Class<?> type = methodType.parameterArray()[currentParameterIndex];
             stackTypes.add(type);
             if (instance.isPresent() && !instanceIsBound) {
-                checkState(type.equals(implementation.getInstanceFactory().get().type().returnType()), "Mismatched type for instance parameter");
+                checkState(type.equals(binder.getAccessibleType(implementation.getInstanceFactory().get().type().returnType())), "Mismatched type for instance parameter");
                 block.append(instance.get());
                 instanceIsBound = true;
             }
@@ -300,24 +300,24 @@ public final class BytecodeUtils
             }
             else {
                 switch (invocationConvention.getArgumentConvention(realParameterIndex)) {
-                    case NEVER_NULL:
+                    case NEVER_NULL -> {
                         block.append(arguments.get(realParameterIndex));
                         checkArgument(!Primitives.isWrapperType(type), "Non-nullable argument must not be primitive wrapper type");
                         block.append(ifWasNullPopAndGoto(scope, end, unboxedReturnType, stackTypes.reversed()));
-                        break;
-                    case NULL_FLAG:
+                    }
+                    case NULL_FLAG -> {
                         block.append(arguments.get(realParameterIndex));
                         block.append(scope.getVariable("wasNull"));
                         block.append(scope.getVariable("wasNull").set(constantFalse()));
                         stackTypes.add(boolean.class);
                         currentParameterIndex++;
-                        break;
-                    case BOXED_NULLABLE:
+                    }
+                    case BOXED_NULLABLE -> {
                         block.append(arguments.get(realParameterIndex));
                         block.append(boxPrimitiveIfNecessary(scope, type));
                         block.append(scope.getVariable("wasNull").set(constantFalse()));
-                        break;
-                    case BLOCK_POSITION:
+                    }
+                    case BLOCK_POSITION -> {
                         InputReferenceNode inputReferenceNode = (InputReferenceNode) arguments.get(realParameterIndex);
                         block.append(inputReferenceNode.produceBlockAndPosition());
                         stackTypes.add(int.class);
@@ -326,8 +326,8 @@ public final class BytecodeUtils
                             block.append(ifWasNullPopAndGoto(scope, end, unboxedReturnType, stackTypes.reversed()));
                         }
                         currentParameterIndex++;
-                        break;
-                    case IN_OUT:
+                    }
+                    case IN_OUT -> {
                         block.append(arguments.get(realParameterIndex));
                         if (!functionNullability.isArgumentNullable(realParameterIndex)) {
                             block.append(arguments.get(realParameterIndex));
@@ -336,14 +336,13 @@ public final class BytecodeUtils
                             block.append(ifWasNullPopAndGoto(scope, end, unboxedReturnType, stackTypes.reversed()));
                         }
                         currentParameterIndex++;
-                        break;
-                    case FUNCTION:
+                    }
+                    case FUNCTION -> {
                         Class<?> lambdaInterface = implementation.getLambdaInterfaces().get(lambdaArgumentIndex);
                         block.append(argumentCompilers.get(realParameterIndex).apply(Optional.of(lambdaInterface)));
                         lambdaArgumentIndex++;
-                        break;
-                    default:
-                        throw new UnsupportedOperationException(format("Unsupported argument convention type: %s", invocationConvention.getArgumentConvention(realParameterIndex)));
+                    }
+                    default -> throw new UnsupportedOperationException(format("Unsupported argument convention type: %s", invocationConvention.getArgumentConvention(realParameterIndex)));
                 }
                 realParameterIndex++;
             }
@@ -453,7 +452,7 @@ public final class BytecodeUtils
 
     public static BytecodeExpression invoke(Binding binding, BoundSignature signature)
     {
-        return invoke(binding, signature.getName().getFunctionName());
+        return invoke(binding, signature.getName().functionName());
     }
 
     /**

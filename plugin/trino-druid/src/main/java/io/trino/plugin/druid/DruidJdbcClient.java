@@ -46,7 +46,6 @@ import io.trino.spi.predicate.Range;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DecimalType;
-import io.trino.spi.type.Decimals;
 import io.trino.spi.type.TimestampType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.VarcharType;
@@ -74,6 +73,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.Iterables.getOnlyElement;
@@ -87,7 +87,6 @@ import static io.trino.plugin.jdbc.StandardColumnMappings.booleanWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.charWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.dateColumnMappingUsingSqlDate;
 import static io.trino.plugin.jdbc.StandardColumnMappings.dateWriteFunctionUsingSqlDate;
-import static io.trino.plugin.jdbc.StandardColumnMappings.decimalColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.defaultCharColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.defaultVarcharColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.doubleColumnMapping;
@@ -116,7 +115,6 @@ import static io.trino.spi.connector.ConnectorMetadata.MODIFYING_ROWS_MESSAGE;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DateType.DATE;
-import static io.trino.spi.type.DecimalType.createDecimalType;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.RealType.REAL;
@@ -126,7 +124,6 @@ import static io.trino.spi.type.Timestamps.MICROSECONDS_PER_SECOND;
 import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
-import static java.lang.Math.max;
 import static java.lang.String.format;
 import static java.time.ZoneOffset.UTC;
 import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE;
@@ -166,7 +163,7 @@ public class DruidJdbcClient
         return ImmutableSet.of(DRUID_SCHEMA);
     }
 
-    //Overridden to filter out tables that don't match schemaTableName
+    // Overridden to filter out tables that don't match schemaTableName
     @Override
     public Optional<JdbcTableHandle> getTableHandle(ConnectorSession session, SchemaTableName schemaTableName)
     {
@@ -215,7 +212,8 @@ public class DruidJdbcClient
             throws SQLException
     {
         DatabaseMetaData metadata = connection.getMetaData();
-        return metadata.getTables(DRUID_CATALOG,
+        return metadata.getTables(
+                DRUID_CATALOG,
                 DRUID_SCHEMA,
                 tableName.orElse(null),
                 null);
@@ -237,76 +235,40 @@ public class DruidJdbcClient
         }
 
         // TODO (https://github.com/trinodb/trino/issues/9215) Implement proper type mapping and add test
-        switch (typeHandle.jdbcType()) {
-            case Types.BIT:
-            case Types.BOOLEAN:
-                return Optional.of(booleanColumnMapping());
-
-            case Types.TINYINT:
-                return Optional.of(tinyintColumnMapping());
-
-            case Types.SMALLINT:
-                return Optional.of(smallintColumnMapping());
-
-            case Types.INTEGER:
-                return Optional.of(integerColumnMapping());
-
-            case Types.BIGINT:
-                return Optional.of(bigintColumnMapping());
-
-            case Types.FLOAT:
-            case Types.REAL:
-                return Optional.of(realColumnMapping());
-
-            case Types.DOUBLE:
-                return Optional.of(doubleColumnMapping());
-
-            case Types.NUMERIC:
-            case Types.DECIMAL:
-                int decimalDigits = typeHandle.requiredDecimalDigits();
-                int precision = typeHandle.requiredColumnSize() + max(-decimalDigits, 0); // Map decimal(p, -s) (negative scale) to decimal(p+s, 0).
-                if (precision > Decimals.MAX_PRECISION) {
-                    break;
-                }
-                return Optional.of(decimalColumnMapping(createDecimalType(precision, max(decimalDigits, 0))));
-
-            case Types.CHAR:
-            case Types.NCHAR:
-                return Optional.of(defaultCharColumnMapping(typeHandle.requiredColumnSize(), false));
-
-            case Types.VARCHAR:
+        return switch (typeHandle.jdbcType()) {
+            case Types.BIT, Types.BOOLEAN -> Optional.of(booleanColumnMapping());
+            case Types.TINYINT -> Optional.of(tinyintColumnMapping());
+            case Types.SMALLINT -> Optional.of(smallintColumnMapping());
+            case Types.INTEGER -> Optional.of(integerColumnMapping());
+            case Types.BIGINT -> Optional.of(bigintColumnMapping());
+            case Types.FLOAT, Types.REAL -> Optional.of(realColumnMapping());
+            case Types.DOUBLE -> Optional.of(doubleColumnMapping());
+            case Types.CHAR, Types.NCHAR -> Optional.of(defaultCharColumnMapping(typeHandle.requiredColumnSize(), false));
+            case Types.VARCHAR -> {
                 int columnSize = typeHandle.requiredColumnSize();
                 if (columnSize == -1) {
-                    return Optional.of(varcharColumnMapping(createUnboundedVarcharType(), true));
+                    yield Optional.of(varcharColumnMapping(createUnboundedVarcharType(), true));
                 }
-                return Optional.of(defaultVarcharColumnMapping(columnSize, true));
-
-            case Types.NVARCHAR:
-            case Types.LONGVARCHAR:
-            case Types.LONGNVARCHAR:
-                return Optional.of(defaultVarcharColumnMapping(typeHandle.requiredColumnSize(), false));
-
-            case Types.BINARY:
-            case Types.VARBINARY:
-            case Types.LONGVARBINARY:
-                return Optional.of(varbinaryColumnMapping());
-
-            case Types.DATE:
-                return Optional.of(dateColumnMappingUsingSqlDate());
-
-            case Types.TIME:
+                yield Optional.of(defaultVarcharColumnMapping(columnSize, true));
+            }
+            case Types.NVARCHAR, Types.LONGVARCHAR, Types.LONGNVARCHAR -> Optional.of(defaultVarcharColumnMapping(typeHandle.requiredColumnSize(), false));
+            case Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY -> Optional.of(varbinaryColumnMapping());
+            case Types.DATE -> Optional.of(dateColumnMappingUsingSqlDate());
+            case Types.TIME -> {
                 // TODO Consider using `StandardColumnMappings.timeColumnMapping`
-                return Optional.of(timeColumnMappingUsingSqlTime());
-
-            case Types.TIMESTAMP:
+                yield Optional.of(timeColumnMappingUsingSqlTime());
+            }
+            case Types.TIMESTAMP -> {
                 // TODO: use `StandardColumnMappings.timestampColumnMapping` when https://issues.apache.org/jira/browse/CALCITE-1630 gets resolved
-                return Optional.of(timestampColumnMappingUsingSqlTimestampWithFullPushdown(TIMESTAMP_MILLIS));
-        }
-
-        if (getUnsupportedTypeHandling(session) == CONVERT_TO_VARCHAR) {
-            return mapToUnboundedVarchar(typeHandle);
-        }
-        return Optional.empty();
+                yield Optional.of(timestampColumnMappingUsingSqlTimestampWithFullPushdown(TIMESTAMP_MILLIS));
+            }
+            default -> {
+                if (getUnsupportedTypeHandling(session) == CONVERT_TO_VARCHAR) {
+                    yield mapToUnboundedVarchar(typeHandle);
+                }
+                yield Optional.empty();
+            }
+        };
     }
 
     @Override
@@ -336,10 +298,10 @@ public class DruidJdbcClient
                     boolean canPushdownFilter = domain.getValues().getValuesProcessor().transform(
                             ranges -> ranges.getOrderedRanges().stream()
                                     .allMatch(DruidJdbcClient::hasSecondPrecision),
-                            discreteValues -> {
+                            _ -> {
                                 throw new UnsupportedOperationException("Not supported for discrete values");
                             },
-                            allOrNone -> true);
+                            _ -> true);
 
                     if (canPushdownFilter) {
                         return FULL_PUSHDOWN.apply(session, domain);
@@ -476,7 +438,7 @@ public class DruidJdbcClient
     }
 
     @Override
-    public JdbcOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata)
+    public JdbcOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Consumer<Runnable> rollbackActionCollector)
     {
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support creating tables with data");
     }
@@ -542,7 +504,13 @@ public class DruidJdbcClient
     }
 
     @Override
-    public void rollbackCreateTable(ConnectorSession session, JdbcOutputTableHandle handle)
+    public void rollbackDestinationTableCreation(ConnectorSession session, RemoteTableName remoteTableName)
+    {
+        throw new TrinoException(NOT_SUPPORTED, "This connector does not support creating tables");
+    }
+
+    @Override
+    public void rollbackTemporaryTableCreation(ConnectorSession session, JdbcOutputTableHandle handle)
     {
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support creating tables");
     }

@@ -26,7 +26,6 @@ import io.trino.plugin.tpch.TpchColumnHandle;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.type.BigintType;
 import io.trino.sql.ir.Expression;
-import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Plan;
 import io.trino.sql.planner.PlanNodeIdAllocator;
 import io.trino.sql.planner.Symbol;
@@ -68,7 +67,7 @@ public class TestUnaliasSymbolReferences
         String buildTable = "nation";
         assertOptimizedPlan(
                 new UnaliasSymbolReferences(),
-                (p, session, metadata) -> {
+                (p, _, metadata) -> {
                     ColumnHandle column = new TpchColumnHandle("nationkey", BIGINT);
                     Symbol buildColumnSymbol = p.symbol("nationkey");
                     Symbol buildAlias1 = p.symbol("buildAlias1");
@@ -102,19 +101,19 @@ public class TestUnaliasSymbolReferences
                             ImmutableMap.of(dynamicFilterId1, buildAlias1, dynamicFilterId2, buildAlias2));
                 },
                 join(INNER, builder -> builder
-                        .dynamicFilter(ImmutableMap.of(
-                                new Reference(BIGINT, "probeColumn1"), "column",
-                                new Reference(BIGINT, "probeColumn2"), "column"))
+                        .addDynamicFilter("DF", "column")
                         .left(
                                 filter(
                                         TRUE,
                                         filter(
                                                 TRUE,
+                                                dynamicFilters -> dynamicFilters
+                                                        .addConsumer(consumer -> consumer.alias("DF").expression(BIGINT, "probeColumn1"))
+                                                        .addConsumer(consumer -> consumer.alias("DF").expression(BIGINT, "probeColumn2")),
                                                 tableScan(
                                                         probeTable,
                                                         ImmutableMap.of("probeColumn1", "suppkey", "probeColumn2", "nationkey")))))
-                        .right(
-                                project(tableScan(buildTable, ImmutableMap.of("column", "nationkey"))))));
+                        .right(project(tableScan(buildTable, ImmutableMap.of("column", "nationkey"))))));
     }
 
     @Test
@@ -122,7 +121,7 @@ public class TestUnaliasSymbolReferences
     {
         assertOptimizedPlan(
                 new UnaliasSymbolReferences(),
-                (p, session, metadata) -> {
+                (p, _, _) -> {
                     Symbol symbol = p.symbol("symbol");
                     Symbol alias1 = p.symbol("alias1");
                     Symbol alias2 = p.symbol("alias2");

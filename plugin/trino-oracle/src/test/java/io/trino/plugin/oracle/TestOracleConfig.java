@@ -38,12 +38,16 @@ public class TestOracleConfig
                 .setSynonymsEnabled(false)
                 .setRemarksReportingEnabled(false)
                 .setDefaultNumberScale(null)
-                .setNumberRoundingMode(RoundingMode.UNNECESSARY)
+                .setNumberRoundingMode(null)
                 .setConnectionPoolEnabled(true)
                 .setConnectionPoolMinSize(1)
                 .setConnectionPoolMaxSize(30)
                 .setInactiveConnectionTimeout(new Duration(20, MINUTES))
+<<<<<<< HEAD
                 .setConnectionWaitTimeout(new Duration(5, SECONDS))
+=======
+                .setConnectionPoolWaitDuration(new Duration(3, SECONDS))
+>>>>>>> tags/481
                 .setFetchSize(null));
     }
 
@@ -59,7 +63,11 @@ public class TestOracleConfig
                 .put("oracle.connection-pool.min-size", "10")
                 .put("oracle.connection-pool.max-size", "20")
                 .put("oracle.connection-pool.inactive-timeout", "30s")
+<<<<<<< HEAD
                 .put("oracle.connection-pool.wait-timeout", "10s")
+=======
+                .put("oracle.connection-pool.wait-duration", "10s")
+>>>>>>> tags/481
                 .put("oracle.fetch-size", "2000")
                 .buildOrThrow();
 
@@ -72,7 +80,11 @@ public class TestOracleConfig
                 .setConnectionPoolMinSize(10)
                 .setConnectionPoolMaxSize(20)
                 .setInactiveConnectionTimeout(new Duration(30, SECONDS))
+<<<<<<< HEAD
                 .setConnectionWaitTimeout(new Duration(10, SECONDS))
+=======
+                .setConnectionPoolWaitDuration(new Duration(10, SECONDS))
+>>>>>>> tags/481
                 .setFetchSize(2000);
 
         assertFullMapping(properties, expected);

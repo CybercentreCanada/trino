@@ -13,6 +13,7 @@
  */
 package io.trino.execution.scheduler.faulttolerant;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Stopwatch;
 import com.google.common.base.Ticker;
 import com.google.common.collect.HashMultimap;
@@ -46,7 +47,6 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.memory.MemoryPoolInfo;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import org.assertj.core.util.VisibleForTesting;
 import org.weakref.jmx.Managed;
 import org.weakref.jmx.Nested;
 
@@ -60,6 +60,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -226,7 +227,7 @@ public class BinPackingNodeAllocatorService
 
         Map<String, Optional<MemoryInfo>> workerMemoryInfos = workerMemoryInfoSupplier.get();
         long maxNodePoolSizeBytes = -1;
-        for (Map.Entry<String, Optional<MemoryInfo>> entry : workerMemoryInfos.entrySet()) {
+        for (Entry<String, Optional<MemoryInfo>> entry : workerMemoryInfos.entrySet()) {
             if (entry.getValue().isEmpty()) {
                 continue;
             }
@@ -292,7 +293,7 @@ public class BinPackingNodeAllocatorService
             }
 
             switch (result.getStatus()) {
-                case RESERVED:
+                case RESERVED -> {
                     InternalNode reservedNode = result.getNode();
                     fulfilledAcquires.add(pendingAcquire.getLease());
                     pendingAcquire.getFuture().set(reservedNode);
@@ -304,8 +305,8 @@ public class BinPackingNodeAllocatorService
                         wakeupProcessPendingAcquires();
                     }
                     iterator.remove();
-                    break;
-                case NONE_MATCHING:
+                }
+                case NONE_MATCHING -> {
                     Duration noMatchingNodePeriod = pendingAcquire.markNoMatchingNodeFound();
 
                     if (noMatchingNodePeriod.compareTo(allowedNoMatchingNodePeriod) <= 0) {
@@ -315,12 +316,12 @@ public class BinPackingNodeAllocatorService
 
                     pendingAcquire.getFuture().setException(new TrinoException(NO_NODES_AVAILABLE, "No nodes available to run query"));
                     iterator.remove();
-                    break;
-                case NOT_ENOUGH_RESOURCES_NOW:
+                }
+                case NOT_ENOUGH_RESOURCES_NOW -> {
                     pendingAcquire.resetNoMatchingNodeFound();
                     break; // nothing to be done
-                default:
-                    throw new IllegalArgumentException("unknown status: " + result.getStatus());
+                }
+                default -> throw new IllegalArgumentException("unknown status: " + result.getStatus());
             }
         }
     }
@@ -428,7 +429,8 @@ public class BinPackingNodeAllocatorService
     @Override
     public NodeAllocator getNodeAllocator(Session session)
     {
-        return new NodeAllocator() {
+        return new NodeAllocator()
+        {
             @Override
             public NodeLease acquire(NodeRequirements nodeRequirements, DataSize memoryRequirement, TaskExecutionClass executionClass)
             {
@@ -958,10 +960,10 @@ public class BinPackingNodeAllocatorService
         {
             nodesRemainingMemoryRuntimeAdjusted.compute(
                     nodeIdentifier,
-                    (key, free) -> max(free - memoryLease, 0));
+                    (_, free) -> max(free - memoryLease, 0));
             nodesRemainingMemory.compute(
                     nodeIdentifier,
-                    (key, free) -> max(free - memoryLease, 0));
+                    (_, free) -> max(free - memoryLease, 0));
             if (nodesRemainingMemory.get(nodeIdentifier) == 0) {
                 nodesWithoutMemory.add(nodeIdentifier);
             }
@@ -978,7 +980,7 @@ public class BinPackingNodeAllocatorService
             UNKNOWN,
             NONE_MATCHING,
             NOT_ENOUGH_RESOURCES_NOW,
-            RESERVED
+            RESERVED,
         }
 
         public static class ReserveResult

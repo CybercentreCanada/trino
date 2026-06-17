@@ -16,7 +16,6 @@ package io.trino.faulttolerant;
 import com.google.common.collect.ImmutableMap;
 import io.trino.execution.AbstractTestCoordinatorDynamicFiltering;
 import io.trino.operator.RetryPolicy;
-import io.trino.plugin.exchange.filesystem.FileSystemExchangePlugin;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
@@ -29,7 +28,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.parallel.Execution;
 
-import java.util.Map;
 import java.util.Set;
 
 import static io.trino.operator.RetryPolicy.TASK;
@@ -49,20 +47,13 @@ public class TestFaultTolerantExecutionDynamicFiltering
     protected QueryRunner createQueryRunner()
             throws Exception
     {
-        Map<String, String> exchangeManagerProperties = ImmutableMap.<String, String>builder()
-                .put("exchange.base-directories", System.getProperty("java.io.tmpdir") + "/trino-local-file-system-exchange-manager")
-                .buildOrThrow();
-
         return DistributedQueryRunner.builder(getDefaultSession())
                 .setExtraProperties(FaultTolerantExecutionConnectorTestHelper.getExtraProperties())
                 // keep limits lower to test edge cases
-                .addExtraProperty("enable-large-dynamic-filters", "false")
-                .addExtraProperty("dynamic-filtering.small.max-distinct-values-per-driver", "10")
-                .addExtraProperty("dynamic-filtering.small.range-row-limit-per-driver", "100")
-                .setAdditionalSetup(runner -> {
-                    runner.installPlugin(new FileSystemExchangePlugin());
-                    runner.loadExchangeManager("filesystem", exchangeManagerProperties);
-                })
+                .addExtraProperty("dynamic-filtering.max-distinct-values-per-driver", "10")
+                .addExtraProperty("dynamic-filtering.range-row-limit-per-driver", "100")
+                .addExtraProperty("dynamic-filtering.partitioned.range-row-limit-per-driver", "500")
+                .withExchange("filesystem")
                 .build();
     }
 
@@ -84,8 +75,7 @@ public class TestFaultTolerantExecutionDynamicFiltering
                 Set.of(PART_KEY_HANDLE),
                 collectedDomain -> {
                     TupleDomain<ColumnHandle> expectedRange = TupleDomain.withColumnDomains(ImmutableMap.of(
-                            PART_KEY_HANDLE,
-                            Domain.create(ValueSet.ofRanges(range(BIGINT, 1L, true, 2000L, true)), false)));
+                            PART_KEY_HANDLE, Domain.create(ValueSet.ofRanges(range(BIGINT, 1L, true, 2000L, true)), false)));
                     // Collected domain is {[1,41], [42,82], [83,123], [124,164], ..., [1928,2000]}
                     assertThat(collectedDomain.simplify(2)).isEqualTo(expectedRange);
                     collectedDomain.getDomains().orElseThrow().values().forEach(domain -> assertThat(domain.isNullableDiscreteSet()).isFalse());
@@ -102,8 +92,7 @@ public class TestFaultTolerantExecutionDynamicFiltering
                 Set.of(PART_KEY_HANDLE),
                 collectedDomain -> {
                     TupleDomain<ColumnHandle> expectedRange = TupleDomain.withColumnDomains(ImmutableMap.of(
-                            PART_KEY_HANDLE,
-                            Domain.create(ValueSet.ofRanges(range(BIGINT, 1L, true, 2000L, true)), false)));
+                            PART_KEY_HANDLE, Domain.create(ValueSet.ofRanges(range(BIGINT, 1L, true, 2000L, true)), false)));
                     // Collected domain is {[1,41], [42,82], [83,123], [124,164], ..., [1928,2000]}
                     assertThat(collectedDomain.simplify(2)).isEqualTo(expectedRange);
                     collectedDomain.getDomains().orElseThrow().values().forEach(domain -> assertThat(domain.isNullableDiscreteSet()).isFalse());
@@ -122,8 +111,7 @@ public class TestFaultTolerantExecutionDynamicFiltering
                 Set.of(PART_KEY_HANDLE),
                 collectedDomain -> {
                     TupleDomain<ColumnHandle> expectedRange = TupleDomain.withColumnDomains(ImmutableMap.of(
-                            PART_KEY_HANDLE,
-                            Domain.create(ValueSet.ofRanges(range(BIGINT, 1L, true, 2000L, true)), false)));
+                            PART_KEY_HANDLE, Domain.create(ValueSet.ofRanges(range(BIGINT, 1L, true, 2000L, true)), false)));
                     // Collected domain is {[1,41], [42,82], [83,123], [124,164], ..., [1928,2000]}
                     assertThat(collectedDomain.simplify(2)).isEqualTo(expectedRange);
                     collectedDomain.getDomains().orElseThrow().values().forEach(domain -> assertThat(domain.isNullableDiscreteSet()).isFalse());

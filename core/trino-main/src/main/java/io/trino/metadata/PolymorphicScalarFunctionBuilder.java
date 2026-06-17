@@ -54,6 +54,8 @@ public final class PolymorphicScalarFunctionBuilder
     private String description;
     private boolean hidden;
     private Boolean deterministic;
+    private boolean neverFails;
+
     private final List<PolymorphicScalarFunctionChoice> choices = new ArrayList<>();
 
     public PolymorphicScalarFunctionBuilder(String name, Class<?> clazz)
@@ -108,6 +110,12 @@ public final class PolymorphicScalarFunctionBuilder
         return this;
     }
 
+    public PolymorphicScalarFunctionBuilder neverFails(boolean neverFails)
+    {
+        this.neverFails = neverFails;
+        return this;
+    }
+
     public PolymorphicScalarFunctionBuilder choice(Function<ChoiceBuilder, ChoiceBuilder> choiceSpecification)
     {
         // if the argumentProperties is not set yet. We assume it is set to the default value.
@@ -142,6 +150,9 @@ public final class PolymorphicScalarFunctionBuilder
         if (!deterministic) {
             functionMetadata.nondeterministic();
         }
+        if (neverFails) {
+            functionMetadata.neverFails();
+        }
         if (nullableResult) {
             functionMetadata.nullable();
         }
@@ -166,7 +177,7 @@ public final class PolymorphicScalarFunctionBuilder
 
     public static <T> Function<SpecializeContext, List<Object>> constant(T value)
     {
-        return context -> ImmutableList.of(value);
+        return _ -> ImmutableList.of(value);
     }
 
     public static final class SpecializeContext
@@ -180,12 +191,12 @@ public final class PolymorphicScalarFunctionBuilder
 
         public Type getType(String name)
         {
-            return functionBinding.getTypeVariable(name);
+            return functionBinding.variables().getTypeVariable(name);
         }
 
         public Long getLiteral(String name)
         {
-            return functionBinding.getLongVariable(name);
+            return functionBinding.variables().getLongVariable(name);
         }
 
         public List<Type> getParameterTypes()
@@ -248,10 +259,14 @@ public final class PolymorphicScalarFunctionBuilder
             checkState(matchingMethod.size() == 1, "multiple methods %s was not found in %s", methodName, clazz);
             MethodAndNativeContainerTypes methodAndNativeContainerTypes = matchingMethod.get(0);
             int argumentSize = signature.getArgumentTypes().size();
-            checkState(types.size() == argumentSize, "not matching number of arguments from signature: %s (should have %s)",
-                    types.size(), argumentSize);
-            checkState(types.size() == argumentConventions.size(), "not matching number of arguments from argument properties: %s (should have %s)",
-                    types.size(), argumentConventions.size());
+            checkState(types.size() == argumentSize,
+                    "not matching number of arguments from signature: %s (should have %s)",
+                    types.size(),
+                    argumentSize);
+            checkState(types.size() == argumentConventions.size(),
+                    "not matching number of arguments from argument properties: %s (should have %s)",
+                    types.size(),
+                    argumentConventions.size());
             Iterator<InvocationArgumentConvention> argumentConventionIterator = argumentConventions.iterator();
             Iterator<Optional<Class<?>>> typesIterator = types.iterator();
             while (argumentConventionIterator.hasNext() && typesIterator.hasNext()) {

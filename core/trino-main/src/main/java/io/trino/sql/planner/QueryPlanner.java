@@ -119,6 +119,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -888,11 +889,11 @@ class QueryPlanner
                 whenClauses.build(),
                 new Constant(
                         RowType.anonymous(ImmutableList.<Type>builder()
-                        .addAll(dataColumnSchemas.stream().map(ColumnSchema::getType).collect(toImmutableList()))
-                        .add(BOOLEAN)
-                        .add(TINYINT)
-                        .add(INTEGER)
-                        .build()),
+                                .addAll(dataColumnSchemas.stream().map(ColumnSchema::getType).collect(toImmutableList()))
+                                .add(BOOLEAN)
+                                .add(TINYINT)
+                                .add(INTEGER)
+                                .build()),
                         null));
 
         Symbol mergeRowSymbol = symbolAllocator.newSymbol("merge_row", mergeAnalysis.getMergeRowType());
@@ -1460,7 +1461,7 @@ class QueryPlanner
                 .stream()
                 .collect(Collectors.groupingBy(analysis::getWindow, LinkedHashMap::new, toUnmodifiableList()));
 
-        for (Map.Entry<ResolvedWindow, List<FunctionCall>> entry : functions.entrySet()) {
+        for (Entry<ResolvedWindow, List<FunctionCall>> entry : functions.entrySet()) {
             ResolvedWindow window = entry.getKey();
             List<FunctionCall> functionCalls = entry.getValue();
 
@@ -1487,8 +1488,8 @@ class QueryPlanner
 
             for (FunctionCall windowFunction : functionCalls) {
                 inputsBuilder.addAll(windowFunction.getArguments().stream()
-                                .filter(argument -> !(argument instanceof LambdaExpression)) // lambda expression is generated at execution time
-                                .collect(Collectors.toList()));
+                        .filter(argument -> !(argument instanceof LambdaExpression)) // lambda expression is generated at execution time
+                        .collect(Collectors.toList()));
                 inputsBuilder.addAll(getSortItemsFromOrderBy(windowFunction.getOrderBy()).stream()
                         .map(SortItem::getSortKey)
                         .iterator());
@@ -1967,7 +1968,7 @@ class QueryPlanner
 
         for (WindowOperation windowMeasure : scopeAwareDistinct(subPlan, windowMeasures)) {
             ResolvedWindow window = analysis.getWindow(windowMeasure);
-            checkState(window != null, "no resolved window for: " + windowMeasure);
+            checkState(window != null, "no resolved window for: %s", windowMeasure);
 
             // pre-project inputs
             ImmutableList.Builder<io.trino.sql.tree.Expression> inputsBuilder = ImmutableList.<io.trino.sql.tree.Expression>builder()

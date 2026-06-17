@@ -14,16 +14,19 @@
 package io.trino.plugin.iceberg.system;
 
 import com.google.common.collect.ImmutableList;
+import io.trino.plugin.iceberg.IcebergTableCredentials;
 import io.trino.plugin.iceberg.system.files.FilesTableSplitSource;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplitSource;
+import io.trino.spi.connector.ConnectorTableCredentials;
 import io.trino.spi.connector.ConnectorTableMetadata;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.SystemTable;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.MapType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.spi.type.TypeSignature;
@@ -33,11 +36,11 @@ import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.io.FileIO;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.plugin.iceberg.util.SystemTableUtil.getAllPartitionFields;
@@ -45,7 +48,6 @@ import static io.trino.plugin.iceberg.util.SystemTableUtil.getPartitionColumnTyp
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.StandardTypes.JSON;
-import static io.trino.spi.type.TypeSignature.mapType;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.util.Objects.requireNonNull;
@@ -71,6 +73,15 @@ public final class FilesTable
     public static final String EQUALITY_IDS_COLUMN_NAME = "equality_ids";
     public static final String SORT_ORDER_ID_COLUMN_NAME = "sort_order_id";
     public static final String READABLE_METRICS_COLUMN_NAME = "readable_metrics";
+    public static final String ADDED_SNAPSHOT_ID_COLUMN_NAME = "added_snapshot_id";
+    public static final String FILE_SEQUENCE_NUMBER_COLUMN_NAME = "file_sequence_number";
+    public static final String DATA_SEQUENCE_NUMBER_COLUMN_NAME = "data_sequence_number";
+    public static final String REFERENCED_DATA_FILE_COLUMN_NAME = "referenced_data_file";
+    public static final String POS_COLUMN_NAME = "pos";
+    public static final String MANIFEST_LOCATION_COLUMN_NAME = "manifest_location";
+    public static final String FIRST_ROW_ID_COLUMN_NAME = "first_row_id";
+    public static final String CONTENT_OFFSET_COLUMN_NAME = "content_offset";
+    public static final String CONTENT_SIZE_IN_BYTES_COLUMN_NAME = "content_size_in_bytes";
 
     private static final List<String> COLUMN_NAMES = ImmutableList.of(
             CONTENT_COLUMN_NAME,
@@ -90,14 +101,23 @@ public final class FilesTable
             SPLIT_OFFSETS_COLUMN_NAME,
             EQUALITY_IDS_COLUMN_NAME,
             SORT_ORDER_ID_COLUMN_NAME,
-            READABLE_METRICS_COLUMN_NAME);
+            READABLE_METRICS_COLUMN_NAME,
+            ADDED_SNAPSHOT_ID_COLUMN_NAME,
+            FILE_SEQUENCE_NUMBER_COLUMN_NAME,
+            DATA_SEQUENCE_NUMBER_COLUMN_NAME,
+            REFERENCED_DATA_FILE_COLUMN_NAME,
+            POS_COLUMN_NAME,
+            MANIFEST_LOCATION_COLUMN_NAME,
+            FIRST_ROW_ID_COLUMN_NAME,
+            CONTENT_OFFSET_COLUMN_NAME,
+            CONTENT_SIZE_IN_BYTES_COLUMN_NAME);
 
     private final ConnectorTableMetadata tableMetadata;
     private final Table icebergTable;
-    private final Optional<Long> snapshotId;
+    private final OptionalLong snapshotId;
     private final Optional<Type> partitionColumnType;
 
-    public FilesTable(SchemaTableName tableName, TypeManager typeManager, Table icebergTable, Optional<Long> snapshotId)
+    public FilesTable(SchemaTableName tableName, TypeManager typeManager, Table icebergTable, OptionalLong snapshotId)
     {
         this.icebergTable = requireNonNull(icebergTable, "icebergTable is null");
         this.snapshotId = requireNonNull(snapshotId, "snapshotId is null");
@@ -133,18 +153,21 @@ public final class FilesTable
     @Override
     public Optional<ConnectorSplitSource> splitSource(ConnectorSession connectorSession, TupleDomain<ColumnHandle> constraint)
     {
-        try (FileIO fileIO = icebergTable.io()) {
-            return Optional.of(new FilesTableSplitSource(
-                    icebergTable,
-                    snapshotId,
-                    SchemaParser.toJson(icebergTable.schema()),
-                    SchemaParser.toJson(MetadataTableUtils.createMetadataTableInstance(icebergTable, MetadataTableType.FILES).schema()),
-                    icebergTable.specs().entrySet().stream().collect(toImmutableMap(
-                            Map.Entry::getKey,
-                            partitionSpec -> PartitionSpecParser.toJson(partitionSpec.getValue()))),
-                    partitionColumnType,
-                    fileIO.properties()));
-        }
+        return Optional.of(new FilesTableSplitSource(
+                icebergTable,
+                snapshotId,
+                SchemaParser.toJson(icebergTable.schema()),
+                SchemaParser.toJson(MetadataTableUtils.createMetadataTableInstance(icebergTable, MetadataTableType.FILES).schema()),
+                icebergTable.specs().entrySet().stream().collect(toImmutableMap(
+                        Map.Entry::getKey,
+                        partitionSpec -> PartitionSpecParser.toJson(partitionSpec.getValue()))),
+                partitionColumnType));
+    }
+
+    @Override
+    public Optional<ConnectorTableCredentials> getTableCredentials(ConnectorSession session)
+    {
+        return Optional.of(IcebergTableCredentials.forFileIO(icebergTable.io()));
     }
 
     public static Type getColumnType(String columnName, TypeManager typeManager)
@@ -154,15 +177,24 @@ public final class FilesTable
                  SORT_ORDER_ID_COLUMN_NAME,
                  SPEC_ID_COLUMN_NAME -> INTEGER;
             case FILE_PATH_COLUMN_NAME,
-                 FILE_FORMAT_COLUMN_NAME -> VARCHAR;
+                 FILE_FORMAT_COLUMN_NAME,
+                 REFERENCED_DATA_FILE_COLUMN_NAME,
+                 MANIFEST_LOCATION_COLUMN_NAME -> VARCHAR;
             case RECORD_COUNT_COLUMN_NAME,
-                 FILE_SIZE_IN_BYTES_COLUMN_NAME -> BIGINT;
+                 FILE_SIZE_IN_BYTES_COLUMN_NAME,
+                 ADDED_SNAPSHOT_ID_COLUMN_NAME,
+                 FILE_SEQUENCE_NUMBER_COLUMN_NAME,
+                 DATA_SEQUENCE_NUMBER_COLUMN_NAME,
+                 POS_COLUMN_NAME,
+                 FIRST_ROW_ID_COLUMN_NAME,
+                 CONTENT_OFFSET_COLUMN_NAME,
+                 CONTENT_SIZE_IN_BYTES_COLUMN_NAME -> BIGINT;
             case COLUMN_SIZES_COLUMN_NAME,
                  NULL_VALUE_COUNTS_COLUMN_NAME,
                  VALUE_COUNTS_COLUMN_NAME,
-                 NAN_VALUE_COUNTS_COLUMN_NAME -> typeManager.getType(mapType(INTEGER.getTypeSignature(), BIGINT.getTypeSignature()));
+                 NAN_VALUE_COUNTS_COLUMN_NAME -> new MapType(INTEGER, BIGINT, typeManager.getTypeOperators());
             case LOWER_BOUNDS_COLUMN_NAME,
-                 UPPER_BOUNDS_COLUMN_NAME -> typeManager.getType(mapType(INTEGER.getTypeSignature(), VARCHAR.getTypeSignature()));
+                 UPPER_BOUNDS_COLUMN_NAME -> new MapType(INTEGER, VARCHAR, typeManager.getTypeOperators());
             case KEY_METADATA_COLUMN_NAME -> VARBINARY;
             case SPLIT_OFFSETS_COLUMN_NAME -> new ArrayType(BIGINT);
             case EQUALITY_IDS_COLUMN_NAME -> new ArrayType(INTEGER);

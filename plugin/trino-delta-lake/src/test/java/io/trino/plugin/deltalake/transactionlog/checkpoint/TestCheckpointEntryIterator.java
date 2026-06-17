@@ -71,6 +71,8 @@ import static com.google.common.io.Resources.getResource;
 import static com.google.common.math.LongMath.divide;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
+import static io.trino.hdfs.HdfsTestUtils.HDFS_ENVIRONMENT;
+import static io.trino.hdfs.HdfsTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.plugin.deltalake.DeltaLakeColumnType.REGULAR;
 import static io.trino.plugin.deltalake.DeltaTestingConnectorSession.SESSION;
 import static io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointEntryIterator.EntryType.ADD;
@@ -78,8 +80,6 @@ import static io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointEntr
 import static io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointEntryIterator.EntryType.PROTOCOL;
 import static io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointEntryIterator.EntryType.REMOVE;
 import static io.trino.plugin.deltalake.transactionlog.checkpoint.CheckpointEntryIterator.EntryType.TRANSACTION;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.spi.predicate.Domain.notNull;
 import static io.trino.spi.predicate.Domain.onlyNull;
 import static io.trino.spi.predicate.Domain.singleValue;
@@ -155,18 +155,15 @@ public class TestCheckpointEntryIterator
                                         "{\"name\":\"name\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                         "{\"name\":\"age\",\"type\":\"integer\",\"nullable\":true,\"metadata\":{}}," +
                                         "{\"name\":\"married\",\"type\":\"boolean\",\"nullable\":true,\"metadata\":{}}," +
-
                                         "{\"name\":\"phones\",\"type\":{\"type\":\"array\",\"elementType\":{\"type\":\"struct\",\"fields\":[" +
                                         "{\"name\":\"number\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                         "{\"name\":\"label\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}," +
                                         "\"containsNull\":true},\"nullable\":true,\"metadata\":{}}," +
-
                                         "{\"name\":\"address\",\"type\":{\"type\":\"struct\",\"fields\":[" +
                                         "{\"name\":\"street\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                         "{\"name\":\"city\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                         "{\"name\":\"state\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                         "{\"name\":\"zip\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]},\"nullable\":true,\"metadata\":{}}," +
-
                                         "{\"name\":\"income\",\"type\":\"double\",\"nullable\":true,\"metadata\":{}}]}",
                                 List.of("age"),
                                 Map.of(),
@@ -216,18 +213,15 @@ public class TestCheckpointEntryIterator
                                 "{\"name\":\"name\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                 "{\"name\":\"age\",\"type\":\"integer\",\"nullable\":true,\"metadata\":{}}," +
                                 "{\"name\":\"married\",\"type\":\"boolean\",\"nullable\":true,\"metadata\":{}}," +
-
                                 "{\"name\":\"phones\",\"type\":{\"type\":\"array\",\"elementType\":{\"type\":\"struct\",\"fields\":[" +
                                 "{\"name\":\"number\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                 "{\"name\":\"label\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]}," +
                                 "\"containsNull\":true},\"nullable\":true,\"metadata\":{}}," +
-
                                 "{\"name\":\"address\",\"type\":{\"type\":\"struct\",\"fields\":[" +
                                 "{\"name\":\"street\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                 "{\"name\":\"city\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                 "{\"name\":\"state\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}," +
                                 "{\"name\":\"zip\",\"type\":\"string\",\"nullable\":true,\"metadata\":{}}]},\"nullable\":true,\"metadata\":{}}," +
-
                                 "{\"name\":\"income\",\"type\":\"double\",\"nullable\":true,\"metadata\":{}}]}",
                         List.of("age"),
                         Map.of(),
@@ -464,19 +458,19 @@ public class TestCheckpointEntryIterator
                 ImmutableList.of(),
                 ImmutableMap.of("delta.checkpoint.writeStatsAsJson", "false", "delta.checkpoint.writeStatsAsStruct", "true"),
                 1000);
-        ProtocolEntry protocolEntry = new ProtocolEntry(10, 20, Optional.empty(), Optional.empty());
+        ProtocolEntry protocolEntry = new ProtocolEntry(10, 20, Optional.of(ImmutableSet.of()), Optional.of(ImmutableSet.of()));
 
         int countAddEntries = 30;
         Set<AddFileEntry> addFileEntries = IntStream.rangeClosed(1, countAddEntries).mapToObj(fileIndex -> new AddFileEntry(
-                "addFilePathParquetStats" + fileIndex,
-                ImmutableMap.of(),
-                1000,
-                1001,
-                true,
-                Optional.empty(),
-                Optional.of(createDeltaLakeParquetFileStatistics(countIntegerColumns, countStringColumns)),
-                ImmutableMap.of(),
-                Optional.empty()))
+                        "addFilePathParquetStats" + fileIndex,
+                        ImmutableMap.of(),
+                        1000,
+                        1001,
+                        true,
+                        Optional.empty(),
+                        Optional.of(createDeltaLakeParquetFileStatistics(countIntegerColumns, countStringColumns)),
+                        ImmutableMap.of(),
+                        Optional.empty()))
                 .collect(toImmutableSet());
 
         CheckpointEntries entries = new CheckpointEntries(
@@ -528,26 +522,26 @@ public class TestCheckpointEntryIterator
         Map<String, Object> minValues = ImmutableMap.<String, Object>builder()
                 .putAll(IntStream.rangeClosed(1, countIntegerColumns)
                         .boxed()
-                        .collect(toImmutableMap("intcol%s"::formatted, columnIndex -> random.nextLong(0, 1000))))
+                        .collect(toImmutableMap("intcol%s"::formatted, _ -> random.nextLong(0, 1000))))
                 .putAll(IntStream.rangeClosed(1, countStringColumns)
                         .boxed()
-                        .collect(toImmutableMap("stringcol%s"::formatted, columnIndex -> "A".repeat(random.nextInt(1, 10)) + UUID.randomUUID())))
+                        .collect(toImmutableMap("stringcol%s"::formatted, _ -> "A".repeat(random.nextInt(1, 10)) + UUID.randomUUID())))
                 .buildOrThrow();
         Map<String, Object> maxValues = ImmutableMap.<String, Object>builder()
                 .putAll(IntStream.rangeClosed(1, countIntegerColumns)
                         .boxed()
-                        .collect(toImmutableMap("intcol%s"::formatted, columnIndex -> 1000L + random.nextLong(0, 1000))))
+                        .collect(toImmutableMap("intcol%s"::formatted, _ -> 1000L + random.nextLong(0, 1000))))
                 .putAll(IntStream.rangeClosed(1, countStringColumns)
                         .boxed()
-                        .collect(toImmutableMap("stringcol%s"::formatted, columnIndex -> "Z".repeat(random.nextInt(1, 10)) + UUID.randomUUID())))
+                        .collect(toImmutableMap("stringcol%s"::formatted, _ -> "Z".repeat(random.nextInt(1, 10)) + UUID.randomUUID())))
                 .buildOrThrow();
         Map<String, Object> nullCount = ImmutableMap.<String, Object>builder()
                 .putAll(IntStream.rangeClosed(1, countIntegerColumns)
                         .boxed()
-                        .collect(toImmutableMap("intcol%s"::formatted, columnIndex -> random.nextLong(0, 1000))))
+                        .collect(toImmutableMap("intcol%s"::formatted, _ -> random.nextLong(0, 1000))))
                 .putAll(IntStream.rangeClosed(1, countStringColumns)
                         .boxed()
-                        .collect(toImmutableMap("stringcol%s"::formatted, columnIndex -> random.nextLong(0, 1000))))
+                        .collect(toImmutableMap("stringcol%s"::formatted, _ -> random.nextLong(0, 1000))))
                 .buildOrThrow();
         return new DeltaLakeParquetFileStatistics(
                 Optional.of(1000L),
@@ -719,8 +713,7 @@ public class TestCheckpointEntryIterator
                 Optional.of(metadataEntry),
                 Optional.of(protocolEntry),
                 TupleDomain.withColumnDomains(ImmutableMap.of(
-                        partitionKeyField,
-                        Domain.create(ValueSet.ofRanges(range(INTEGER, 9L, true, 11L, true)), false))),
+                        partitionKeyField, Domain.create(ValueSet.ofRanges(range(INTEGER, 9L, true, 11L, true)), false))),
                 Optional.of(alwaysTrue()));
 
         assertThat(Iterators.size(metadataAndProtocolEntryIterator)).isEqualTo(2);
@@ -890,7 +883,7 @@ public class TestCheckpointEntryIterator
                 ImmutableList.of("part_key"),
                 ImmutableMap.of(),
                 1000);
-        ProtocolEntry protocolEntry = new ProtocolEntry(10, 20, Optional.empty(), Optional.empty());
+        ProtocolEntry protocolEntry = new ProtocolEntry(10, 20, Optional.of(ImmutableSet.of()), Optional.of(ImmutableSet.of()));
         AddFileEntry addFileEntryJsonStats = new AddFileEntry(
                 "addFilePathJson",
                 ImmutableMap.of("part_key", "2023-01-01 00:00:00"),
@@ -913,7 +906,7 @@ public class TestCheckpointEntryIterator
                 Optional.empty());
 
         int numRemoveEntries = 100;
-        Set<RemoveFileEntry> removeEntries = IntStream.range(0, numRemoveEntries).mapToObj(x ->
+        Set<RemoveFileEntry> removeEntries = IntStream.range(0, numRemoveEntries).mapToObj(_ ->
                         new RemoveFileEntry(
                                 UUID.randomUUID().toString(),
                                 ImmutableMap.of("part_key", "2023-01-01 00:00:00"),

@@ -45,8 +45,7 @@ public final class EnvMultinodeAllConnectors
     public void extendEnvironment(Environment.Builder builder)
     {
         // blackhole, jmx, tpch are already configured in Standard base env
-        List.of(
-                        "bigquery",
+        List.of("bigquery",
                         "cassandra",
                         "clickhouse",
                         "delta_lake",
@@ -76,8 +75,7 @@ public final class EnvMultinodeAllConnectors
                         "snowflake",
                         "sqlserver",
                         "tpcds",
-                        "trino_thrift",
-                        "vertica")
+                        "trino_thrift")
                 .forEach(connector -> builder.addConnector(
                         connector,
                         forHostPath(configDir.getPath(connector + ".properties"))));

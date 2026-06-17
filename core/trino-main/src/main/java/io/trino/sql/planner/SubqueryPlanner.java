@@ -35,7 +35,9 @@ import io.trino.sql.planner.plan.EnforceSingleRowNode;
 import io.trino.sql.planner.plan.JoinType;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.ProjectNode;
+import io.trino.sql.tree.ComparisonExpression;
 import io.trino.sql.tree.ExistsPredicate;
+import io.trino.sql.tree.InPredicate;
 import io.trino.sql.tree.LambdaArgumentDeclaration;
 import io.trino.sql.tree.Node;
 import io.trino.sql.tree.NodeRef;
@@ -113,7 +115,7 @@ class SubqueryPlanner
     public PlanBuilder handleSubqueries(PlanBuilder builder, io.trino.sql.tree.Expression expression, Analysis.SubqueryAnalysis subqueries)
     {
         Iterable<Node> allSubExpressions = Traverser.forTree(recurseExpression(builder)).depthFirstPreOrder(expression);
-        for (Cluster<io.trino.sql.tree.InPredicate> cluster : cluster(builder.getScope(), selectSubqueries(builder, allSubExpressions, subqueries.getInPredicatesSubqueries()))) {
+        for (Cluster<InPredicate> cluster : cluster(builder.getScope(), selectSubqueries(builder, allSubExpressions, subqueries.getInPredicatesSubqueries()))) {
             builder = planInPredicate(builder, cluster, subqueries);
         }
         for (Cluster<SubqueryExpression> cluster : cluster(builder.getScope(), selectSubqueries(builder, allSubExpressions, subqueries.getSubqueries()))) {
@@ -162,7 +164,7 @@ class SubqueryPlanner
         Map<ScopeAware<T>, List<T>> sets = new LinkedHashMap<>();
 
         for (T expression : expressions) {
-            sets.computeIfAbsent(scopeAwareKey(expression, analysis, scope), key -> new ArrayList<>())
+            sets.computeIfAbsent(scopeAwareKey(expression, analysis, scope), _ -> new ArrayList<>())
                     .add(expression);
         }
 
@@ -171,10 +173,10 @@ class SubqueryPlanner
                 .collect(toImmutableList());
     }
 
-    private PlanBuilder planInPredicate(PlanBuilder subPlan, Cluster<io.trino.sql.tree.InPredicate> cluster, Analysis.SubqueryAnalysis subqueries)
+    private PlanBuilder planInPredicate(PlanBuilder subPlan, Cluster<InPredicate> cluster, Analysis.SubqueryAnalysis subqueries)
     {
         // Plan one of the predicates from the cluster
-        io.trino.sql.tree.InPredicate predicate = cluster.getRepresentative();
+        InPredicate predicate = cluster.getRepresentative();
 
         io.trino.sql.tree.Expression value = predicate.getValue();
         SubqueryExpression subquery = (SubqueryExpression) predicate.getValueList();
@@ -280,10 +282,10 @@ class SubqueryPlanner
                         query));
     }
 
-    private PlanBuilder planExists(PlanBuilder subPlan, Cluster<io.trino.sql.tree.ExistsPredicate> cluster)
+    private PlanBuilder planExists(PlanBuilder subPlan, Cluster<ExistsPredicate> cluster)
     {
         // Plan one of the predicates from the cluster
-        io.trino.sql.tree.ExistsPredicate existsPredicate = cluster.getRepresentative();
+        ExistsPredicate existsPredicate = cluster.getRepresentative();
 
         io.trino.sql.tree.Expression subquery = existsPredicate.getSubquery();
         Symbol exists = symbolAllocator.newSymbol("exists", BOOLEAN);
@@ -306,12 +308,12 @@ class SubqueryPlanner
                 .process(subquery, null);
     }
 
-    private PlanBuilder planQuantifiedComparison(PlanBuilder subPlan, Cluster<io.trino.sql.tree.QuantifiedComparisonExpression> cluster, Analysis.SubqueryAnalysis subqueries)
+    private PlanBuilder planQuantifiedComparison(PlanBuilder subPlan, Cluster<QuantifiedComparisonExpression> cluster, Analysis.SubqueryAnalysis subqueries)
     {
         // Plan one of the predicates from the cluster
-        io.trino.sql.tree.QuantifiedComparisonExpression quantifiedComparison = cluster.getRepresentative();
+        QuantifiedComparisonExpression quantifiedComparison = cluster.getRepresentative();
 
-        io.trino.sql.tree.ComparisonExpression.Operator operator = quantifiedComparison.getOperator();
+        ComparisonExpression.Operator operator = quantifiedComparison.getOperator();
         Quantifier quantifier = quantifiedComparison.getQuantifier();
         io.trino.sql.tree.Expression value = quantifiedComparison.getValue();
         SubqueryExpression subquery = (SubqueryExpression) quantifiedComparison.getSubquery();
@@ -341,19 +343,17 @@ class SubqueryPlanner
                 }
             };
             case NOT_EQUAL -> switch (quantifier) {
-                case ALL ->
-                    // A <> ALL B <=> !(A IN B)
-                        addNegation(
-                                planInPredicate(subPlan, value, subquery, output, quantifiedComparison, predicateCoercions),
-                                cluster,
-                                output);
-                case ANY, SOME ->
-                    // A <> ANY B <=> min B <> max B || A <> min B <=> !(min B = max B && A = min B) <=> !(A = ALL B)
-                    // "A <> ANY B" is equivalent to "NOT (A = ALL B)" so add a rewrite for the initial quantifiedComparison to notAll
-                        addNegation(
-                                planQuantifiedComparison(subPlan, io.trino.sql.tree.ComparisonExpression.Operator.EQUAL, Quantifier.ALL, value, subquery, output, predicateCoercions),
-                                cluster,
-                                output);
+                // A <> ALL B <=> !(A IN B)
+                case ALL -> addNegation(
+                        planInPredicate(subPlan, value, subquery, output, quantifiedComparison, predicateCoercions),
+                        cluster,
+                        output);
+                // A <> ANY B <=> min B <> max B || A <> min B <=> !(min B = max B && A = min B) <=> !(A = ALL B)
+                // "A <> ANY B" is equivalent to "NOT (A = ALL B)" so add a rewrite for the initial quantifiedComparison to notAll
+                case ANY, SOME -> addNegation(
+                        planQuantifiedComparison(subPlan, ComparisonExpression.Operator.EQUAL, Quantifier.ALL, value, subquery, output, predicateCoercions),
+                        cluster,
+                        output);
             };
             case LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL -> {
                 subPlan = planQuantifiedComparison(subPlan, operator, quantifier, value, subquery, output, predicateCoercions);
@@ -388,7 +388,7 @@ class SubqueryPlanner
 
     private PlanBuilder planQuantifiedComparison(
             PlanBuilder subPlan,
-            io.trino.sql.tree.ComparisonExpression.Operator operator,
+            ComparisonExpression.Operator operator,
             Quantifier quantifier,
             io.trino.sql.tree.Expression value,
             io.trino.sql.tree.Expression subquery,
@@ -418,7 +418,7 @@ class SubqueryPlanner
         };
     }
 
-    private static ApplyNode.Operator mapOperator(io.trino.sql.tree.ComparisonExpression.Operator operator)
+    private static ApplyNode.Operator mapOperator(ComparisonExpression.Operator operator)
     {
         return switch (operator) {
             case EQUAL -> ApplyNode.Operator.EQUAL;
@@ -510,8 +510,8 @@ class SubqueryPlanner
         return cluster.getExpressions().stream()
                 .collect(toImmutableMap(
                         expression -> scopeAwareKey(expression, analysis, scope),
-                        expression -> output,
-                        (first, second) -> first));
+                        _ -> output,
+                        (first, _) -> first));
     }
 
     /**

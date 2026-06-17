@@ -13,6 +13,8 @@
  */
 package io.trino.type;
 
+import io.trino.spi.type.SqlNumber;
+import io.trino.spi.type.TrinoNumber;
 import io.trino.sql.query.QueryAssertions;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -23,6 +25,7 @@ import org.junit.jupiter.api.parallel.Execution;
 import java.lang.invoke.MethodHandle;
 
 import static io.trino.spi.StandardErrorCode.INVALID_CAST_ARGUMENT;
+import static io.trino.spi.StandardErrorCode.NUMERIC_VALUE_OUT_OF_RANGE;
 import static io.trino.spi.function.InvocationConvention.InvocationArgumentConvention.NEVER_NULL;
 import static io.trino.spi.function.InvocationConvention.InvocationReturnConvention.FAIL_ON_NULL;
 import static io.trino.spi.function.InvocationConvention.simpleConvention;
@@ -33,7 +36,7 @@ import static io.trino.spi.function.OperatorType.IDENTICAL;
 import static io.trino.spi.function.OperatorType.INDETERMINATE;
 import static io.trino.spi.function.OperatorType.LESS_THAN;
 import static io.trino.spi.function.OperatorType.LESS_THAN_OR_EQUAL;
-import static io.trino.spi.function.OperatorType.MODULUS;
+import static io.trino.spi.function.OperatorType.MODULO;
 import static io.trino.spi.function.OperatorType.MULTIPLY;
 import static io.trino.spi.function.OperatorType.NEGATION;
 import static io.trino.spi.function.OperatorType.SUBTRACT;
@@ -196,30 +199,30 @@ public class TestRealOperators
     }
 
     @Test
-    public void testModulus()
+    public void testModulo()
     {
-        assertThat(assertions.operator(MODULUS, "REAL '12.34'", "REAL '56.78'"))
+        assertThat(assertions.operator(MODULO, "REAL '12.34'", "REAL '56.78'"))
                 .isEqualTo(12.34f % 56.78f);
 
-        assertThat(assertions.operator(MODULUS, "REAL '-17.34'", "REAL '-22.891'"))
+        assertThat(assertions.operator(MODULO, "REAL '-17.34'", "REAL '-22.891'"))
                 .isEqualTo(-17.34f % -22.891f);
 
-        assertThat(assertions.operator(MODULUS, "REAL '-89.123'", "REAL '754.0'"))
+        assertThat(assertions.operator(MODULO, "REAL '-89.123'", "REAL '754.0'"))
                 .isEqualTo(-89.123f % 754.0f);
 
-        assertThat(assertions.operator(MODULUS, "REAL '-0.0'", "REAL '0.0'"))
+        assertThat(assertions.operator(MODULO, "REAL '-0.0'", "REAL '0.0'"))
                 .isEqualTo(-0.0f % 0.0f);
 
-        assertThat(assertions.operator(MODULUS, "REAL '-17.71'", "REAL '-1.0'"))
+        assertThat(assertions.operator(MODULO, "REAL '-17.71'", "REAL '-1.0'"))
                 .isEqualTo(-17.71f % -1.0f);
 
-        assertThat(assertions.operator(MODULUS, "REAL 'NaN'", "REAL '1.23'"))
+        assertThat(assertions.operator(MODULO, "REAL 'NaN'", "REAL '1.23'"))
                 .isEqualTo(Float.NaN);
 
-        assertThat(assertions.operator(MODULUS, "REAL '1.23'", "REAL 'NaN'"))
+        assertThat(assertions.operator(MODULO, "REAL '1.23'", "REAL 'NaN'"))
                 .isEqualTo(Float.NaN);
 
-        assertThat(assertions.operator(MODULUS, "REAL 'NaN'", "REAL 'NaN'"))
+        assertThat(assertions.operator(MODULO, "REAL 'NaN'", "REAL 'NaN'"))
                 .isEqualTo(Float.NaN);
     }
 
@@ -531,7 +534,7 @@ public class TestRealOperators
                 .isEqualTo("Infinity");
 
         assertThat(assertions.expression("CAST(a AS VARCHAR)")
-                .binding("a", "CAST(nan() AS REAL)"))
+                .binding("a", "REAL 'NaN'"))
                 .hasType(VARCHAR)
                 .isEqualTo("NaN");
 
@@ -584,7 +587,7 @@ public class TestRealOperators
                 .hasErrorCode(INVALID_CAST_ARGUMENT);
 
         assertTrinoExceptionThrownBy(() -> assertions.expression("CAST(a AS varchar(2))")
-                .binding("a", "nan()").evaluate())
+                .binding("a", "REAL 'NaN'").evaluate())
                 .hasMessage("Value NaN (NaN) cannot be represented as varchar(2)")
                 .hasErrorCode(INVALID_CAST_ARGUMENT);
 
@@ -618,6 +621,26 @@ public class TestRealOperators
                 .binding("a", "REAL 'NaN'")
                 .evaluate())
                 .hasErrorCode(INVALID_CAST_ARGUMENT);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as BIGINT)")
+                .binding("a", "CAST(infinity() AS REAL)")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as BIGINT)")
+                .binding("a", "CAST(-infinity() AS REAL)")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as BIGINT)")
+                .binding("a", "REAL '1e30'")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as BIGINT)")
+                .binding("a", "REAL '-1e30'")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
     }
 
     @Test
@@ -643,6 +666,26 @@ public class TestRealOperators
                 .binding("a", "REAL 'NaN'")
                 .evaluate())
                 .hasErrorCode(INVALID_CAST_ARGUMENT);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as INTEGER)")
+                .binding("a", "CAST(infinity() AS REAL)")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as INTEGER)")
+                .binding("a", "CAST(-infinity() AS REAL)")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as INTEGER)")
+                .binding("a", "REAL '1e30'")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as INTEGER)")
+                .binding("a", "REAL '-1e30'")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
     }
 
     @Test
@@ -668,6 +711,26 @@ public class TestRealOperators
                 .binding("a", "REAL 'NaN'")
                 .evaluate())
                 .hasErrorCode(INVALID_CAST_ARGUMENT);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as SMALLINT)")
+                .binding("a", "CAST(infinity() AS REAL)")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as SMALLINT)")
+                .binding("a", "CAST(-infinity() AS REAL)")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as SMALLINT)")
+                .binding("a", "REAL '1e30'")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as SMALLINT)")
+                .binding("a", "REAL '-1e30'")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
     }
 
     @Test
@@ -693,6 +756,26 @@ public class TestRealOperators
                 .binding("a", "REAL 'NaN'")
                 .evaluate())
                 .hasErrorCode(INVALID_CAST_ARGUMENT);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as TINYINT)")
+                .binding("a", "CAST(infinity() AS REAL)")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as TINYINT)")
+                .binding("a", "CAST(-infinity() AS REAL)")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as TINYINT)")
+                .binding("a", "REAL '1e30'")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
+
+        assertTrinoExceptionThrownBy(() -> assertions.expression("cast(a as TINYINT)")
+                .binding("a", "REAL '-1e30'")
+                .evaluate())
+                .hasErrorCode(NUMERIC_VALUE_OUT_OF_RANGE);
     }
 
     @Test
@@ -717,6 +800,50 @@ public class TestRealOperators
         assertThat(assertions.expression("cast(a as DOUBLE)")
                 .binding("a", "REAL 'NaN'"))
                 .isEqualTo(Double.NaN);
+
+        assertThat(assertions.expression("cast(a as DOUBLE)")
+                .binding("a", "REAL '+Infinity'"))
+                .isEqualTo(Double.POSITIVE_INFINITY);
+
+        assertThat(assertions.expression("cast(a as DOUBLE)")
+                .binding("a", "REAL '-Infinity'"))
+                .isEqualTo(Double.NEGATIVE_INFINITY);
+    }
+
+    @Test
+    public void testCastToNumber()
+    {
+        assertThat(assertions.expression("cast(a as number)")
+                .binding("a", "REAL '3.14159'"))
+                .isEqualTo(new SqlNumber("3.14159"));
+
+        assertThat(assertions.expression("cast(a as number)")
+                .binding("a", "REAL '754.1985'"))
+                .isEqualTo(new SqlNumber("754.1985"));
+
+        assertThat(assertions.expression("cast(a as number)")
+                .binding("a", "REAL '-754.2008'"))
+                .isEqualTo(new SqlNumber("-754.2008"));
+
+        assertThat(assertions.expression("cast(a as number)")
+                .binding("a", "REAL '0.0'"))
+                .isEqualTo(new SqlNumber("0"));
+
+        assertThat(assertions.expression("cast(a as number)")
+                .binding("a", "REAL '-0.0'"))
+                .isEqualTo(new SqlNumber("0"));
+
+        assertThat(assertions.expression("cast(a as number)")
+                .binding("a", "REAL 'NaN'"))
+                .isEqualTo(new SqlNumber(new TrinoNumber.NotANumber()));
+
+        assertThat(assertions.expression("cast(a as number)")
+                .binding("a", "REAL 'Infinity'"))
+                .isEqualTo(new SqlNumber(new TrinoNumber.Infinity(false)));
+
+        assertThat(assertions.expression("cast(a as number)")
+                .binding("a", "REAL '-Infinity'"))
+                .isEqualTo(new SqlNumber(new TrinoNumber.Infinity(true)));
     }
 
     @Test
@@ -790,7 +917,7 @@ public class TestRealOperators
     public void testNanHash()
             throws Throwable
     {
-        int[] nanRepresentations = {floatToIntBits(Float.NaN), 0xffc00000, 0x7fc00000, 0x7fc01234, 0xffc01234};
+        int[] nanRepresentations = {floatToIntBits(Float.NaN), 0xFFC00000, 0x7FC00000, 0x7FC01234, 0xFFC01234};
         for (int nanRepresentation : nanRepresentations) {
             assertThat(isNaN(intBitsToFloat(nanRepresentation))).isTrue();
             assertThat(executeHashOperator(nanRepresentation)).isEqualTo(executeHashOperator(nanRepresentations[0]));
@@ -804,7 +931,6 @@ public class TestRealOperators
     {
         int[] zeroes = {floatToIntBits(0.0f), floatToIntBits(-0.0f)};
         for (int zero : zeroes) {
-            //noinspection SimplifiedTestNGAssertion
             assertThat(intBitsToFloat(zero)).isEqualTo(0f);
             assertThat(executeHashOperator(zero)).isEqualTo(executeHashOperator(zeroes[0]));
             assertThat(executeXxHas64hOperator(zero)).isEqualTo(executeXxHas64hOperator(zeroes[0]));

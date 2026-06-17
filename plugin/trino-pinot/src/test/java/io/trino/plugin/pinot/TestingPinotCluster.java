@@ -19,6 +19,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.io.Closer;
 import com.google.common.net.HostAndPort;
 import com.google.common.net.HttpHeaders;
+import io.airlift.http.client.HeaderNames;
 import io.airlift.http.client.HttpClient;
 import io.airlift.http.client.Request;
 import io.airlift.http.client.StaticBodyGenerator;
@@ -64,11 +65,13 @@ import static org.testcontainers.utility.DockerImageName.parse;
 public class TestingPinotCluster
         implements Closeable
 {
-    public static final String PINOT_LATEST_IMAGE_NAME = "apachepinot/pinot:1.2.0";
+    public static final String PINOT_LATEST_IMAGE_NAME = "apachepinot/pinot:1.4.0";
     private static final String ZOOKEEPER_INTERNAL_HOST = "zookeeper";
     private static final JsonCodec<List<String>> LIST_JSON_CODEC = listJsonCodec(String.class);
     private static final JsonCodec<PinotSuccessResponse> PINOT_SUCCESS_RESPONSE_JSON_CODEC = jsonCodec(PinotSuccessResponse.class);
     private static final FileUploadDownloadClient FILE_UPLOAD_DOWNLOAD_CLIENT = new FileUploadDownloadClient();
+
+    private static final int RETRIES = 20;
 
     public static final int ZOOKEEPER_PORT = 2181;
     public static final int CONTROLLER_PORT = 9000;
@@ -179,13 +182,13 @@ public class TestingPinotCluster
             byte[] bytes = stream.readAllBytes();
             Request request = Request.Builder.preparePost()
                     .setUri(getControllerUri("schemas"))
-                    .setHeader(HttpHeaders.ACCEPT, APPLICATION_JSON)
-                    .setHeader(HttpHeaders.CONTENT_TYPE, APPLICATION_JSON)
-                    .addHeader(HttpHeaders.AUTHORIZATION, secured ? controllerAuthToken() : "")
+                    .setHeader(HeaderNames.ACCEPT, APPLICATION_JSON)
+                    .setHeader(HeaderNames.CONTENT_TYPE, APPLICATION_JSON)
+                    .addHeader(HeaderNames.AUTHORIZATION, secured ? controllerAuthToken() : "")
                     .setBodyGenerator(StaticBodyGenerator.createStaticBodyGenerator(bytes))
                     .build();
 
-            PinotSuccessResponse response = doWithRetries(() -> httpClient.execute(request, createJsonResponseHandler(PINOT_SUCCESS_RESPONSE_JSON_CODEC)), 10);
+            PinotSuccessResponse response = doWithRetries(() -> httpClient.execute(request, createJsonResponseHandler(PINOT_SUCCESS_RESPONSE_JSON_CODEC)));
             checkState(response.getStatus().equals(format("%s successfully added", tableName)), "Unexpected response: '%s'", response.getStatus());
             verifySchema(tableName);
         }
@@ -200,14 +203,14 @@ public class TestingPinotCluster
             throws Exception
     {
         Request request = Request.Builder.prepareGet().setUri(getControllerUri("schemas"))
-                .setHeader(HttpHeaders.ACCEPT, APPLICATION_JSON)
-                .addHeader(HttpHeaders.AUTHORIZATION, secured ? controllerAuthToken() : "")
+                .setHeader(HeaderNames.ACCEPT, APPLICATION_JSON)
+                .addHeader(HeaderNames.AUTHORIZATION, secured ? controllerAuthToken() : "")
                 .build();
         doWithRetries(() -> {
             List<String> schemas = httpClient.execute(request, createJsonResponseHandler(LIST_JSON_CODEC));
             checkState(schemas.contains(tableName), "Schema for '%s' not found", tableName);
             return null;
-        }, 10);
+        });
     }
 
     public void addRealTimeTable(String resourceName, String tableName)
@@ -217,13 +220,13 @@ public class TestingPinotCluster
             byte[] bytes = stream.readAllBytes();
             Request request = Request.Builder.preparePost()
                     .setUri(getControllerUri("tables"))
-                    .setHeader(HttpHeaders.ACCEPT, APPLICATION_JSON)
-                    .setHeader(HttpHeaders.CONTENT_TYPE, APPLICATION_JSON)
-                    .addHeader(HttpHeaders.AUTHORIZATION, secured ? controllerAuthToken() : "")
+                    .setHeader(HeaderNames.ACCEPT, APPLICATION_JSON)
+                    .setHeader(HeaderNames.CONTENT_TYPE, APPLICATION_JSON)
+                    .addHeader(HeaderNames.AUTHORIZATION, secured ? controllerAuthToken() : "")
                     .setBodyGenerator(StaticBodyGenerator.createStaticBodyGenerator(bytes))
                     .build();
 
-            PinotSuccessResponse response = doWithRetries(() -> httpClient.execute(request, createJsonResponseHandler(PINOT_SUCCESS_RESPONSE_JSON_CODEC)), 10);
+            PinotSuccessResponse response = doWithRetries(() -> httpClient.execute(request, createJsonResponseHandler(PINOT_SUCCESS_RESPONSE_JSON_CODEC)));
             checkState(response.getStatus().startsWith(format("Table %s_REALTIME successfully added", tableName)), "Unexpected response: '%s'", response.getStatus());
         }
     }
@@ -235,13 +238,13 @@ public class TestingPinotCluster
             byte[] bytes = stream.readAllBytes();
             Request request = Request.Builder.preparePost()
                     .setUri(getControllerUri("tables"))
-                    .setHeader(HttpHeaders.ACCEPT, APPLICATION_JSON)
-                    .setHeader(HttpHeaders.CONTENT_TYPE, APPLICATION_JSON)
-                    .addHeader(HttpHeaders.AUTHORIZATION, secured ? controllerAuthToken() : "")
+                    .setHeader(HeaderNames.ACCEPT, APPLICATION_JSON)
+                    .setHeader(HeaderNames.CONTENT_TYPE, APPLICATION_JSON)
+                    .addHeader(HeaderNames.AUTHORIZATION, secured ? controllerAuthToken() : "")
                     .setBodyGenerator(StaticBodyGenerator.createStaticBodyGenerator(bytes))
                     .build();
 
-            PinotSuccessResponse response = doWithRetries(() -> httpClient.execute(request, createJsonResponseHandler(PINOT_SUCCESS_RESPONSE_JSON_CODEC)), 10);
+            PinotSuccessResponse response = doWithRetries(() -> httpClient.execute(request, createJsonResponseHandler(PINOT_SUCCESS_RESPONSE_JSON_CODEC)));
             checkState(response.getStatus().startsWith(format("Table %s_OFFLINE successfully added", tableName)), "Unexpected response: '%s'", response.getStatus());
         }
     }
@@ -290,11 +293,11 @@ public class TestingPinotCluster
         }
     }
 
-    private static <T> T doWithRetries(Supplier<T> supplier, int retries)
+    private static <T> T doWithRetries(Supplier<T> supplier)
             throws Exception
     {
         Exception exception = null;
-        for (int retry = 0; retry < retries; retry++) {
+        for (int retry = 0; retry < RETRIES; retry++) {
             try {
                 return supplier.get();
             }

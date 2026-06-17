@@ -21,6 +21,7 @@ import io.trino.RowPagesBuilder;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.operator.Driver;
 import io.trino.operator.DriverContext;
+import io.trino.operator.NullSafeHashCompiler;
 import io.trino.operator.OperatorFactory;
 import io.trino.operator.PagesIndex;
 import io.trino.operator.PipelineContext;
@@ -30,7 +31,9 @@ import io.trino.operator.ValuesOperator;
 import io.trino.operator.exchange.LocalExchange;
 import io.trino.operator.exchange.LocalExchangeSinkOperator;
 import io.trino.operator.exchange.LocalExchangeSourceOperator.LocalExchangeSourceOperatorFactory;
-import io.trino.operator.join.HashBuilderOperator.HashBuilderOperatorFactory;
+import io.trino.operator.join.spilling.HashBuilderOperator;
+import io.trino.operator.join.spilling.HashBuilderOperator.HashBuilderOperatorFactory;
+import io.trino.operator.join.spilling.PartitionedLookupSourceFactory;
 import io.trino.spi.Page;
 import io.trino.spi.TrinoException;
 import io.trino.spi.type.Type;
@@ -69,7 +72,7 @@ import static java.util.Objects.requireNonNull;
 public final class JoinTestUtils
 {
     private static final int PARTITION_COUNT = 4;
-    private static final TypeOperators TYPE_OPERATORS = new TypeOperators();
+    private static final NullSafeHashCompiler HASH_COMPILER = new NullSafeHashCompiler(new TypeOperators());
 
     private JoinTestUtils() {}
 
@@ -97,7 +100,7 @@ public final class JoinTestUtils
                 Optional.empty(),
                 OptionalInt.of(1),
                 partitioningSpillerFactory,
-                TYPE_OPERATORS);
+                HASH_COMPILER);
     }
 
     public static void instantiateBuildDrivers(BuildSideSetup buildSideSetup, TaskContext taskContext)
@@ -129,7 +132,7 @@ public final class JoinTestUtils
             SingleStreamSpillerFactory singleStreamSpillerFactory)
     {
         Optional<JoinFilterFunctionCompiler.JoinFilterFunctionFactory> filterFunctionFactory = filterFunction
-                .map(function -> (session, addresses, pages) -> new StandardJoinFilterFunction(function, addresses, pages));
+                .map(function -> (_, addresses, pages) -> new StandardJoinFilterFunction(function, addresses, pages));
 
         int partitionCount = parallelBuild ? PARTITION_COUNT : 1;
         List<Integer> hashChannels = buildPages.getHashChannels().orElseThrow();
@@ -142,11 +145,11 @@ public final class JoinTestUtils
                 taskContext.getSession(),
                 partitionCount,
                 FIXED_HASH_DISTRIBUTION,
-                Optional.empty(),
+                OptionalInt.empty(),
                 hashChannels,
                 hashChannelTypes,
                 DataSize.of(32, DataSize.Unit.MEGABYTE),
-                TYPE_OPERATORS,
+                HASH_COMPILER,
                 DataSize.of(32, DataSize.Unit.MEGABYTE),
                 () -> 0L);
 
@@ -154,7 +157,8 @@ public final class JoinTestUtils
         DriverContext collectDriverContext = taskContext.addPipelineContext(0, true, true, false).addDriverContext();
         ValuesOperator.ValuesOperatorFactory valuesOperatorFactory = new ValuesOperator.ValuesOperatorFactory(0, new PlanNodeId("values"), buildPages.build());
         LocalExchangeSinkOperator.LocalExchangeSinkOperatorFactory sinkOperatorFactory = new LocalExchangeSinkOperator.LocalExchangeSinkOperatorFactory(localExchange.createSinkFactory(), 1, new PlanNodeId("sink"), Function.identity());
-        Driver sourceDriver = Driver.createDriver(collectDriverContext,
+        Driver sourceDriver = Driver.createDriver(
+                collectDriverContext,
                 valuesOperatorFactory.createOperator(collectDriverContext),
                 sinkOperatorFactory.createOperator(collectDriverContext));
         valuesOperatorFactory.noMoreOperators();
@@ -177,7 +181,7 @@ public final class JoinTestUtils
                         .collect(toImmutableList()),
                 partitionCount,
                 false,
-                TYPE_OPERATORS));
+                HASH_COMPILER));
 
         HashBuilderOperatorFactory buildOperatorFactory = new HashBuilderOperatorFactory(
                 1,
@@ -186,7 +190,7 @@ public final class JoinTestUtils
                 rangeList(buildPages.getTypes().size()),
                 hashChannels,
                 filterFunctionFactory,
-                Optional.empty(),
+                OptionalInt.empty(),
                 ImmutableList.of(),
                 100,
                 new PagesIndex.TestingFactory(false),

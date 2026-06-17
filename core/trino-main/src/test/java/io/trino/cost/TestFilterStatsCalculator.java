@@ -18,8 +18,8 @@ import io.airlift.slice.Slices;
 import io.trino.Session;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.ResolvedFunction;
-import io.trino.metadata.TestMetadataManager;
 import io.trino.metadata.TestingFunctionResolution;
+import io.trino.metadata.TestingMetadataManager;
 import io.trino.plugin.base.util.JsonTypeUtil;
 import io.trino.security.AllowAllAccessControl;
 import io.trino.spi.function.OperatorType;
@@ -47,6 +47,7 @@ import java.math.BigDecimal;
 import java.util.function.Consumer;
 
 import static io.trino.SystemSessionProperties.FILTER_CONJUNCTION_INDEPENDENCE_FACTOR;
+import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DecimalType.createDecimalType;
 import static io.trino.spi.type.DoubleType.DOUBLE;
@@ -194,7 +195,8 @@ public class TestFilterStatsCalculator
         for (Expression minusThree : ImmutableList.of(
                 new Constant(createDecimalType(3), Decimals.valueOfShort(new BigDecimal("-3"))),
                 new Constant(DOUBLE, -3.0),
-                new Call(SUBTRACT_DOUBLE, ImmutableList.of(new Constant(DOUBLE, 4.0), new Constant(DOUBLE, 7.0))), new Cast(new Constant(INTEGER, -3L), createDecimalType(7, 3)))) {
+                new Call(SUBTRACT_DOUBLE, ImmutableList.of(new Constant(DOUBLE, 4.0), new Constant(DOUBLE, 7.0))),
+                new Cast(new Constant(INTEGER, -3L), createDecimalType(7, 3)))) {
             assertExpression(new Comparison(EQUAL, new Reference(DOUBLE, "x"), new Cast(minusThree, DOUBLE)))
                     .outputRowsCount(18.75)
                     .symbolStats(new Symbol(DOUBLE, "x"), symbolAssert ->
@@ -265,7 +267,7 @@ public class TestFilterStatsCalculator
         double nullsFractionY = 0.5;
         double inputRowCount = standardInputStatistics.getOutputRowCount();
         double nonNullRowCount = inputRowCount * (1 - nullsFractionY);
-        SymbolStatsEstimate nonNullStatsX = xStats.mapNullsFraction(nullsFraction -> 0.0);
+        SymbolStatsEstimate nonNullStatsX = xStats.mapNullsFraction(_ -> 0.0);
         assertExpression(new Comparison(GREATER_THAN, new Reference(DOUBLE, "x"), new Call(SUBTRACT_DOUBLE, ImmutableList.of(new Reference(DOUBLE, "y"), new Constant(DOUBLE, 25.0)))))
                 .outputRowsCount(nonNullRowCount)
                 .symbolStats("x", symbolAssert -> symbolAssert.isEqualTo(nonNullStatsX));
@@ -716,7 +718,7 @@ public class TestFilterStatsCalculator
     {
         assertExpression(new Comparison(EQUAL, new Reference(DOUBLE, "x"), new Reference(DOUBLE, "x")))
                 .outputRowsCount(750)
-                .symbolStats("x", DOUBLE, symbolStats ->
+                .symbolStats("x", DOUBLE, _ ->
                         SymbolStatsEstimate.builder()
                                 .setAverageRowSize(4.0)
                                 .setDistinctValuesCount(40.0)
@@ -837,6 +839,63 @@ public class TestFilterStatsCalculator
                                 .nullsFraction(0.0));
     }
 
+    @Test
+    public void testSparseColumnInPredicateOverlap()
+    {
+        // Statistics for a sparse column: very large value range, but only a few distinct values.
+        SymbolStatsEstimate platformStats = SymbolStatsEstimate.builder()
+                .setDistinctValuesCount(14.0)
+                .setLowValue(1.0)
+                .setHighValue(3662098119.0)
+                .setNullsFraction(0.0)
+                .build();
+
+        // For sparse columns (few distinct values over a large range), range-based estimation makes IN predicates look almost empty.
+        // This causes the optimizer to think that filtering removes all rows, which is incorrect.
+        assertExpression(new In(new Reference(BIGINT, "platform_id"), ImmutableList.of(new Constant(BIGINT, 1L), new Constant(BIGINT, 2L), new Constant(BIGINT, 3L), new Constant(BIGINT, 4L))),
+                PlanNodeStatsEstimate.builder()
+                        .setOutputRowCount(1000000)
+                        .addSymbolStatistics(new Symbol(BIGINT, "platform_id"), platformStats)
+                        .build())
+                .outputRowsCount(1000000)
+                .symbolStats("platform_id", BIGINT, symbolStats ->
+                        symbolStats.distinctValuesCount(4)
+                                .lowValue(1.0)
+                                .highValue(4.0)
+                                .nullsFraction(0.0));
+    }
+
+    @Test
+    public void testNotInOnColumnWithUnknownNdvAndRange()
+    {
+        // Regression: on a varchar column with unknown NDV and unbounded range,
+        // `c NOT IN ('a', 'b')` used to collapse to 0 rows. Each per-value equality
+        // returned a 0.5 heuristic selectivity, the IN sum saturated at the full
+        // non-null row count, and $not(IN) subtracted to 0.
+
+        VarcharType type = createVarcharType(16);
+        Symbol column = new Symbol(type, "c");
+        Reference ref = new Reference(type, "c");
+
+        SymbolStatsEstimate columnStats = SymbolStatsEstimate.builder()
+                .setAverageRowSize(NaN)
+                .setDistinctValuesCount(NaN)
+                .setLowValue(NEGATIVE_INFINITY)
+                .setHighValue(POSITIVE_INFINITY)
+                .setNullsFraction(0)
+                .build();
+        PlanNodeStatsEstimate input = PlanNodeStatsEstimate.builder()
+                .addSymbolStatistics(column, columnStats)
+                .setOutputRowCount(1000)
+                .build();
+
+        Constant a = new Constant(type, Slices.utf8Slice("a"));
+        Constant b = new Constant(type, Slices.utf8Slice("b"));
+
+        // NOT IN on an unknown column yields an unknown estimate rather than a fabricated row count.
+        assertExpression(not(new In(ref, ImmutableList.of(a, b))), input).outputRowsCountUnknown();
+    }
+
     private PlanNodeStatsAssertion assertExpression(Expression expression)
     {
         return assertExpression(expression, session);
@@ -855,7 +914,7 @@ public class TestFilterStatsCalculator
     private PlanNodeStatsAssertion assertExpression(Expression expression, Session session, PlanNodeStatsEstimate inputStatistics)
     {
         TransactionManager transactionManager = new TestingTransactionManager();
-        Metadata metadata = TestMetadataManager.builder().withTransactionManager(transactionManager).build();
+        Metadata metadata = TestingMetadataManager.builder().withTransactionManager(transactionManager).build();
         return transaction(transactionManager, metadata, new AllowAllAccessControl())
                 .singleStatement()
                 .execute(session, transactionSession -> {

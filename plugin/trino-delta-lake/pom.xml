@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>478</version>
+        <version>481</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -85,7 +85,7 @@
         <dependency>
             <groupId>io.delta</groupId>
             <artifactId>delta-kernel-api</artifactId>
-            <version>4.0.0</version>
+            <version>4.2.0</version>
         </dependency>
 
         <dependency>
@@ -101,11 +101,6 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-filesystem-manager</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-filesystem-s3</artifactId>
         </dependency>
 
         <dependency>
@@ -192,6 +187,12 @@
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>glue</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>commons-logging</groupId>
+                    <artifactId>commons-logging</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -220,6 +221,12 @@
 
         <dependency>
             <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-common</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-context</artifactId>
             <scope>provided</scope>
         </dependency>
@@ -227,12 +234,6 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-spi</artifactId>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.openjdk.jol</groupId>
-            <artifactId>jol-core</artifactId>
             <scope>provided</scope>
         </dependency>
 
@@ -360,14 +361,14 @@
 
         <dependency>
             <groupId>io.trino</groupId>
-            <artifactId>trino-filesystem-cache-alluxio</artifactId>
-            <type>test-jar</type>
+            <artifactId>trino-hdfs</artifactId>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-hdfs</artifactId>
+            <type>test-jar</type>
             <scope>test</scope>
         </dependency>
 
@@ -419,13 +420,6 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-parser</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-spi</artifactId>
-            <type>test-jar</type>
             <scope>test</scope>
         </dependency>
 
@@ -569,7 +563,7 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
-                            <excludes>
+                            <excludes combine.children="append">
                                 <exclude>**/TestDeltaLakeAdlsStorage.java</exclude>
                                 <exclude>**/TestDeltaLakeAdlsConnectorSmokeTest.java</exclude>
                                 <exclude>**/TestDeltaLakeGlueMetastore.java</exclude>

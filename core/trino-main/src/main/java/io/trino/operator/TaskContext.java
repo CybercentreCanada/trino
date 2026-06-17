@@ -15,6 +15,7 @@ package io.trino.operator;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.AtomicDouble;
 import com.google.common.util.concurrent.ListenableFuture;
@@ -36,14 +37,17 @@ import io.trino.memory.QueryContextVisitor;
 import io.trino.memory.context.AggregatedMemoryContext;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.memory.context.MemoryTrackingContext;
+import io.trino.spi.connector.ConnectorTableCredentials;
 import io.trino.spi.predicate.Domain;
 import io.trino.sql.planner.LocalDynamicFiltersCollector;
 import io.trino.sql.planner.plan.DynamicFilterId;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
@@ -54,6 +58,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.Iterables.transform;
 import static io.airlift.units.DataSize.succinctBytes;
+import static io.airlift.units.Duration.succinctDuration;
 import static java.lang.Math.max;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
@@ -66,6 +71,7 @@ public class TaskContext
 {
     private final QueryContext queryContext;
     private final TaskStateMachine taskStateMachine;
+    private final Map<PlanNodeId, ConnectorTableCredentials> tableCredentials;
     private final GcMonitor gcMonitor;
     private final Executor notificationExecutor;
     private final ScheduledExecutorService yieldExecutor;
@@ -114,6 +120,7 @@ public class TaskContext
     public static TaskContext createTaskContext(
             QueryContext queryContext,
             TaskStateMachine taskStateMachine,
+            Map<PlanNodeId, ConnectorTableCredentials> tableCredentials,
             GcMonitor gcMonitor,
             Executor notificationExecutor,
             ScheduledExecutorService yieldExecutor,
@@ -127,6 +134,7 @@ public class TaskContext
         TaskContext taskContext = new TaskContext(
                 queryContext,
                 taskStateMachine,
+                tableCredentials,
                 gcMonitor,
                 notificationExecutor,
                 yieldExecutor,
@@ -143,6 +151,7 @@ public class TaskContext
     private TaskContext(
             QueryContext queryContext,
             TaskStateMachine taskStateMachine,
+            Map<PlanNodeId, ConnectorTableCredentials> tableCredentials,
             GcMonitor gcMonitor,
             Executor notificationExecutor,
             ScheduledExecutorService yieldExecutor,
@@ -154,6 +163,7 @@ public class TaskContext
             boolean cpuTimerEnabled)
     {
         this.taskStateMachine = requireNonNull(taskStateMachine, "taskStateMachine is null");
+        this.tableCredentials = ImmutableMap.copyOf(tableCredentials);
         this.gcMonitor = requireNonNull(gcMonitor, "gcMonitor is null");
         this.queryContext = requireNonNull(queryContext, "queryContext is null");
         this.notificationExecutor = requireNonNull(notificationExecutor, "notificationExecutor is null");
@@ -181,6 +191,11 @@ public class TaskContext
     public TaskId getTaskId()
     {
         return taskStateMachine.getTaskId();
+    }
+
+    public Optional<ConnectorTableCredentials> getTableCredentials(PlanNodeId planNodeId)
+    {
+        return Optional.ofNullable(tableCredentials.get(planNodeId));
     }
 
     public PipelineContext addPipelineContext(int pipelineId, boolean inputPipeline, boolean outputPipeline, boolean partitioned)
@@ -387,17 +402,17 @@ public class TaskContext
         checkArgument(oldMaxWriterCount == -1 || oldMaxWriterCount == maxWriterCount, "maxWriterCount already set to %s", oldMaxWriterCount);
     }
 
-    public Optional<Integer> getMaxWriterCount()
+    public OptionalInt getMaxWriterCount()
     {
         int value = maxWriterCount.get();
-        return value == -1 ? Optional.empty() : Optional.of(value);
+        return value == -1 ? OptionalInt.empty() : OptionalInt.of(value);
     }
 
     public Duration getFullGcTime()
     {
         long startFullGcTimeNanos = this.startFullGcTimeNanos.get();
         if (startFullGcTimeNanos < 0) {
-            return new Duration(0, MILLISECONDS);
+            return succinctDuration(0, MILLISECONDS);
         }
 
         long endFullGcTimeNanos = this.endFullGcTimeNanos.get();

@@ -46,7 +46,6 @@ import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.security.PrincipalType;
 import io.trino.spi.security.TrinoPrincipal;
-import io.trino.spi.type.TestingTypeManager;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -75,9 +74,10 @@ import static io.trino.plugin.iceberg.IcebergTableProperties.FORMAT_VERSION_PROP
 import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.testing.TestingNames.randomNameSuffix;
-import static io.trino.testing.containers.Minio.MINIO_ACCESS_KEY;
 import static io.trino.testing.containers.Minio.MINIO_REGION;
-import static io.trino.testing.containers.Minio.MINIO_SECRET_KEY;
+import static io.trino.testing.containers.Minio.MINIO_ROOT_PASSWORD;
+import static io.trino.testing.containers.Minio.MINIO_ROOT_USER;
+import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static java.util.Locale.ENGLISH;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static org.apache.iceberg.BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE;
@@ -142,8 +142,8 @@ public class TestTrinoHiveCatalogWithHiveMetastore
                 OpenTelemetry.noop(),
                 new S3FileSystemConfig()
                         .setEndpoint(dataLake.getMinio().getMinioAddress())
-                        .setAwsAccessKey(MINIO_ACCESS_KEY)
-                        .setAwsSecretKey(MINIO_SECRET_KEY)
+                        .setAwsAccessKey(MINIO_ROOT_USER)
+                        .setAwsSecretKey(MINIO_ROOT_PASSWORD)
                         .setRegion(MINIO_REGION)
                         .setPathStyleAccess(true),
                 new S3FileSystemStats());
@@ -162,7 +162,7 @@ public class TestTrinoHiveCatalogWithHiveMetastore
                 new TrinoViewHiveMetastore(metastore, false, "trino-version", "Test"),
                 fileSystemFactory,
                 FILE_IO_FACTORY,
-                new TestingTypeManager(),
+                TESTING_TYPE_MANAGER,
                 new HiveMetastoreTableOperationsProvider(
                         fileSystemFactory,
                         FILE_IO_FACTORY,
@@ -212,6 +212,7 @@ public class TestTrinoHiveCatalogWithHiveMetastore
                             Optional.of("catalog_name"),
                             Optional.of("schema_name"),
                             ImmutableList.of(new ConnectorMaterializedViewDefinition.Column("col1", INTEGER.getTypeId(), Optional.empty())),
+                            Optional.empty(),
                             Optional.empty(),
                             Optional.empty(),
                             Optional.empty(),

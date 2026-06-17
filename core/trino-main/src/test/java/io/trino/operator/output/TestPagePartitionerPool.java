@@ -147,7 +147,8 @@ public class TestPagePartitionerPool
         // one split fit in the buffer but 2 do not
         DataSize maxPagePartitioningBufferSize = DataSize.ofBytes(split.getSizeInBytes() + 1);
         RuntimeException exception = new RuntimeException();
-        OutputBufferMock outputBuffer = new OutputBufferMock() {
+        OutputBufferMock outputBuffer = new OutputBufferMock()
+        {
             @Override
             public void enqueue(int partition, List<Slice> pages)
             {
@@ -171,7 +172,7 @@ public class TestPagePartitionerPool
                 new PlanNodeId("0"),
                 ImmutableList.of(BIGINT),
                 Function.identity(),
-                new BucketPartitionFunction((page, position) -> 0, new int[1]),
+                new BucketPartitionFunction((_, _) -> 0, new int[1]),
                 ImmutableList.of(0),
                 ImmutableList.of(),
                 false,
@@ -189,7 +190,7 @@ public class TestPagePartitionerPool
     private long processSplitsConcurrently(PartitionedOutputOperatorFactory factory, AggregatedMemoryContext memoryContext, Page... splits)
     {
         List<Operator> operators = Stream.of(splits)
-                .map(split -> factory.createOperator(driverContext()))
+                .map(_ -> factory.createOperator(driverContext()))
                 .collect(toImmutableList());
 
         long initialRetainedBytes = memoryContext.getBytes();
@@ -213,6 +214,12 @@ public class TestPagePartitionerPool
     {
         Map<Integer, Integer> partitionBufferPages = new HashMap<>();
 
+        @Override
+        public boolean usesExternalStorage()
+        {
+            return false;
+        }
+
         public int totalEnqueuedPageCount()
         {
             return partitionBufferPages.values().stream().mapToInt(Integer::intValue).sum();
@@ -221,7 +228,7 @@ public class TestPagePartitionerPool
         @Override
         public void enqueue(int partition, List<Slice> pages)
         {
-            partitionBufferPages.compute(partition, (key, value) -> value == null ? pages.size() : value + pages.size());
+            partitionBufferPages.compute(partition, (_, value) -> value == null ? pages.size() : value + pages.size());
         }
 
         @Override

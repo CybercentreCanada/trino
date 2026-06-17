@@ -21,7 +21,7 @@ import com.google.inject.Key;
 import com.google.inject.Singleton;
 import com.google.inject.TypeLiteral;
 import io.airlift.bootstrap.Bootstrap;
-import io.airlift.jaxrs.JsonMapper;
+import io.airlift.jaxrs.JaxRsJsonMapper;
 import io.airlift.json.JsonCodec;
 import io.airlift.json.JsonModule;
 import io.airlift.units.DataSize;
@@ -116,7 +116,7 @@ public class TestTaskDescriptorStorage
     public void testDestroy()
     {
         // disable compression to get expected memory usage
-        TaskDescriptorStorage manager = new TaskDescriptorStorage(DataSize.of(5, KILOBYTE), DataSize.of(10, KILOBYTE), DataSize.of(10, KILOBYTE), jsonCodec(TaskDescriptor.class), jsonCodec(Split.class));
+        TaskDescriptorStorage manager = new TaskDescriptorStorage(DataSize.of(5, KILOBYTE), DataSize.of(10, KILOBYTE), DataSize.of(10, KILOBYTE), jsonCodec(TaskDescriptor.class));
         manager.initialize(QUERY_1);
         manager.initialize(QUERY_2);
 
@@ -358,16 +358,15 @@ public class TestTaskDescriptorStorage
                 new JsonModule(),
                 new HandleJsonModule(),
                 binder -> {
-                    binder.bind(JsonMapper.class).in(Singleton.class);
+                    binder.bind(JaxRsJsonMapper.class).in(Singleton.class);
                     jsonCodecBinder(binder).bindJsonCodec(TaskDescriptor.class);
                     jsonCodecBinder(binder).bindJsonCodec(Split.class);
                 });
 
         Injector injector = app.initialize();
-        JsonCodec<TaskDescriptor> taskDescriptorJsonCodec = injector.getInstance(Key.get(new TypeLiteral<>() { }));
-        JsonCodec<Split> splitJsonCodec = injector.getInstance(Key.get(new TypeLiteral<>() { }));
+        JsonCodec<TaskDescriptor> taskDescriptorJsonCodec = injector.getInstance(Key.get(new TypeLiteral<>() {}));
 
-        TaskDescriptorStorage manager = new TaskDescriptorStorage(maxMemory, compressingHighWaterMark, compressingLowWaterMark, taskDescriptorJsonCodec, splitJsonCodec);
+        TaskDescriptorStorage manager = new TaskDescriptorStorage(maxMemory, compressingHighWaterMark, compressingLowWaterMark, taskDescriptorJsonCodec);
         return manager;
     }
 

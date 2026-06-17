@@ -103,6 +103,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -289,7 +290,7 @@ public class BigQueryMetadata
         }).orElseGet(() -> listSchemaNames(session));
         Map<SchemaTableName, RelationCommentMetadata> resultsByName = schemaNames.stream()
                 .flatMap(schema -> listRelationCommentMetadata(session, client, schema))
-                .collect(toImmutableMap(RelationCommentMetadata::name, Functions.identity(), (first, second) -> {
+                .collect(toImmutableMap(RelationCommentMetadata::name, Functions.identity(), (first, _) -> {
                     log.debug("Filtered out [%s] from list of tables due to ambiguous name", first.name());
                     return null;
                 }));
@@ -374,7 +375,7 @@ public class BigQueryMetadata
     private static boolean isBigLakeTable(TableDefinition tableDefinition)
     {
         if (tableDefinition instanceof ExternalTableDefinition externalTableDefinition) {
-            //BigLake tables are external with connectionId that don't have objectMetadata (ObjectTable discriminator) and their uri starts with gs:// (OMNI table discriminator)
+            // BigLake tables are external with connectionId that don't have objectMetadata (ObjectTable discriminator) and their uri starts with gs:// (OMNI table discriminator)
             List<String> sourceUris = externalTableDefinition.getSourceUris();
             return !isNullOrEmpty(externalTableDefinition.getConnectionId()) &&
                     isNullOrEmpty(externalTableDefinition.getObjectMetadata()) &&
@@ -440,7 +441,7 @@ public class BigQueryMetadata
         Optional<String> query = Optional.ofNullable(((ViewDefinition) tableInfo.getDefinition()).getQuery());
         Iterable<List<Object>> propertyValues = ImmutableList.of(ImmutableList.of(query.orElse("NULL")));
 
-        return Optional.of(createSystemTable(new ConnectorTableMetadata(sourceTableName, columns), constraint -> new InMemoryRecordSet(types, propertyValues).cursor()));
+        return Optional.of(createSystemTable(new ConnectorTableMetadata(sourceTableName, columns), _ -> new InMemoryRecordSet(types, propertyValues).cursor()));
     }
 
     @Override
@@ -724,14 +725,15 @@ public class BigQueryMetadata
                     targetTable.projectId(),
                     targetTable.datasetName(),
                     generateTemporaryTableName(session));
-            createTable(client, pageSinkTable.projectId(), pageSinkTable.datasetName(), pageSinkTable.tableName(), ImmutableList.of(typeManager.toField(pageSinkIdColumnName, TRINO_PAGE_SINK_ID_COLUMN_TYPE, null)), Optional.empty());
+            createTable(client, pageSinkTable.projectId(), pageSinkTable.datasetName(), pageSinkTable.tableName(), ImmutableList.of(typeManager.toField(pageSinkIdColumnName, TRINO_PAGE_SINK_ID_COLUMN_TYPE, Optional.empty())), Optional.empty());
             closer.register(() -> bigQueryClientFactory.create(session).dropTable(pageSinkTable.toTableId()));
 
             insertIntoSinkTable(session, pageSinkTable, pageSinkIdColumnName, fragments);
 
             String columns = columnNames.stream().map(BigQueryUtil::quote).collect(Collectors.joining(", "));
 
-            String insertSql = format("INSERT INTO %s (%s) SELECT %s FROM %s temp_table " +
+            String insertSql = format(
+                    "INSERT INTO %s (%s) SELECT %s FROM %s temp_table " +
                             "WHERE EXISTS (SELECT 1 FROM %s page_sink_table WHERE page_sink_table.%s = temp_table.%s)",
                     quoted(targetTable),
                     columns,
@@ -840,7 +842,7 @@ public class BigQueryMetadata
             boolean replace,
             boolean ignoreExisting)
     {
-        // TODO Fix BaseBigQueryFailureRecoveryTest when implementing this method
+        // TODO Fix BaseBigQueryFailureRecoveryTest and TestBigQueryWithDifferentProjectIdConnectorSmokeTest when implementing this method
         ConnectorMetadata.super.createMaterializedView(session, viewName, definition, properties, replace, ignoreExisting);
     }
 
@@ -956,7 +958,7 @@ public class BigQueryMetadata
         ImmutableMap.Builder<ConnectorExpression, Variable> newVariablesBuilder = ImmutableMap.builder();
         ImmutableSet.Builder<BigQueryColumnHandle> projectedColumnsBuilder = ImmutableSet.builder();
 
-        for (Map.Entry<ConnectorExpression, ProjectedColumnRepresentation> entry : columnProjections.entrySet()) {
+        for (Entry<ConnectorExpression, ProjectedColumnRepresentation> entry : columnProjections.entrySet()) {
             ConnectorExpression expression = entry.getKey();
             ProjectedColumnRepresentation projectedColumn = entry.getValue();
 
@@ -1007,8 +1009,7 @@ public class BigQueryMetadata
     {
         for (BigQueryColumnHandle existingColumn : existingColumns) {
             List<String> existingColumnDereferenceNames = existingColumn.dereferenceNames();
-            verify(
-                    column.dereferenceNames().size() >= existingColumnDereferenceNames.size(),
+            verify(column.dereferenceNames().size() >= existingColumnDereferenceNames.size(),
                     "Selected column's dereference size must be greater than or equal to the existing column's dereference size");
             if (existingColumn.name().equals(column.name())
                     && column.dereferenceNames().subList(0, existingColumnDereferenceNames.size()).equals(existingColumnDereferenceNames)) {
@@ -1068,7 +1069,7 @@ public class BigQueryMetadata
             Map<ColumnHandle, Domain> supported = new HashMap<>();
             Map<ColumnHandle, Domain> unsupported = new HashMap<>();
 
-            for (Map.Entry<ColumnHandle, Domain> entry : domains.entrySet()) {
+            for (Entry<ColumnHandle, Domain> entry : domains.entrySet()) {
                 BigQueryColumnHandle columnHandle = (BigQueryColumnHandle) entry.getKey();
                 Domain domain = entry.getValue();
                 if (columnHandle.isPushdownSupported()) {

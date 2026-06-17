@@ -4,10 +4,11 @@
 <img src="../_static/img/iceberg.png" class="connector-logo">
 ```
 
-Apache Iceberg is an open table format for huge analytic datasets. The Iceberg
-connector allows querying data stored in files written in Iceberg format, as
-defined in the [Iceberg Table Spec](https://iceberg.apache.org/spec/). The
-connector supports Apache Iceberg table spec versions 1 and 2.
+Apache Iceberg is an open table format for huge analytic datasets.
+The Iceberg connector allows querying data stored in files written in Iceberg
+format, as defined in the [Iceberg Table Spec](https://iceberg.apache.org/spec/).
+The connector supports Apache Iceberg table spec versions 1 and 2.
+Support for format version 3 is experimental.
 
 The table state is maintained in metadata files. All changes to table
 state create a new metadata file and replace the old metadata with an atomic
@@ -145,11 +146,6 @@ implementation is used:
     query plan and therefore improve query processing performance. Setting to
     `false` is not recommended and does not disable statistics gathering.
   - `true`
-* - `iceberg.extended-statistics.enabled`
-  - Enable statistics collection with [](/sql/analyze) and use of extended
-    statistics. The equivalent catalog session property is
-    `extended_statistics_enabled`.
-  - `true`
 * - `iceberg.extended-statistics.collect-on-write`
   - Enable collection of extended statistics for write operations. The
     equivalent catalog session property is
@@ -189,6 +185,21 @@ implementation is used:
     creation of more data files, since it uses the append operation to insert
     the new records.
   - `true`
+* - `iceberg.materialized-views.refresh-max-snapshots-to-expire`
+  - Maximum number of materialized view snapshots to expire when performing a
+    refresh. A value of `0` will result in no snapshots being removed. Higher
+    values may increase the time taken to execute materialized view refreshes
+    when there are a large number of snapshots in the materialized view. Any
+    snapshots within the duration of the
+    `iceberg.materialized-views.refresh-snapshot-retention-period` configuration
+    property will be retained.
+  - `200`
+* - `iceberg.materialized-views.refresh-snapshot-retention-period`
+  - The duration for which materialized view snapshots will be retained. Any
+    snapshots older than this value will be removed during a materialized view
+    refresh, up to a cap defined by the configuration property
+    `iceberg.materialized-views.refresh-max-snapshots-to-expire`.
+  - `4h`
 * - `iceberg.metadata-cache.enabled`
   - Set to `false` to disable in-memory caching of metadata files on the
     coordinator. This cache is not used when `fs.cache.enabled` is set to true.
@@ -233,12 +244,16 @@ implementation is used:
 * - `iceberg.split-manager-threads`
   -  Number of threads to use for generating splits.
   -  Double the number of processors on the coordinator node.
+* - `iceberg.planning-threads`
+  -  Number of threads to use for reading manifests during planning.
+  -  Double the number of processors on the coordinator node.
 * - `iceberg.metadata.parallelism`
   - Number of threads used for retrieving metadata. Currently, only table loading 
     is parallelized.
   - `8`
 * - `iceberg.file-delete-threads`
-  - Number of threads to use for deleting files when running `expire_snapshots` procedure.
+  - Number of threads to use for deleting files when running the `expire_snapshots`
+    or `remove_orphan_files` procedure, or when executing `DROP TABLE` queries.
   - Double the number of processors on the coordinator node.
 * - `iceberg.bucket-execution`
   - Enable bucket-aware execution. This allows the engine to use physical
@@ -263,8 +278,9 @@ The connector supports accessing the following file systems:
 * [](/object-storage/file-system-s3)
 * [](/object-storage/file-system-hdfs)
 
-You must enable and configure the specific file system access. [Legacy
-support](file-system-legacy) is not recommended and will be removed.
+Enable and configure the file system that your catalog uses. Use
+`fs.hadoop.enabled` only for HDFS; see [legacy file system
+support](file-system-legacy) for migration details.
 
 ## Type mapping
 
@@ -313,8 +329,12 @@ the following table:
   - `TIME(6)`
 * - `TIMESTAMP`
   - `TIMESTAMP(6)`
+* - `TIMESTAMP_NS`
+  - `TIMESTAMP(9)`
 * - `TIMESTAMPTZ`
   - `TIMESTAMP(6) WITH TIME ZONE`
+* - `TIMESTAMPTZ_NS`
+  - `TIMESTAMP(9) WITH TIME ZONE`
 * - `STRING`
   - `VARCHAR`
 * - `UUID`
@@ -323,6 +343,8 @@ the following table:
   - `VARBINARY`
 * - `FIXED (L)`
   - `VARBINARY`
+* - `VARIANT`
+  - `VARIANT`
 * - `STRUCT(...)`
   - `ROW(...)`
 * - `LIST(e)`
@@ -330,6 +352,9 @@ the following table:
 * - `MAP(k,v)`
   - `MAP(k,v)`
 :::
+
+`TIMESTAMP_NS` and `TIMESTAMPTZ_NS` are supported only for Iceberg format
+version `3` tables.
 
 No other types are supported.
 
@@ -362,20 +387,32 @@ the following table:
   - `TIME`
 * - `TIMESTAMP(6)`
   - `TIMESTAMP`
+* - `TIMESTAMP(9)`
+  - `TIMESTAMP_NS`
 * - `TIMESTAMP(6) WITH TIME ZONE`
   - `TIMESTAMPTZ`
+* - `TIMESTAMP(9) WITH TIME ZONE`
+  - `TIMESTAMPTZ_NS`
 * - `VARCHAR`
   - `STRING`
 * - `UUID`
   - `UUID`
 * - `VARBINARY`
   - `BINARY`
+* - `VARIANT`
+  - `VARIANT`
 * - `ROW(...)`
   - `STRUCT(...)`
 * - `ARRAY(e)`
   - `LIST(e)`
 * - `MAP(k,v)`
   - `MAP(k,v)`
+:::
+
+:::{note}
+Iceberg `VARIANT` is supported only for tables using Iceberg format version `3`
+or higher. To create a table with `VARIANT` columns, set
+`format_version = 3` in the `WITH` clause. The default is `2`.
 :::
 
 No other types are supported.
@@ -832,6 +869,14 @@ following conditions are met per partition:
 ALTER TABLE test_table EXECUTE optimize
 ```
 
+```text
+        metric_name         | metric_value
+----------------------------+--------------
+ rewritten_data_files_count |            1
+ removed_delete_files_count |            1
+ added_data_files_count     |            2
+```
+
 The following statement merges files in a table that are
 under 128 megabytes in size:
 
@@ -881,6 +926,15 @@ the maximum size of manifest files produced by this procedure.
 ALTER TABLE test_table EXECUTE optimize_manifests;
 ```
 
+```text
+metric_name                      | metric_value
+---------------------------------+--------------
+rewritten_manifests_count        |            2
+added_manifests_count            |            1
+kept_manifests_count             |            1
+processed_manifest_entries_count |            2
+```
+
 (iceberg-expire-snapshots)=
 ##### expire_snapshots
 
@@ -901,6 +955,14 @@ The value for `retention_threshold` must be higher than or equal to
 procedure fails with a similar message: `Retention specified (1.00d) is shorter
 than the minimum retention configured in the system (7.00d)`. The default value
 for this property is `7d`.
+
+The command accepts an optional `retain_last` parameter to specify the minimum
+number of ancestor snapshots to preserve (defaults to 1), regardless of the
+`retention_threshold` value.
+
+The command accepts an optional `clean_expired_metadata` parameter (defaults to false).
+When true, cleans up metadata such as partition specs and schemas that are no
+longer referenced by snapshots.
 
 (iceberg-remove-orphan-files)=
 ##### remove_orphan_files
@@ -923,6 +985,7 @@ ALTER TABLE test_table EXECUTE remove_orphan_files(retention_threshold => '7d');
  active_files_count         |           98
  scanned_files_count        |           97
  deleted_files_count        |            0
+ deleted_bytes              |            0
 ```
 
 The value for `retention_threshold` must be higher than or equal to
@@ -947,6 +1010,8 @@ The output of the query has the following metrics:
   - The count of files scanned from the file system.
 * - `deleted_files_count`
   - The count of files deleted by remove_orphan_files.
+* - `deleted_bytes`
+  - The total size in bytes of files deleted by remove_orphan_files.
 :::
 
 (drop-extended-stats)=
@@ -974,6 +1039,8 @@ The following table properties can be updated after a table is created:
 - `partitioning`
 - `sorted_by`
 - `max_commit_retry`
+- `delete_after_commit_enabled`
+- `max_previous_versions`
 - `object_store_layout_enabled`
 - `data_location`
 
@@ -1030,12 +1097,23 @@ connector using a {doc}`WITH </sql/create-table-as>` clause.
   - Optionally specifies the file system location URI for the table.
 * - `format_version`
   - Optionally specifies the format version of the Iceberg specification to use
-    for new tables; either `1` or `2`. Defaults to `2`. Version `2` is required
-    for row level deletes.
+    for new tables; `1`, `2`, or `3`. Defaults to `2`. Version `2` is required
+    for row level deletes. Version `3` support is experimental; row-level
+    updates, deletes, and OPTIMIZE are not supported. Tables with v3 features
+    such as column default values and encryption are not supported.
+    Version `3` is required for tables containing `VARIANT` columns.
 * - `max_commit_retry`
   - Number of times to retry a commit before failing. Defaults to the value of 
     the `iceberg.max-commit-retry` catalog configuration property, which 
     defaults to `4`.
+* - `delete_after_commit_enabled`
+  - Whether to delete the oldest tracked version metadata files after each table
+    commit. Defaults to the value of the `iceberg.delete-after-commit-enabled` 
+    catalog configuration property, which defaults to `false`.
+* - `max_previous_versions`
+  - The max number of previous version metadata files to track.
+    Defaults to the value of the `iceberg.max-previous-versions` 
+    catalog configuration property, which defaults to `100`.
 * - `orc_bloom_filter_columns`
   - Comma-separated list of columns to use for ORC bloom filter. It improves the
     performance of queries using Equality and IN predicates when reading ORC
@@ -1295,9 +1373,9 @@ SELECT * FROM "test_table$manifests";
 ```
 
 ```text
- path                                                                                                           | length          | partition_spec_id    | added_snapshot_id     | added_data_files_count  | added_rows_count | existing_data_files_count   | existing_rows_count | deleted_data_files_count    | deleted_rows_count | partition_summaries
-----------------------------------------------------------------------------------------------------------------+-----------------+----------------------+-----------------------+-------------------------+------------------+-----------------------------+---------------------+-----------------------------+--------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
- hdfs://hadoop-master:9000/user/hive/warehouse/test_table/metadata/faa19903-1455-4bb8-855a-61a1bbafbaa7-m0.avro |  6277           |   0                  | 7860805980949777961   | 1                       | 100              | 0                           | 0                   | 0                           | 0                  | {{contains_null=false, contains_nan= false, lower_bound=1, upper_bound=1},{contains_null=false, contains_nan= false, lower_bound=2021-01-12, upper_bound=2021-01-12}}
+ content | path                                                                                                           | length          | partition_spec_id    | added_snapshot_id     | added_data_files_count  | added_rows_count | existing_data_files_count   | existing_rows_count | deleted_data_files_count    | deleted_rows_count | partition_summaries
+---------+----------------------------------------------------------------------------------------------------------------+-----------------+----------------------+-----------------------+-------------------------+------------------+-----------------------------+---------------------+-----------------------------+--------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 0       | hdfs://hadoop-master:9000/user/hive/warehouse/test_table/metadata/faa19903-1455-4bb8-855a-61a1bbafbaa7-m0.avro |  6277           |   0                  | 7860805980949777961   | 1                       | 100              | 0                           | 0                   | 0                           | 0                  | {{contains_null=false, contains_nan= false, lower_bound=1, upper_bound=1},{contains_null=false, contains_nan= false, lower_bound=2021-01-12, upper_bound=2021-01-12}}
 ```
 
 The output of the query has the following columns:
@@ -1309,6 +1387,13 @@ The output of the query has the following columns:
 * - Name
   - Type
   - Description
+* - `content`
+  - `INTEGER`
+  - Type of content stored in the manifest. The supported content types in
+    Iceberg are:
+
+    * `DATA(0)` - manifests that track data files.
+    * `DELETES(1)` - manifests that track delete files.
 * - `path`
   - `VARCHAR`
   - The manifest file location.
@@ -1408,9 +1493,9 @@ SELECT * FROM "test_table$files";
 ```
 
 ```text
- content  | file_path                                                                                                                     | record_count    | file_format   | file_size_in_bytes   |  column_sizes        |  value_counts     |  null_value_counts | nan_value_counts  | lower_bounds                |  upper_bounds               |  key_metadata  | split_offsets  |  equality_ids
-----------+-------------------------------------------------------------------------------------------------------------------------------+-----------------+---------------+----------------------+----------------------+-------------------+--------------------+-------------------+-----------------------------+-----------------------------+----------------+----------------+---------------
- 0        | hdfs://hadoop-master:9000/user/hive/warehouse/test_table/data/c1=3/c2=2021-01-14/af9872b2-40f3-428f-9c87-186d2750d84e.parquet |  1              |  PARQUET      |  442                 | {1=40, 2=40, 3=44}   |  {1=1, 2=1, 3=1}  |  {1=0, 2=0, 3=0}   | <null>            |  {1=3, 2=2021-01-14, 3=1.3} |  {1=3, 2=2021-01-14, 3=1.3} |  <null>        | <null>         |   <null>
+  content  | file_path                                                                                                                     | record_count    | file_format   | file_size_in_bytes   |  column_sizes        |  value_counts     |  null_value_counts | nan_value_counts  | lower_bounds                |  upper_bounds               |  key_metadata  | split_offsets  |  equality_ids  | added_snapshot_id  | file_sequence_number | data_sequence_number | referenced_data_file | pos | manifest_location                                                                                                            | first_row_id | content_offset | content_size_in_bytes
+----------+-------------------------------------------------------------------------------------------------------------------------------+-----------------+---------------+----------------------+----------------------+-------------------+--------------------+-------------------+-----------------------------+-----------------------------+----------------+----------------+----------------+--------------------+----------------------+----------------------+----------------------+-----+------------------------------------------------------------------------------------------------------------------------------+--------------+----------------+----------------------
+ 0        | hdfs://hadoop-master:9000/user/hive/warehouse/test_table/data/c1=3/c2=2021-01-14/af9872b2-40f3-428f-9c87-186d2750d84e.parquet |  1              |  PARQUET      |  442                 | {1=40, 2=40, 3=44}   |  {1=1, 2=1, 3=1}  |  {1=0, 2=0, 3=0}   | <null>            |  {1=3, 2=2021-01-14, 3=1.3} |  {1=3, 2=2021-01-14, 3=1.3} |  <null>        | <null>         |   <null>       | 6116016324956900164 | 1                    | 1                    | <null>               | 0   | hdfs://hadoop-master:9000/user/hive/warehouse/test_table/metadata/snap-6116016324956900164-0-3c1b2496-0670-4e37-81f6.avro    | <null>       | <null>         | <null>
 ```
 
 The output of the query has the following columns:
@@ -1488,6 +1573,43 @@ The output of the query has the following columns:
 * - `readable_metrics`
   - `JSON`
   - File metrics in human-readable form.
+* - `added_snapshot_id`
+  - `BIGINT`
+  - The snapshot ID when the file was first added to the table, as recorded in
+    the selected snapshot's live manifest entry. This makes it possible to join
+    current live files with `$snapshots` to inspect when each file was
+    introduced. If a file is moved to a different manifest by manifest rewrite,
+    the manifest location may change, but `added_snapshot_id` still refers to
+    the snapshot in which the file was originally added. Use `$entries` or
+    `$all_entries` to inspect historical manifest references across snapshots.
+* - `file_sequence_number`
+  - `BIGINT`
+  - The sequence number of the file, tracking when the file was added.
+* - `data_sequence_number`
+  - `BIGINT`
+  - The data sequence number for the file, used for determining row-level deletes
+    applicability.
+* - `referenced_data_file`
+  - `VARCHAR`
+  - The path of the data file that a delete file applies to. Only set for
+    position delete files and deletion vectors, `NULL` for data files.
+* - `pos`
+  - `BIGINT`
+  - The ordinal position of the file in the manifest.
+* - `manifest_location`
+  - `VARCHAR`
+  - The location of the manifest that contains this file.
+* - `first_row_id`
+  - `BIGINT`
+  - The ID of the first row in the data file.
+* - `content_offset`
+  - `BIGINT`
+  - The offset in the file where the content starts. Only set for deletion
+    vectors, `NULL` for data files.
+* - `content_size_in_bytes`
+  - `BIGINT`
+  - The size of the content in bytes. Only set for deletion vectors, `NULL` for
+    data files.
 :::
 
 ##### `$entries` and `$all_entries` tables
@@ -1988,6 +2110,10 @@ behavior around grace periods](mv-grace-period). If all tables are Iceberg
 tables, the connector can determine if the data has not changed and continue to
 use the data from the storage tables, even after the grace period expired.
 
+The Iceberg connector supports the {ref}`WHEN STALE <mv-when-stale>` clause in
+{doc}`/sql/create-materialized-view` to control the behavior when a materialized
+view is stale. 
+
 Dropping a materialized view with {doc}`/sql/drop-materialized-view` removes
 the definition and the storage table.
 
@@ -2114,6 +2240,18 @@ ORDER BY _change_ordinal ASC;
 (6 rows)
 ```
 
+##### Limitations
+
+* Tables with delete files are not supported. The `table_changes` table function does 
+  not support snapshots that include delete files. Such delete files are typically 
+  produced by row-level operations.
+
+* The `table_changes` function reports changes on a per-snapshot basis within the
+  specified range. It does not compute the net effect across multiple snapshots.
+  For example, if a row is deleted in one snapshot and reinserted in a later snapshot
+  within the range, the function returns two records (one delete and one insert), rather
+  than omitting the row as having no net change.
+
 ## Performance
 
 The connector includes a number of performance improvements, detailed in the
@@ -2123,9 +2261,7 @@ following sections.
 ### Table statistics
 
 The Iceberg connector can collect column statistics using {doc}`/sql/analyze`
-statement. This can be disabled using `iceberg.extended-statistics.enabled`
-catalog configuration property, or the corresponding
-`extended_statistics_enabled` session property.
+statement.
 
 (iceberg-analyze)=
 #### Updating table statistics
@@ -2194,7 +2330,7 @@ Additionally, you can use the following catalog configuration properties:
 * - `fs.memory-cache.max-size`
   - The maximum total [data size](prop-type-data-size) of the cache. When
     raising this value, keep in mind that the coordinator memory is used.
-    Defaults to `200MB`.
+    Defaults to 2% of maximum heap size on the node.
 * - `fs.memory-cache.max-content-length`
   - The maximum file size that can be cached. Defaults to `15MB`.
  :::

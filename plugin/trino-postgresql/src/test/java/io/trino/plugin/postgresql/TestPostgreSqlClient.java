@@ -39,6 +39,7 @@ import io.trino.spi.expression.Variable;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.session.PropertyMetadata;
 import io.trino.sql.ir.Call;
+import io.trino.sql.ir.Coalesce;
 import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
@@ -61,7 +62,7 @@ import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.SessionTestUtils.TEST_SESSION;
 import static io.trino.spi.function.OperatorType.ADD;
 import static io.trino.spi.function.OperatorType.DIVIDE;
-import static io.trino.spi.function.OperatorType.MODULUS;
+import static io.trino.spi.function.OperatorType.MODULO;
 import static io.trino.spi.function.OperatorType.MULTIPLY;
 import static io.trino.spi.function.OperatorType.SUBTRACT;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -81,6 +82,13 @@ public class TestPostgreSqlClient
     private static final JdbcColumnHandle BIGINT_COLUMN =
             JdbcColumnHandle.builder()
                     .setColumnName("c_bigint")
+                    .setColumnType(BIGINT)
+                    .setJdbcTypeHandle(new JdbcTypeHandle(Types.BIGINT, Optional.of("int8"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()))
+                    .build();
+
+    private static final JdbcColumnHandle BIGINT_COLUMN2 =
+            JdbcColumnHandle.builder()
+                    .setColumnName("c_bigint2")
                     .setColumnType(BIGINT)
                     .setJdbcTypeHandle(new JdbcTypeHandle(Types.BIGINT, Optional.of("int8"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()))
                     .build();
@@ -110,7 +118,7 @@ public class TestPostgreSqlClient
             new BaseJdbcConfig(),
             new PostgreSqlConfig(),
             new JdbcStatisticsConfig(),
-            session -> { throw new UnsupportedOperationException(); },
+            _ -> { throw new UnsupportedOperationException(); },
             new DefaultQueryBuilder(RemoteQueryModifier.NONE),
             new TestingPostgreSqlConnectorContext().getTypeManager(),
             new DefaultIdentifierMapping(),
@@ -282,21 +290,16 @@ public class TestPostgreSqlClient
                     Map.of("c_bigint_symbol", BIGINT_COLUMN));
 
             switch (operator) {
-                case EQUAL:
-                case NOT_EQUAL:
-                case LESS_THAN:
-                case LESS_THAN_OR_EQUAL:
-                case GREATER_THAN:
-                case GREATER_THAN_OR_EQUAL:
+                case EQUAL, NOT_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL -> {
                     assertThat(converted).isPresent();
                     assertThat(converted.get().expression()).isEqualTo(format("(\"c_bigint\") %s (?)", operator.getValue()));
                     assertThat(converted.get().parameters()).isEqualTo(List.of(new QueryParameter(BIGINT, Optional.of(42L))));
-                    break;
-                case IDENTICAL:
+                }
+                case IDENTICAL -> {
                     assertThat(converted).isPresent();
                     assertThat(converted.get().expression()).isEqualTo(format("(\"c_bigint\") IS NOT DISTINCT FROM (?)"));
                     assertThat(converted.get().parameters()).isEqualTo(List.of(new QueryParameter(BIGINT, Optional.of(42L))));
-                    break;
+                }
             }
         }
     }
@@ -306,7 +309,7 @@ public class TestPostgreSqlClient
     {
         TestingFunctionResolution resolver = new TestingFunctionResolution();
 
-        for (OperatorType operator : EnumSet.of(ADD, SUBTRACT, MULTIPLY, DIVIDE, MODULUS)) {
+        for (OperatorType operator : EnumSet.of(ADD, SUBTRACT, MULTIPLY, DIVIDE, MODULO)) {
             ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(
                             SESSION,
                             translateToConnectorExpression(
@@ -338,7 +341,8 @@ public class TestPostgreSqlClient
     public void testConvertIsNull()
     {
         // c_varchar IS NULL
-        ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(SESSION,
+        ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(
+                        SESSION,
                         translateToConnectorExpression(
                                 new IsNull(
                                         new Reference(VARCHAR, "c_varchar_symbol"))),
@@ -352,7 +356,8 @@ public class TestPostgreSqlClient
     public void testConvertIsNotNull()
     {
         // c_varchar IS NOT NULL
-        ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(SESSION,
+        ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(
+                        SESSION,
                         translateToConnectorExpression(
                                 not(FUNCTIONS.getMetadata(), new IsNull(new Reference(VARCHAR, "c_varchar_symbol")))),
                         Map.of("c_varchar_symbol", VARCHAR_COLUMN))
@@ -365,7 +370,8 @@ public class TestPostgreSqlClient
     public void testConvertNullIf()
     {
         // nullif(a_varchar, b_varchar)
-        ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(SESSION,
+        ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(
+                        SESSION,
                         translateToConnectorExpression(
                                 new NullIf(
                                         new Reference(VARCHAR, "a_varchar_symbol"),
@@ -380,7 +386,8 @@ public class TestPostgreSqlClient
     public void testConvertNotExpression()
     {
         // NOT(expression)
-        ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(SESSION,
+        ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(
+                        SESSION,
                         translateToConnectorExpression(
                                 not(
                                         FUNCTIONS.getMetadata(),
@@ -397,8 +404,7 @@ public class TestPostgreSqlClient
         ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(
                         SESSION,
                         translateToConnectorExpression(
-                                new In(
-                                        new Reference(createVarcharType(10), "c_varchar"),
+                                new In(new Reference(createVarcharType(10), "c_varchar"),
                                         List.of(
                                                 new Constant(VARCHAR_COLUMN.getColumnType(), utf8Slice("value1")),
                                                 new Constant(VARCHAR_COLUMN.getColumnType(), utf8Slice("value2")),
@@ -409,6 +415,35 @@ public class TestPostgreSqlClient
         assertThat(converted.parameters()).isEqualTo(List.of(
                 new QueryParameter(createVarcharType(10), Optional.of(utf8Slice("value1"))),
                 new QueryParameter(createVarcharType(10), Optional.of(utf8Slice("value2")))));
+    }
+
+    @Test
+    public void testConvertCoalesce()
+    {
+        // COALESCE(varchar, varchar)
+        ParameterizedExpression converted = JDBC_CLIENT.convertPredicate(
+                        SESSION,
+                        translateToConnectorExpression(
+                                new Coalesce(
+                                        new Reference(VARCHAR, "c_varchar_symbol"),
+                                        new Reference(VARCHAR, "c_varchar_symbol_2"))),
+                        Map.of("c_varchar_symbol", VARCHAR_COLUMN, "c_varchar_symbol_2", VARCHAR_COLUMN2))
+                .orElseThrow();
+        assertThat(converted.expression()).isEqualTo("COALESCE(\"c_varchar\",\"c_varchar2\")");
+        assertThat(converted.parameters()).isEqualTo(List.of());
+
+        // COALESCE(bigint, bigint, bigint)
+        converted = JDBC_CLIENT.convertPredicate(
+                        SESSION,
+                        translateToConnectorExpression(
+                                new Coalesce(
+                                        new Reference(BIGINT, "c_bigint_symbol"),
+                                        new Reference(BIGINT, "c_bigint_symbol_2"),
+                                        new Constant(BIGINT, 123L))),
+                        Map.of("c_bigint_symbol", BIGINT_COLUMN, "c_bigint_symbol_2", BIGINT_COLUMN2))
+                .orElseThrow();
+        assertThat(converted.expression()).isEqualTo("COALESCE(\"c_bigint\",\"c_bigint2\",?)");
+        assertThat(converted.parameters()).isEqualTo(List.of(new QueryParameter(BIGINT, Optional.of(123L))));
     }
 
     private ConnectorExpression translateToConnectorExpression(Expression expression)

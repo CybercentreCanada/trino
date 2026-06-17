@@ -1054,6 +1054,11 @@ to the `ON ERROR` clause are:
 - JSON path evaluation errors, e.g. division by zero
 - Returned scalar not convertible to the desired type
 
+The `DEFAULT` expression in `ON EMPTY` and `ON ERROR` is only evaluated when
+the corresponding branch is taken. If evaluation of the `ON EMPTY` default
+itself raises a data exception, the failure cascades to the `ON ERROR` clause.
+Subqueries are not supported in `DEFAULT` expressions.
+
 ### Examples
 
 Let `customers` be a table containing two columns: `id:bigint`,
@@ -1229,6 +1234,12 @@ data.
 
 `ON ERROR` specifies how to handle processing errors. `ERROR ON ERROR` throws an
 error. `EMPTY ON ERROR` returns an empty result set.
+
+For each value column with `DEFAULT` in its `ON EMPTY` or `ON ERROR` clause,
+the default expression is only evaluated when the corresponding branch is
+taken, and if the `ON EMPTY` default itself raises a data exception, the
+failure cascades to the `ON ERROR` clause. Subqueries are not supported in
+`json_table` `DEFAULT` expressions.
 
 `column_name` specifies a column name.
 
@@ -1825,6 +1836,9 @@ and any interior quotes will not be escaped).
 
 We recommend against using this function. It cannot be fixed without
 impacting existing usages and may be removed in a future release.
+
+Use {ref}`json_query<json-query>` instead with JSONPath array indexing
+syntax, e.g., `json_query(json_array, 'lax $[0]')`.
 :::
 
 Returns the element at the specified index into the `json_array`.

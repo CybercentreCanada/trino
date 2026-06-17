@@ -62,7 +62,6 @@ import static io.trino.sql.ir.Comparison.Operator.GREATER_THAN_OR_EQUAL;
 import static io.trino.sql.ir.Comparison.Operator.LESS_THAN_OR_EQUAL;
 import static io.trino.sql.ir.IrExpressions.not;
 import static io.trino.sql.ir.IrUtils.and;
-import static io.trino.sql.ir.optimizer.IrExpressionOptimizer.newOptimizer;
 import static io.trino.sql.planner.SymbolsExtractor.extractUnique;
 import static java.lang.Double.NaN;
 import static java.lang.Double.isInfinite;
@@ -100,7 +99,7 @@ public class FilterStatsCalculator
     private Expression simplifyExpression(Session session, Expression predicate)
     {
         // TODO reuse io.trino.sql.planner.iterative.rule.SimplifyExpressions.rewrite
-        Expression value = newOptimizer(plannerContext).process(predicate, session, ImmutableMap.of()).orElse(predicate);
+        Expression value = plannerContext.getExpressionOptimizer().process(predicate, session, ImmutableMap.of()).orElse(predicate);
 
         if (value instanceof Constant constant && constant.value() == null) {
             // Expression evaluates to SQL null, which in Filter is equivalent to false. This assumes the expression is a top-level expression (eg. not in NOT).
@@ -367,7 +366,7 @@ public class FilterStatsCalculator
                 Object literalValue = constant.value();
                 if (literalValue == null) {
                     // Possible when we process `x IN (..., NULL)` case.
-                    return input.mapOutputRowCount(rowCountEstimate -> 0.);
+                    return input.mapOutputRowCount(_ -> 0.);
                 }
                 OptionalDouble literal = toStatsRepresentation(type, literalValue);
                 return estimateExpressionToLiteralComparison(input, leftStats, leftSymbol, literal, operator);
@@ -397,7 +396,7 @@ public class FilterStatsCalculator
                         SymbolStatsEstimate symbolStats = input.getSymbolStatistics(symbol);
                         PlanNodeStatsEstimate.Builder result = PlanNodeStatsEstimate.buildFrom(input);
                         result.setOutputRowCount(input.getOutputRowCount() * (1 - symbolStats.getNullsFraction()));
-                        result.addSymbolStatistics(symbol, symbolStats.mapNullsFraction(x -> 0.0));
+                        result.addSymbolStatistics(symbol, symbolStats.mapNullsFraction(_ -> 0.0));
                         return result.build();
                     }
                     return PlanNodeStatsEstimate.unknown();

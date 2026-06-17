@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>478</version>
+        <version>481</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -289,6 +289,12 @@
 
         <dependency>
             <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-common</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-context</artifactId>
             <scope>provided</scope>
         </dependency>
@@ -296,12 +302,6 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-spi</artifactId>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.openjdk.jol</groupId>
-            <artifactId>jol-core</artifactId>
             <scope>provided</scope>
         </dependency>
 
@@ -411,6 +411,13 @@
 
         <dependency>
             <groupId>io.trino</groupId>
+            <artifactId>trino-hdfs</artifactId>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
             <artifactId>trino-main</artifactId>
             <type>test-jar</type>
             <scope>test</scope>
@@ -432,13 +439,6 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-parser</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>io.trino</groupId>
-            <artifactId>trino-spi</artifactId>
-            <type>test-jar</type>
             <scope>test</scope>
         </dependency>
 
@@ -539,12 +539,6 @@
         </dependency>
 
         <dependency>
-            <groupId>org.testng</groupId>
-            <artifactId>testng</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
             <!-- Allow running tests when locally `aws sso login` is required to access AWS services -->
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>sso</artifactId>
@@ -577,31 +571,19 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <dependencies>
-                    <!-- allow both JUnit and TestNG -->
-                    <dependency>
-                        <groupId>org.apache.maven.surefire</groupId>
-                        <artifactId>surefire-junit-platform</artifactId>
-                        <version>${dep.plugin.surefire.version}</version>
-                    </dependency>
-                    <dependency>
-                        <groupId>org.apache.maven.surefire</groupId>
-                        <artifactId>surefire-testng</artifactId>
-                        <version>${dep.plugin.surefire.version}</version>
-                    </dependency>
-                </dependencies>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
                 <configuration>
                     <ignoredNonTestScopedDependencies>
                         <!-- dependency plugin fails to recognize software.amazon.awssdk.retries as a compile-time dependency, because
                              we use it as part of builder, without explicit import in GlueMetastoreModule -->
                         <ignoredNonTestScopedDependency>software.amazon.awssdk:retries</ignoredNonTestScopedDependency>
+                        <!-- jts-core is transitively available via trino-hive-formats and used in TestEsriTable -->
+                        <ignoredNonTestScopedDependency>org.locationtech.jts:jts-core</ignoredNonTestScopedDependency>
                     </ignoredNonTestScopedDependencies>
+                    <ignoredUsedUndeclaredDependencies>
+                        <!-- jts-core is transitively available via trino-hive-formats and used in TestEsriTable -->
+                        <ignoredUsedUndeclaredDependency>org.locationtech.jts:jts-core</ignoredUsedUndeclaredDependency>
+                    </ignoredUsedUndeclaredDependencies>
                 </configuration>
             </plugin>
         </plugins>
@@ -619,9 +601,10 @@
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-surefire-plugin</artifactId>
                         <configuration>
-                            <excludes>
+                            <excludes combine.children="append">
                                 <exclude>**/TestCachedHiveGlueMetastore.java</exclude>
                                 <exclude>**/TestGlueHiveMetastore.java</exclude>
+                                <exclude>**/TestGlueHiveMetastoreCanonicalPartitionKeys.java</exclude>
                                 <exclude>**/TestGlueHiveMetastoreQueries.java</exclude>
                                 <exclude>**/TestGlueHiveMetastoreSkipArchive.java</exclude>
                                 <exclude>**/TestHiveGlueMetadataListing.java</exclude>
@@ -684,6 +667,7 @@
                             <includes>
                                 <include>**/TestCachedHiveGlueMetastore.java</include>
                                 <include>**/TestGlueHiveMetastore.java</include>
+                                <include>**/TestGlueHiveMetastoreCanonicalPartitionKeys.java</include>
                                 <include>**/TestGlueHiveMetastoreQueries.java</include>
                                 <include>**/TestGlueHiveMetastoreSkipArchive.java</include>
                                 <include>**/TestHiveGlueMetadataListing.java</include>

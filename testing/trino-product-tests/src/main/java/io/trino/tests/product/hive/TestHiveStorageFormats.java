@@ -43,6 +43,7 @@ import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -258,7 +259,7 @@ public class TestHiveStorageFormats
         return new StorageFormat[] {
                 storageFormat("TEXTFILE"),
                 storageFormat("RCTEXT"),
-                storageFormat("SEQUENCEFILE")
+                storageFormat("SEQUENCEFILE"),
         };
     }
 
@@ -305,6 +306,8 @@ public class TestHiveStorageFormats
                 .filter(format -> !"REGEX".equals(format))
                 // ESRI is read-only
                 .filter(format -> !"ESRI".equals(format))
+                // ESRI_GEO_JSON is read-only
+                .filter(format -> !"ESRI_GEO_JSON".equals(format))
                 // SEQUENCEFILE_PROTOBUF is read-only
                 .filter(format -> !"SEQUENCEFILE_PROTOBUF".equals(format))
                 // TODO when using JSON serde Hive fails with ClassNotFoundException: org.apache.hive.hcatalog.data.JsonSerDe
@@ -447,7 +450,7 @@ public class TestHiveStorageFormats
                 nullFormat));
 
         // \N is the default null format
-        String[] values = new String[] {nullFormat, null, "non-null", "", "\\N"};
+        String[] values = {nullFormat, null, "non-null", "", "\\N"};
         Row[] storedValues = Arrays.stream(values).map(Row::row).toArray(Row[]::new);
         storedValues[0] = row((Object) null); // if you put in the null format, it saves as null
 
@@ -500,8 +503,10 @@ public class TestHiveStorageFormats
                 nullFormat));
 
         // Manually format data for insertion b/c Hive's PreparedStatement can't handle nulls
-        onHive().executeQuery(format("INSERT INTO %s VALUES ('non-null'), (NULL), ('%s')",
-                tableName, nullFormat));
+        onHive().executeQuery(format(
+                "INSERT INTO %s VALUES ('non-null'), (NULL), ('%s')",
+                tableName,
+                nullFormat));
 
         assertThat(onTrino().executeQuery(format("SELECT * FROM %s", tableName)))
                 .containsOnly(row("non-null"), row((Object) null), row((Object) null));
@@ -573,7 +578,7 @@ public class TestHiveStorageFormats
                 "  dummy varchar) WITH (format='" + format + "')");
 
         switch (writer) {
-            case HIVE:
+            case HIVE -> {
                 ensureDummyExists();
                 writer.queryExecutor().executeQuery("INSERT INTO " + tableName + " SELECT " +
                         "named_struct('a', 42), " +
@@ -581,16 +586,13 @@ public class TestHiveStorageFormats
                         "named_struct('a', array(11, 22, 33)), " +
                         "'dummy value' " +
                         "FROM dummy");
-                break;
-            case TRINO:
-                writer.queryExecutor().executeQuery("INSERT INTO " + tableName + " VALUES (" +
-                        "row(42), " +
-                        "row(row(43)), " +
-                        "row(ARRAY[11, 22, 33]), " +
-                        "'dummy value')");
-                break;
-            default:
-                throw new IllegalStateException("Unsupported writer: " + writer);
+            }
+            case TRINO -> writer.queryExecutor().executeQuery("INSERT INTO " + tableName + " VALUES (" +
+                    "row(42), " +
+                    "row(row(43)), " +
+                    "row(ARRAY[11, 22, 33]), " +
+                    "'dummy value')");
+            default -> throw new IllegalStateException("Unsupported writer: " + writer);
         }
 
         assertThat(onTrino().executeQuery("SELECT * FROM " + tableName))
@@ -758,14 +760,15 @@ public class TestHiveStorageFormats
                     onTrino().executeQuery(format(
                             "INSERT INTO %s VALUES (%s)",
                             tableName,
-                            data.stream().map(entry -> format(
-                                    "%s,"
-                                            + " array[%2$s],"
-                                            + " map(array[%2$s], array[%2$s]),"
-                                            + " row(%2$s),"
-                                            + " array[map(array[%2$s], array[row(array[%2$s])])]",
-                                    entry.getId(),
-                                    format("TIMESTAMP '%s'", entry.getWriteValue())))
+                            data.stream()
+                                    .map(entry -> format(
+                                            "%s,"
+                                                    + " array[%2$s],"
+                                                    + " map(array[%2$s], array[%2$s]),"
+                                                    + " row(%2$s),"
+                                                    + " array[map(array[%2$s], array[row(array[%2$s])])]",
+                                            entry.getId(),
+                                            format("TIMESTAMP '%s'", entry.getWriteValue())))
                                     .collect(joining("), ("))));
                 });
 
@@ -870,8 +873,8 @@ public class TestHiveStorageFormats
                     .containsOnly(row(
                             format("array(%s)", type),
                             format("map(%1$s, %1$s)", type),
-                            format("row(col %s)", type),
-                            format("array(map(%1$s, row(col array(%1$s))))", type))));
+                            format("row(\"col\" %s)", type),
+                            format("array(map(%1$s, row(\"col\" array(%1$s))))", type))));
 
             // Check the values as varchar
             softly.check(() -> assertThat(onTrino()
@@ -1012,7 +1015,7 @@ public class TestHiveStorageFormats
             setSessionProperty(connection, "task_min_writer_count", "4");
             setSessionProperty(connection, "task_scale_writers_enabled", "false");
             setSessionProperty(connection, "redistribute_writes", "false");
-            for (Map.Entry<String, String> sessionProperty : sessionProperties.entrySet()) {
+            for (Entry<String, String> sessionProperty : sessionProperties.entrySet()) {
                 setSessionProperty(connection, sessionProperty.getKey(), sessionProperty.getValue());
             }
         }
@@ -1063,8 +1066,8 @@ public class TestHiveStorageFormats
         public String getStoragePropertiesAsSql()
         {
             return Stream.concat(
-                    Stream.of(immutableEntry("format", name)),
-                    properties.entrySet().stream())
+                            Stream.of(immutableEntry("format", name)),
+                            properties.entrySet().stream())
                     .map(entry -> format("%s = '%s'", entry.getKey(), entry.getValue()))
                     .collect(joining(", "));
         }

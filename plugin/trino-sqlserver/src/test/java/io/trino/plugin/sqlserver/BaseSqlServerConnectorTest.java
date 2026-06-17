@@ -49,11 +49,9 @@ public abstract class BaseSqlServerConnectorTest
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
         return switch (connectorBehavior) {
-            case SUPPORTS_JOIN_PUSHDOWN,
-                 SUPPORTS_JOIN_PUSHDOWN_WITH_VARCHAR_EQUALITY,
-                 SUPPORTS_PREDICATE_EXPRESSION_PUSHDOWN,
-                 SUPPORTS_PREDICATE_PUSHDOWN_WITH_VARCHAR_EQUALITY -> true;
+            case SUPPORTS_JOIN_PUSHDOWN -> true;
             case SUPPORTS_ADD_COLUMN_WITH_COMMENT,
+                 SUPPORTS_ADD_COLUMN_WITH_POSITION,
                  SUPPORTS_AGGREGATION_PUSHDOWN_CORRELATION,
                  SUPPORTS_AGGREGATION_PUSHDOWN_COUNT_DISTINCT,
                  SUPPORTS_AGGREGATION_PUSHDOWN_COVARIANCE,
@@ -72,7 +70,9 @@ public abstract class BaseSqlServerConnectorTest
                  SUPPORTS_RENAME_SCHEMA,
                  SUPPORTS_RENAME_TABLE_ACROSS_SCHEMAS,
                  SUPPORTS_ROW_TYPE,
-                 SUPPORTS_SET_COLUMN_TYPE -> false;
+                 SUPPORTS_SET_COLUMN_TYPE,
+                 SUPPORTS_MERGE,
+                 SUPPORTS_ROW_LEVEL_UPDATE -> false;
             default -> super.hasBehavior(connectorBehavior);
         };
     }
@@ -388,7 +388,8 @@ public abstract class BaseSqlServerConnectorTest
                 Session.builder(getSession())
                         .setCatalogSessionProperty("sqlserver", "domain_compaction_threshold", "10000")
                         .build(),
-                "SELECT * from nation", "Domain compaction threshold \\(10000\\) cannot exceed 500");
+                "SELECT * from nation",
+                "Domain compaction threshold \\(10000\\) cannot exceed 500");
     }
 
     /**
@@ -454,7 +455,8 @@ public abstract class BaseSqlServerConnectorTest
     private void testCreateWithDataCompression(DataCompression dataCompression)
     {
         String tableName = "test_create_with_compression_" + randomNameSuffix();
-        String createQuery = format("CREATE TABLE sqlserver.dbo.%s (\n" +
+        String createQuery = format(
+                "CREATE TABLE sqlserver.dbo.%s (\n" +
                         "   a bigint,\n" +
                         "   b bigint\n" +
                         ")\n" +

@@ -57,6 +57,7 @@ In the case of serializable formats, only specific
   more [details about the Trino implementation in the source repository](https://github.com/trinodb/trino/tree/master/lib/trino-hive-formats/src/main/java/io/trino/hive/formats/line/openxjson/README.md).
 - TextFile
 - ESRI - using `com.esri.hadoop.hive.serde.EsriJsonSerDe`
+- ESRI_GEO_JSON - using `com.esri.hadoop.hive.serde.GeoJsonSerDe`
 
 (hive-configuration)=
 ## General configuration
@@ -138,7 +139,7 @@ Hive connector documentation.
     [](parquet-format-configuration)
   - `true`
 * - `hive.parquet.time-zone`
-  - Time zone for Parquet read and write.
+  - Time zone used when reading and writing timestamps into Parquet files.
   - JVM default
 * - `hive.compression-codec`
   - The compression codec to use when writing files. Possible values are `NONE`,
@@ -341,8 +342,9 @@ The connector supports accessing the following file systems:
 * [](/object-storage/file-system-s3)
 * [](/object-storage/file-system-hdfs)
 
-You must enable and configure the specific file system access. [Legacy
-support](file-system-legacy) is not recommended and will be removed.
+Enable and configure the file system that your catalog uses. Use
+`fs.hadoop.enabled` only for HDFS; see [legacy file system
+support](file-system-legacy) for migration details.
 
 (hive-fte-support)=
 ### Fault-tolerant execution support
@@ -354,6 +356,122 @@ on non-transactional tables.
 Read operations are supported with any retry policy on transactional tables.
 Write operations and `CREATE TABLE ... AS` operations are not supported with
 any retry policy on transactional tables.
+
+## Type mapping
+
+Because Trino and Hive each support types that the other does not, this
+connector {ref}`modifies some types <type-mapping-overview>` when reading or
+writing data. Data types may not map the same way in both directions between
+Trino and the data source. Refer to the following sections for type mapping in
+each direction.
+
+### Hive to Trino type mapping
+
+The connector maps Hive types to the corresponding Trino types following
+this table:
+
+:::{list-table} Hive to Trino type mapping
+:widths: 40, 60
+:header-rows: 1
+
+* - Hive type
+  - Trino type
+* - `BOOLEAN`
+  - `BOOLEAN`
+* - `TINYINT`
+  - `TINYINT`
+* - `SMALLINT`
+  - `SMALLINT`
+* - `INT`
+  - `INTEGER`
+* - `BIGINT`
+  - `BIGINT`
+* - `FLOAT`
+  - `REAL`
+* - `DOUBLE`
+  - `DOUBLE`
+* - `DECIMAL(p,s)`
+  - `DECIMAL(p,s)`
+* - `STRING`
+  - `VARCHAR`
+* - `VARCHAR(n)`
+  - `VARCHAR(n)`
+* - `CHAR(n)`
+  - `CHAR(n)`
+* - `BINARY`
+  - `VARBINARY`
+* - `DATE`
+  - `DATE`
+* - `TIMESTAMP`
+  - `TIMESTAMP(p)`
+* - `TIMESTAMP WITH LOCAL TIME ZONE`
+  - `TIMESTAMP(p) WITH TIME ZONE`
+* - `ARRAY(e)`
+  - `ARRAY(e)`
+* - `MAP(k,v)`
+  - `MAP(k,v)`
+* - `STRUCT(...)`
+  - `ROW(...)`
+* - `UNIONTYPE<...>`
+  - `ROW(...)`
+:::
+
+The precision `p` for `TIMESTAMP` and `TIMESTAMP WITH LOCAL TIME ZONE` is
+determined by the `hive.timestamp-precision` configuration property.
+
+`UNIONTYPE` is mapped to `ROW` for reading only. Writing `UNIONTYPE` columns
+is not supported.
+
+No other types are supported.
+
+### Trino to Hive type mapping
+
+The connector maps Trino types to the corresponding Hive types following
+this table:
+
+:::{list-table} Trino to Hive type mapping
+:widths: 60, 40
+:header-rows: 1
+
+* - Trino type
+  - Hive type
+* - `BOOLEAN`
+  - `BOOLEAN`
+* - `TINYINT`
+  - `TINYINT`
+* - `SMALLINT`
+  - `SMALLINT`
+* - `INTEGER`
+  - `INT`
+* - `BIGINT`
+  - `BIGINT`
+* - `REAL`
+  - `FLOAT`
+* - `DOUBLE`
+  - `DOUBLE`
+* - `DECIMAL(p,s)`
+  - `DECIMAL(p,s)`
+* - `VARCHAR`
+  - `STRING`
+* - `VARCHAR(n)`
+  - `VARCHAR(n)` (max 65535)
+* - `CHAR(n)`
+  - `CHAR(n)` (max 255)
+* - `VARBINARY`
+  - `BINARY`
+* - `DATE`
+  - `DATE`
+* - `TIMESTAMP(p)`
+  - `TIMESTAMP`
+* - `ARRAY(e)`
+  - `ARRAY(e)`
+* - `MAP(k,v)`
+  - `MAP(k,v)`
+* - `ROW(...)`
+  - `STRUCT(...)`
+:::
+
+No other types are supported.
 
 (hive-security)=
 ## Security

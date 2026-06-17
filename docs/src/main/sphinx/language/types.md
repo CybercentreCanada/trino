@@ -100,6 +100,54 @@ IEEE Standard 754 for Binary Floating-Point Arithmetic.
 
 Example literals: `DOUBLE '10.3'`, `DOUBLE '1.03e1'`, `10.3e0`, `1.03e1`
 
+(number-data-type)=
+### `NUMBER`
+
+A floating point, decimal number of unspecified precision of at least 50 decimal digits.
+The type supports positive values as small as `1e-100` or smaller, and
+values as large as `1e100` or larger.
+
+```sql
+SELECT NUMBER '3.1415926535897932384626433832795028841971693993751'
+-- 3.1415926535897932384626433832795028841971693993751 without loss of precision
+
+SELECT NUMBER '12345678901234567890123456789012345678901234567890e30'
+-- 1.234567890123456789012345678901234567890123456789E+79 without loss of precision
+```
+
+The `NUMBER` type supports the special values `Infinity`, `-Infinity`, and `NaN`,
+following similar semantics to floating-point types:
+
+```sql
+SELECT NUMBER 'Infinity';
+-- Infinity
+
+SELECT NUMBER '-Infinity';
+-- -Infinity
+
+SELECT NUMBER 'NaN';
+-- NaN
+```
+
+Division by zero raises a "Division by zero" error:
+
+```sql
+SELECT NUMBER '1' / NUMBER '0';
+-- ERROR: Division by zero
+```
+
+`NaN` is not equal to any value, including itself:
+
+```
+SELECT NUMBER 'NaN' = NUMBER 'NaN';
+-- false
+```
+
+Ordering follows the convention: `-Infinity` < all finite values < `Infinity` < `NaN`.
+
+Example literals: `NUMBER '10.3'`, `NUMBER '1234567890'`,
+`NUMBER '1e3'`, `NUMBER 'Infinity'`, `NUMBER 'NaN'`
+
 (exact-numeric-data-types)=
 ## Exact numeric
 
@@ -187,10 +235,49 @@ Binary literals ignore any whitespace characters. For example, the literal
 Binary strings with length are not yet supported: `varbinary(n)`
 :::
 
+(json-data-type)=
 ### `JSON`
 
 JSON value type, which can be a JSON object, a JSON array, a JSON number, a JSON string,
 `true`, `false` or `null`.
+
+(variant-data-type)=
+### `VARIANT`
+
+A semi-structured value type. A `VARIANT` value can represent any of the following:
+
+- object (key-value structure)
+- array
+- string
+- number (integer, decimal, and floating-point)
+- boolean
+- null
+- date and time values
+
+`VARIANT` is designed for working with semi-structured data efficiently, and is
+commonly used with connectors and file formats that support a native variant type.
+
+`VARIANT` differs from {ref}`json-data-type` in that it preserves the full
+underlying value type, rather than reducing values to a limited set of JSON
+types.
+
+Examples:
+```sql
+SELECT typeof(CAST(JSON '{"a": 1, "b": [true, null]}' AS VARIANT));
+-- variant
+
+SELECT CAST(CAST(JSON '123' AS VARIANT) AS BIGINT);
+-- 123
+```
+
+`VARIANT` follows the [Apache Iceberg Variant specification](https://github.com/apache/parquet-format/blob/master/VariantEncoding.md).
+Trino implements this specification directly, including its type system, value
+encoding, and semantics.
+
+This ensures consistent behavior when reading and writing variant values across
+systems that support the same specification.
+
+See also {doc}`/functions/variant`
 
 (date-time-data-types)=
 ## Date and time
@@ -332,7 +419,8 @@ More information in [](/functions/array).
 ### `MAP`
 
 A map between the given component types. A map is a collection of key-value
-pairs, where each key is associated with a single value.
+pairs, where each key is associated with a single value. Map keys are required,
+while map values can be null.
 
 Example: `MAP(ARRAY['foo', 'bar'], ARRAY[1, 2])`
 

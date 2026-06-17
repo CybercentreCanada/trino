@@ -41,7 +41,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -240,7 +239,7 @@ public class DockerContainer
         final Stopwatch stopwatch = Stopwatch.createStarted();
 
         try {
-            ((CompletableFuture<?>) executor.runAsync(copy)).whenComplete((Object ignore, Throwable throwable) -> {
+            ((CompletableFuture<?>) executor.runAsync(copy)).whenComplete((Object _, Throwable throwable) -> {
                 if (throwable == null) {
                     log.info("Copied files into %s %s in %.1f s", this, containerPath, stopwatch.elapsed(MILLISECONDS) / 1000.);
                 }
@@ -302,7 +301,7 @@ public class DockerContainer
 
         log.info("Copying container %s logs to '%s'", logicalName, hostPath);
 
-        Path hostLogPath = Paths.get(hostPath.toString(), logicalName);
+        Path hostLogPath = Path.of(hostPath.toString(), logicalName);
         ensurePathExists(hostLogPath);
 
         ImmutableList.Builder<String> files = ImmutableList.builder();
@@ -421,7 +420,7 @@ public class DockerContainer
     // Mounting a non-existing file results in docker creating a directory. This is often not the desired effect. Fail fast instead.
     private static void verifyHostPath(String hostPath)
     {
-        if (!Files.exists(Paths.get(hostPath))) {
+        if (!Files.exists(Path.of(hostPath))) {
             throw new IllegalArgumentException("Host path does not exist: " + hostPath);
         }
     }
@@ -484,6 +483,5 @@ public class DockerContainer
         DISCARD,
         WRITE,
         PRINT_WRITE,
-        /**/;
     }
 }

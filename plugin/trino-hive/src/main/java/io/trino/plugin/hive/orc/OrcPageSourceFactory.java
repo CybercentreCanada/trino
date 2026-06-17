@@ -63,6 +63,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.Function;
@@ -136,8 +137,7 @@ public class OrcPageSourceFactory
             FileFormatDataSourceStats stats,
             HiveConfig hiveConfig)
     {
-        this(
-                config.toOrcReaderOptions(),
+        this(config.toOrcReaderOptions(),
                 fileSystemFactory,
                 stats,
                 hiveConfig.getOrcLegacyDateTimeZone(),
@@ -275,6 +275,7 @@ public class OrcPageSourceFactory
             List<OrcColumn> fileReadColumns = new ArrayList<>();
             List<Type> fileReadTypes = new ArrayList<>();
             List<OrcReader.ProjectedLayout> fileReadLayouts = new ArrayList<>();
+            TransformConnectorPageSource.Builder transforms = TransformConnectorPageSource.builder();
             boolean originalFilesPresent = acidInfo.isPresent() && hasOriginalFiles(acidInfo.get());
             if (isFullAcid && !originalFilesPresent) {
                 verifyAcidSchema(reader, path);
@@ -295,6 +296,10 @@ public class OrcPageSourceFactory
                 fileReadColumns.add(requireNonNull(acidColumnsByName.get(AcidSchema.ACID_COLUMN_ROW_ID.toLowerCase(ENGLISH))));
                 fileReadTypes.add(BIGINT);
                 fileReadLayouts.add(fullyProjectedLayout());
+
+                // Ensure transformations are applied so output page does not contain artificial ACID related fields
+                // Without this code, transforms.build(pageSource) could short circuit to original page if no real columns are read
+                transforms.forceTransforms();
             }
 
             Map<String, OrcColumn> fileColumnsByName = ImmutableMap.of();
@@ -317,7 +322,6 @@ public class OrcPageSourceFactory
                     .setDomainCompactionThreshold(domainCompactionThreshold);
             Map<HiveColumnHandle, Domain> effectivePredicateDomains = effectivePredicate.getDomains()
                     .orElseThrow(() -> new IllegalArgumentException("Effective predicate is none"));
-            TransformConnectorPageSource.Builder transforms = TransformConnectorPageSource.builder();
             Map<Object, Integer> baseColumnKeyToOrdinal = new HashMap<>();
             for (HiveColumnHandle column : columns) {
                 HiveColumnHandle baseColumn = column.getBaseColumn();
@@ -333,7 +337,7 @@ public class OrcPageSourceFactory
                             projectedLayout = createProjectedLayout(orcBaseColumn, projectionsByBaseColumnKey.get(columnName));
                             columnDomains = effectivePredicateDomains.entrySet().stream()
                                     .filter(columnDomain -> columnDomain.getKey().getBaseColumnName().toLowerCase(ENGLISH).equals(columnName))
-                                    .collect(toImmutableMap(columnDomain -> columnDomain.getKey().getHiveColumnProjectionInfo(), Map.Entry::getValue));
+                                    .collect(toImmutableMap(columnDomain -> columnDomain.getKey().getHiveColumnProjectionInfo(), Entry::getValue));
                         }
                     }
                     else if (baseColumn.getBaseHiveColumnIndex() < fileColumns.size()) {
@@ -342,7 +346,7 @@ public class OrcPageSourceFactory
                             projectedLayout = createProjectedLayout(orcBaseColumn, projectionsByBaseColumnKey.get(baseColumn.getBaseHiveColumnIndex()));
                             columnDomains = effectivePredicateDomains.entrySet().stream()
                                     .filter(columnDomain -> columnDomain.getKey().getBaseHiveColumnIndex() == baseColumn.getBaseHiveColumnIndex())
-                                    .collect(toImmutableMap(columnDomain -> columnDomain.getKey().getHiveColumnProjectionInfo(), Map.Entry::getValue));
+                                    .collect(toImmutableMap(columnDomain -> columnDomain.getKey().getHiveColumnProjectionInfo(), Entry::getValue));
                         }
                     }
 
@@ -361,7 +365,7 @@ public class OrcPageSourceFactory
                             .orElse(baseColumn.getType()));
 
                     // Add predicates on top-level and nested columns
-                    for (Map.Entry<Optional<HiveColumnProjectionInfo>, Domain> columnDomain : columnDomains.entrySet()) {
+                    for (Entry<Optional<HiveColumnProjectionInfo>, Domain> columnDomain : columnDomains.entrySet()) {
                         OrcColumn nestedColumn = getNestedColumn(orcBaseColumn, columnDomain.getKey());
                         if (nestedColumn != null) {
                             predicateBuilder.addColumn(nestedColumn.getColumnId(), columnDomain.getValue());
@@ -528,7 +532,7 @@ public class OrcPageSourceFactory
      * @param fileColumns All OrcColumns nested in the root column of the table.
      * @param columns Columns from the Hive metastore that are being used
      * @return Return the fileColumns list with any OrcColumn corresponding to a desiredColumn renamed if
-     * the names differ from those specified in the desiredColumns.
+     *         the names differ from those specified in the desiredColumns.
      */
     private static List<OrcColumn> ensureColumnNameConsistency(List<OrcColumn> fileColumns, List<HiveColumnHandle> columns)
     {
@@ -578,7 +582,7 @@ public class OrcPageSourceFactory
                     new Block[] {
                             page.getBlock(ORIGINAL_TRANSACTION_CHANNEL),
                             page.getBlock(BUCKET_CHANNEL),
-                            page.getBlock(ROW_ID_CHANNEL)
+                            page.getBlock(ROW_ID_CHANNEL),
                     });
         }
     }
@@ -619,7 +623,7 @@ public class OrcPageSourceFactory
                     new Block[] {
                             RunLengthEncodedBlock.create(ORIGINAL_FILE_TRANSACTION_ID_BLOCK, positionCount),
                             RunLengthEncodedBlock.create(bucketBlock, positionCount),
-                            rowNumberBlock
+                            rowNumberBlock,
                     });
         }
     }

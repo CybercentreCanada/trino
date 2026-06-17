@@ -30,9 +30,9 @@ import io.trino.filesystem.azure.AzureFileSystemFactory;
 import io.trino.filesystem.azure.AzureFileSystemModule;
 import io.trino.filesystem.cache.CacheFileSystemFactory;
 import io.trino.filesystem.cache.CacheKeyProvider;
-import io.trino.filesystem.cache.CachingHostAddressProvider;
 import io.trino.filesystem.cache.DefaultCacheKeyProvider;
-import io.trino.filesystem.cache.DefaultCachingHostAddressProvider;
+import io.trino.filesystem.cache.NoopSplitAffinityProvider;
+import io.trino.filesystem.cache.SplitAffinityProvider;
 import io.trino.filesystem.cache.TrinoFileSystemCache;
 import io.trino.filesystem.gcs.GcsFileSystemFactory;
 import io.trino.filesystem.gcs.GcsFileSystemModule;
@@ -80,13 +80,7 @@ public class FileSystemModule
         newOptionalBinder(binder, HdfsFileSystemLoader.class);
 
         if (config.isHadoopEnabled()) {
-            HdfsFileSystemLoader loader = new HdfsFileSystemLoader(
-                    getProperties(),
-                    !config.isNativeAzureEnabled(),
-                    !config.isNativeGcsEnabled(),
-                    !config.isNativeS3Enabled(),
-                    catalogName,
-                    context);
+            HdfsFileSystemLoader loader = new HdfsFileSystemLoader(getProperties(), catalogName, context);
 
             loader.configure().forEach((name, securitySensitive) ->
                     consumeProperty(new ConfigPropertyMetadata(name, securitySensitive)));
@@ -101,7 +95,7 @@ public class FileSystemModule
             factories.addBinding("alluxio").to(AlluxioFileSystemFactory.class);
         }
 
-        if (config.isNativeAzureEnabled()) {
+        if (config.isAzureEnabled()) {
             install(new AzureFileSystemModule());
             factories.addBinding("abfs").to(AzureFileSystemFactory.class);
             factories.addBinding("abfss").to(AzureFileSystemFactory.class);
@@ -109,26 +103,26 @@ public class FileSystemModule
             factories.addBinding("wasbs").to(AzureFileSystemFactory.class);
         }
 
-        if (config.isNativeS3Enabled()) {
+        if (config.isS3Enabled()) {
             install(new S3FileSystemModule());
             factories.addBinding("s3").to(Key.get(TrinoFileSystemFactory.class, FileSystemS3.class));
             factories.addBinding("s3a").to(Key.get(TrinoFileSystemFactory.class, FileSystemS3.class));
             factories.addBinding("s3n").to(Key.get(TrinoFileSystemFactory.class, FileSystemS3.class));
         }
 
-        if (config.isNativeGcsEnabled()) {
+        if (config.isGcsEnabled()) {
             install(new GcsFileSystemModule());
             factories.addBinding("gs").to(GcsFileSystemFactory.class);
         }
 
-        if (config.isNativeLocalEnabled()) {
+        if (config.isLocalEnabled()) {
             configBinder(binder).bindConfig(LocalFileSystemConfig.class);
             factories.addBinding("local").to(LocalFileSystemFactory.class);
             factories.addBinding("file").to(LocalFileSystemFactory.class);
         }
 
-        newOptionalBinder(binder, CachingHostAddressProvider.class).setDefault().to(DefaultCachingHostAddressProvider.class).in(Scopes.SINGLETON);
         newOptionalBinder(binder, CacheKeyProvider.class).setDefault().to(DefaultCacheKeyProvider.class).in(Scopes.SINGLETON);
+        newOptionalBinder(binder, SplitAffinityProvider.class).setDefault().to(NoopSplitAffinityProvider.class).in(Scopes.SINGLETON);
 
         newOptionalBinder(binder, TrinoFileSystemCache.class);
         newOptionalBinder(binder, MemoryFileSystemCache.class);

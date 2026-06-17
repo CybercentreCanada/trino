@@ -46,8 +46,7 @@ public class RowBlockBuilder
 
     public RowBlockBuilder(List<Type> fieldTypes, BlockBuilderStatus blockBuilderStatus, int expectedEntries)
     {
-        this(
-                blockBuilderStatus,
+        this(blockBuilderStatus,
                 createFieldBlockBuilders(fieldTypes, blockBuilderStatus, expectedEntries),
                 new boolean[expectedEntries]);
     }
@@ -111,6 +110,45 @@ public class RowBlockBuilder
         builder.build(fieldBlockBuildersList);
         entryAdded(false);
         currentEntryOpened = false;
+    }
+
+    public RowEntryBuilder buildEntry()
+    {
+        return new RowEntryBuilderImplementation();
+    }
+
+    private class RowEntryBuilderImplementation
+            implements RowEntryBuilder
+    {
+        private boolean entryBuilt;
+
+        public RowEntryBuilderImplementation()
+        {
+            if (currentEntryOpened) {
+                throw new IllegalStateException("Expected current entry to be closed but was opened");
+            }
+            currentEntryOpened = true;
+        }
+
+        @Override
+        public BlockBuilder getFieldBuilder(int fieldId)
+        {
+            if (entryBuilt || !currentEntryOpened) {
+                throw new IllegalStateException("Entry has already been built");
+            }
+            return fieldBlockBuilders[fieldId];
+        }
+
+        @Override
+        public void build()
+        {
+            if (entryBuilt || !currentEntryOpened) {
+                throw new IllegalStateException("Entry has already been built");
+            }
+            entryBuilt = true;
+            entryAdded(false);
+            currentEntryOpened = false;
+        }
     }
 
     @Override

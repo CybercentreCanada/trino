@@ -114,9 +114,9 @@ public class TestRowOperators
     public void testRowTypeLookup()
     {
         TypeSignature signature = RowType.from(ImmutableList.of(field("b", BIGINT))).getTypeSignature();
-        Type type = assertions.getQueryRunner().getPlannerContext().getTypeManager().getType(signature);
-        assertThat(type.getTypeSignature().getParameters()).hasSize(1);
-        assertThat(type.getTypeSignature().getParameters().get(0).getNamedTypeSignature().getName().get()).isEqualTo("b");
+        RowType type = (RowType) assertions.getQueryRunner().getPlannerContext().getTypeManager().getType(signature);
+        assertThat(type.getFields()).hasSize(1);
+        assertThat(type.getFields().get(0).getName().get()).isEqualTo("b");
     }
 
     @Test
@@ -239,6 +239,14 @@ public class TestRowOperators
         assertThat(assertions.expression("CAST(a as ROW(BIGINT))")
                 .binding("a", "JSON 'null'"))
                 .isNull(RowType.anonymous(ImmutableList.of(BIGINT)));
+
+        assertThat(assertions.expression("CAST(json_parse(a) as ROW(BIGINT))")
+                .binding("a", "'null'"))
+                .isNull(RowType.anonymous(ImmutableList.of(BIGINT)));
+
+        assertTrinoExceptionThrownBy(assertions.expression("CAST(json_parse(a) as ROW(BIGINT))")
+                .binding("a", "'null 123 some invalid JSON content'")::evaluate)
+                .hasMessage("Cannot cast to row(bigint). Unexpected trailing token: 123\nnull 123 some invalid JSON content");
 
         assertThat(assertions.expression("CAST(a as ROW(VARCHAR, BIGINT))")
                 .binding("a", "JSON '[null, null]'"))
@@ -406,9 +414,14 @@ public class TestRowOperators
                         "{\"a\": 1, \"b\": 2, \"none\": null, \"three\": 3}, null]' "))
                 .hasType(RowType.anonymous(
                         ImmutableList.of(
-                                new ArrayType(BIGINT), new ArrayType(BIGINT), new ArrayType(BIGINT),
-                                mapType(VARCHAR, BIGINT), mapType(VARCHAR, BIGINT), mapType(VARCHAR, BIGINT),
-                                RowType.anonymous(ImmutableList.of(BIGINT, BIGINT, BIGINT, BIGINT)), RowType.anonymous(ImmutableList.of(BIGINT)),
+                                new ArrayType(BIGINT),
+                                new ArrayType(BIGINT),
+                                new ArrayType(BIGINT),
+                                mapType(VARCHAR, BIGINT),
+                                mapType(VARCHAR, BIGINT),
+                                mapType(VARCHAR, BIGINT),
+                                RowType.anonymous(ImmutableList.of(BIGINT, BIGINT, BIGINT, BIGINT)),
+                                RowType.anonymous(ImmutableList.of(BIGINT)),
                                 RowType.from(ImmutableList.of(
                                         RowType.field("a", BIGINT),
                                         RowType.field("b", BIGINT),
@@ -416,10 +429,16 @@ public class TestRowOperators
                                         RowType.field("none", BIGINT))),
                                 RowType.from(ImmutableList.of(RowType.field("nothing", BIGINT))))))
                 .isEqualTo(asList(
-                        asList(1L, 2L, null, 3L), emptyList(), null,
-                        asMap(ImmutableList.of("a", "b", "none", "three"), asList(1L, 2L, null, 3L)), ImmutableMap.of(), null,
-                        asList(1L, 2L, null, 3L), null,
-                        asList(1L, 2L, 3L, null), null));
+                        asList(1L, 2L, null, 3L),
+                        emptyList(),
+                        null,
+                        asMap(ImmutableList.of("a", "b", "none", "three"), asList(1L, 2L, null, 3L)),
+                        ImmutableMap.of(),
+                        null,
+                        asList(1L, 2L, null, 3L),
+                        null,
+                        asList(1L, 2L, 3L, null),
+                        null));
 
         assertThat(assertions.expression("CAST(a AS ROW(array1 ARRAY(BIGINT), array2 ARRAY(BIGINT), array3 ARRAY(BIGINT), " +
                         "map1 MAP(VARCHAR, BIGINT), map2 MAP(VARCHAR, BIGINT), map3 MAP(VARCHAR, BIGINT), " +
@@ -452,22 +471,28 @@ public class TestRowOperators
                                 RowType.field("three", BIGINT),
                                 RowType.field("none", BIGINT)))))))
                 .isEqualTo(asList(
-                        emptyList(), asList(1L, 2L, null, 3L), null,
-                        ImmutableMap.of(), null, asMap(ImmutableList.of("a", "b", "none", "three"), asList(1L, 2L, null, 3L)),
-                        asList(1L, 2L, null, 3L), null,
-                        null, asList(1L, 2L, 3L, null)));
+                        emptyList(),
+                        asList(1L, 2L, null, 3L),
+                        null,
+                        ImmutableMap.of(),
+                        null,
+                        asMap(ImmutableList.of("a", "b", "none", "three"), asList(1L, 2L, null, 3L)),
+                        asList(1L, 2L, null, 3L),
+                        null,
+                        null,
+                        asList(1L, 2L, 3L, null)));
 
         // invalid cast
         assertTrinoExceptionThrownBy(() -> assertions.expression("CAST(a as ROW(a BIGINT, b BIGINT))")
                 .binding("a", "unchecked_to_json('{\"a\":1,\"b\":2,\"a\":3}')")
                 .evaluate())
-                .hasMessage("Cannot cast to row(a bigint, b bigint). Duplicate field: a\n{\"a\":1,\"b\":2,\"a\":3}")
+                .hasMessage("Cannot cast to row(\"a\" bigint, \"b\" bigint). Duplicate field: a\n{\"a\":1,\"b\":2,\"a\":3}")
                 .hasErrorCode(INVALID_CAST_ARGUMENT);
 
         assertTrinoExceptionThrownBy(() -> assertions.expression("CAST(a as ARRAY(ROW(a BIGINT, b BIGINT)))")
                 .binding("a", "unchecked_to_json('[{\"a\":1,\"b\":2,\"a\":3}]')")
                 .evaluate())
-                .hasMessage("Cannot cast to array(row(a bigint, b bigint)). Duplicate field: a\n[{\"a\":1,\"b\":2,\"a\":3}]")
+                .hasMessage("Cannot cast to array(row(\"a\" bigint, \"b\" bigint)). Duplicate field: a\n[{\"a\":1,\"b\":2,\"a\":3}]")
                 .hasErrorCode(INVALID_CAST_ARGUMENT);
     }
 
@@ -553,6 +578,10 @@ public class TestRowOperators
     @Test
     public void testRowCast()
     {
+        assertThat(assertions.expression("cast(a AS row(aa bigint, bb double))[2]")
+                .binding("a", "row(2, CAST(null as double))"))
+                .isNull(DOUBLE);
+
         assertThat(assertions.expression("cast(a AS row(aa bigint, bb bigint))[1]")
                 .binding("a", "row(2, 3)"))
                 .isEqualTo(2L);
@@ -564,10 +593,6 @@ public class TestRowOperators
         assertThat(assertions.expression("cast(a AS row(aa bigint, bb boolean))[2]")
                 .binding("a", "row(2, 3)"))
                 .isEqualTo(true);
-
-        assertThat(assertions.expression("cast(a AS row(aa bigint, bb double))[2]")
-                .binding("a", "row(2, CAST(null as double))"))
-                .isNull(DOUBLE);
 
         assertThat(assertions.expression("cast(a AS row(aa bigint, bb varchar))[2]")
                 .binding("a", "row(2, 'test_str')"))
@@ -676,19 +701,19 @@ public class TestRowOperators
 
         assertTrinoExceptionThrownBy(assertions.expression("CAST(row(CAST(CAST('' as varbinary) as hyperloglog)) as row(col0 hyperloglog)) = CAST(row(CAST(CAST('' as varbinary) as hyperloglog)) as row(col0 hyperloglog))")::evaluate)
                 .hasErrorCode(TYPE_MISMATCH)
-                .hasMessage("line 1:91: Cannot apply operator: row(col0 HyperLogLog) = row(col0 HyperLogLog)");
+                .hasMessage("line 1:91: Cannot apply operator: row(\"col0\" HyperLogLog) = row(\"col0\" HyperLogLog)");
 
         assertTrinoExceptionThrownBy(assertions.expression("CAST(row(CAST(CAST('' as varbinary) as hyperloglog)) as row(col0 hyperloglog)) > CAST(row(CAST(CAST('' as varbinary) as hyperloglog)) as row(col0 hyperloglog))")::evaluate)
                 .hasErrorCode(TYPE_MISMATCH)
-                .hasMessage("line 1:91: Cannot apply operator: row(col0 HyperLogLog) < row(col0 HyperLogLog)");
+                .hasMessage("line 1:91: Cannot apply operator: row(\"col0\" HyperLogLog) < row(\"col0\" HyperLogLog)");
 
         assertTrinoExceptionThrownBy(assertions.expression("CAST(row(CAST(CAST('' as varbinary) as qdigest(double))) as row(col0 qdigest(double))) = CAST(row(CAST(CAST('' as varbinary) as qdigest(double))) as row(col0 qdigest(double)))")::evaluate)
                 .hasErrorCode(TYPE_MISMATCH)
-                .hasMessage("line 1:99: Cannot apply operator: row(col0 qdigest(double)) = row(col0 qdigest(double))");
+                .hasMessage("line 1:99: Cannot apply operator: row(\"col0\" qdigest(double)) = row(\"col0\" qdigest(double))");
 
         assertTrinoExceptionThrownBy(assertions.expression("CAST(row(CAST(CAST('' as varbinary) as qdigest(double))) as row(col0 qdigest(double))) > CAST(row(CAST(CAST('' as varbinary) as qdigest(double))) as row(col0 qdigest(double)))")::evaluate)
                 .hasErrorCode(TYPE_MISMATCH)
-                .hasMessage("line 1:99: Cannot apply operator: row(col0 qdigest(double)) < row(col0 qdigest(double))");
+                .hasMessage("line 1:99: Cannot apply operator: row(\"col0\" qdigest(double)) < row(\"col0\" qdigest(double))");
 
         assertThat(assertions.operator(EQUAL, "row(TRUE, ARRAY [1], MAP(ARRAY[1, 3], ARRAY[2.0E0, 4.0E0]))", "row(TRUE, ARRAY [1, 2], MAP(ARRAY[1, 3], ARRAY[2.0E0, 4.0E0]))"))
                 .isEqualTo(false);

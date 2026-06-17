@@ -14,18 +14,7 @@
 package io.trino.plugin.iceberg.catalog.glue;
 
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import io.trino.filesystem.Location;
-import io.trino.filesystem.TrinoFileSystem;
-import io.trino.filesystem.TrinoFileSystemFactory;
-import io.trino.filesystem.hdfs.HdfsFileSystemFactory;
-import io.trino.hdfs.DynamicHdfsConfiguration;
-import io.trino.hdfs.HdfsConfig;
-import io.trino.hdfs.HdfsConfiguration;
-import io.trino.hdfs.HdfsConfigurationInitializer;
-import io.trino.hdfs.HdfsEnvironment;
-import io.trino.hdfs.TrinoHdfsFileSystemStats;
-import io.trino.hdfs.authentication.NoHdfsAuthentication;
 import io.trino.plugin.iceberg.BaseIcebergConnectorSmokeTest;
 import io.trino.plugin.iceberg.IcebergQueryRunner;
 import io.trino.plugin.iceberg.SchemaInitializer;
@@ -52,7 +41,6 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.hive.metastore.glue.GlueConverter.getTableTypeNullable;
 import static io.trino.plugin.iceberg.IcebergTestUtils.checkParquetFileSorting;
 import static io.trino.testing.SystemEnvironmentUtils.requireEnv;
-import static io.trino.testing.TestingConnectorSession.SESSION;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
@@ -72,7 +60,6 @@ public class TestIcebergGlueCatalogConnectorSmokeTest
     private final String bucketName;
     private final String schemaName;
     private final GlueClient glueClient;
-    private final TrinoFileSystemFactory fileSystemFactory;
 
     public TestIcebergGlueCatalogConnectorSmokeTest()
     {
@@ -80,10 +67,6 @@ public class TestIcebergGlueCatalogConnectorSmokeTest
         this.bucketName = requireEnv("S3_BUCKET");
         this.schemaName = "test_iceberg_smoke_" + randomNameSuffix();
         glueClient = GlueClient.create();
-
-        HdfsConfigurationInitializer initializer = new HdfsConfigurationInitializer(new HdfsConfig(), ImmutableSet.of());
-        HdfsConfiguration hdfsConfiguration = new DynamicHdfsConfiguration(initializer, ImmutableSet.of());
-        this.fileSystemFactory = new HdfsFileSystemFactory(new HdfsEnvironment(hdfsConfiguration, new HdfsConfig(), new NoHdfsAuthentication()), new TrinoHdfsFileSystemStats());
     }
 
     @Override
@@ -96,9 +79,9 @@ public class TestIcebergGlueCatalogConnectorSmokeTest
                                 "iceberg.file-format", format.name(),
                                 "iceberg.catalog.type", "glue",
                                 "hive.metastore.glue.default-warehouse-dir", schemaPath(),
+                                "fs.s3.enabled", "true",
                                 "iceberg.register-table-procedure.enabled", "true",
-                                "iceberg.writer-sort-buffer-size", "1MB",
-                                "iceberg.allowed-extra-properties", "write.metadata.delete-after-commit.enabled,write.metadata.previous-versions-max"))
+                                "iceberg.writer-sort-buffer-size", "1MB"))
                 .setSchemaInitializer(
                         SchemaInitializer.builder()
                                 .withClonedTpchTables(REQUIRED_TPCH_TABLES)
@@ -123,7 +106,8 @@ public class TestIcebergGlueCatalogConnectorSmokeTest
     public void testShowCreateTable()
     {
         assertThat((String) computeScalar("SHOW CREATE TABLE region"))
-                .matches(format("" +
+                .matches(format(
+                        "" +
                                 "\\QCREATE TABLE iceberg.%1$s.region (\n" +
                                 "   regionkey bigint,\n" +
                                 "   name varchar,\n" +
@@ -190,7 +174,7 @@ public class TestIcebergGlueCatalogConnectorSmokeTest
     }
 
     @Override
-    protected void dropTableFromMetastore(String tableName)
+    protected void dropTableFromCatalog(String tableName)
     {
         glueClient.deleteTable(x -> x.databaseName(schemaName).name(tableName));
         assertThatThrownBy(() -> getGlueTable(tableName))
@@ -232,7 +216,6 @@ public class TestIcebergGlueCatalogConnectorSmokeTest
     @Override
     protected boolean isFileSorted(Location path, String sortColumnName)
     {
-        TrinoFileSystem fileSystem = fileSystemFactory.create(SESSION);
         return checkParquetFileSorting(fileSystem.newInputFile(path), sortColumnName);
     }
 

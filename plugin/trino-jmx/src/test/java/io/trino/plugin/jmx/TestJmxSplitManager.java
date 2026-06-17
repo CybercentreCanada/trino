@@ -17,11 +17,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.units.Duration;
-import io.trino.client.NodeVersion;
 import io.trino.node.InternalNode;
 import io.trino.spi.HostAddress;
 import io.trino.spi.Node;
 import io.trino.spi.NodeManager;
+import io.trino.spi.NodeVersion;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorSplitSource;
@@ -80,11 +80,12 @@ public class TestJmxSplitManager
 
     private final JmxConnector jmxConnector =
             (JmxConnector) new JmxConnectorFactory()
-                    .create(CONNECTOR_ID, ImmutableMap.of(
-                            "jmx.dump-tables", TEST_BEANS,
-                            "jmx.dump-period", format("%dms", JMX_STATS_DUMP.toMillis()),
-                            "jmx.max-entries", "1000",
-                            "bootstrap.quiet", "true"),
+                    .create(CONNECTOR_ID,
+                            ImmutableMap.of(
+                                    "jmx.dump-tables", TEST_BEANS,
+                                    "jmx.dump-period", format("%dms", JMX_STATS_DUMP.toMillis()),
+                                    "jmx.max-entries", "1000",
+                                    "bootstrap.quiet", "true"),
                             new TestingConnectorContext(nodeManager));
 
     private final JmxColumnHandle columnHandle = new JmxColumnHandle("node", createUnboundedVarcharType());

@@ -22,6 +22,9 @@ import io.trino.spi.function.LiteralParameters;
 import io.trino.spi.function.ScalarOperator;
 import io.trino.spi.function.SqlType;
 import io.trino.spi.type.StandardTypes;
+import io.trino.spi.type.TrinoNumber;
+
+import java.math.BigDecimal;
 
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.StandardErrorCode.DIVISION_BY_ZERO;
@@ -30,13 +33,16 @@ import static io.trino.spi.StandardErrorCode.NUMERIC_VALUE_OUT_OF_RANGE;
 import static io.trino.spi.function.OperatorType.ADD;
 import static io.trino.spi.function.OperatorType.CAST;
 import static io.trino.spi.function.OperatorType.DIVIDE;
-import static io.trino.spi.function.OperatorType.MODULUS;
+import static io.trino.spi.function.OperatorType.MODULO;
 import static io.trino.spi.function.OperatorType.MULTIPLY;
 import static io.trino.spi.function.OperatorType.NEGATION;
 import static io.trino.spi.function.OperatorType.SATURATED_FLOOR_CAST;
 import static io.trino.spi.function.OperatorType.SUBTRACT;
 import static java.lang.Float.floatToRawIntBits;
 import static java.lang.String.format;
+import static java.lang.runtime.ExactConversionsSupport.isLongToByteExact;
+import static java.lang.runtime.ExactConversionsSupport.isLongToIntExact;
+import static java.lang.runtime.ExactConversionsSupport.isLongToShortExact;
 
 public final class IntegerOperators
 {
@@ -83,16 +89,20 @@ public final class IntegerOperators
     public static long divide(@SqlType(StandardTypes.INTEGER) long left, @SqlType(StandardTypes.INTEGER) long right)
     {
         try {
-            return left / right;
+            long result = left / right;
+            if (!isLongToIntExact(result)) {
+                throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, format("integer division overflow: %s / %s", left, right));
+            }
+            return result;
         }
         catch (ArithmeticException e) {
             throw new TrinoException(DIVISION_BY_ZERO, "Division by zero", e);
         }
     }
 
-    @ScalarOperator(MODULUS)
+    @ScalarOperator(MODULO)
     @SqlType(StandardTypes.INTEGER)
-    public static long modulus(@SqlType(StandardTypes.INTEGER) long left, @SqlType(StandardTypes.INTEGER) long right)
+    public static long modulo(@SqlType(StandardTypes.INTEGER) long left, @SqlType(StandardTypes.INTEGER) long right)
     {
         try {
             return left % right;
@@ -125,24 +135,20 @@ public final class IntegerOperators
     @SqlType(StandardTypes.SMALLINT)
     public static long castToSmallint(@SqlType(StandardTypes.INTEGER) long value)
     {
-        try {
-            return Shorts.checkedCast(value);
+        if (!isLongToShortExact(value)) {
+            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for smallint: " + value);
         }
-        catch (IllegalArgumentException e) {
-            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for smallint: " + value, e);
-        }
+        return (short) value;
     }
 
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.TINYINT)
     public static long castToTinyint(@SqlType(StandardTypes.INTEGER) long value)
     {
-        try {
-            return SignedBytes.checkedCast(value);
+        if (!isLongToByteExact(value)) {
+            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for tinyint: " + value);
         }
-        catch (IllegalArgumentException e) {
-            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for tinyint: " + value, e);
-        }
+        return (byte) value;
     }
 
     @ScalarOperator(CAST)
@@ -164,6 +170,13 @@ public final class IntegerOperators
     public static long castToReal(@SqlType(StandardTypes.INTEGER) long value)
     {
         return floatToRawIntBits((float) value);
+    }
+
+    @ScalarOperator(CAST)
+    @SqlType(StandardTypes.NUMBER)
+    public static TrinoNumber castToNumber(@SqlType(StandardTypes.INTEGER) long value)
+    {
+        return TrinoNumber.from(new BigDecimal(value));
     }
 
     @ScalarOperator(CAST)

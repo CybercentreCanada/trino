@@ -57,8 +57,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
-import static com.google.common.net.HttpHeaders.CONTENT_TYPE;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
+import static io.airlift.http.client.HeaderNames.CONTENT_TYPE;
 import static io.airlift.units.DataSize.Unit.MEGABYTE;
 import static io.trino.TrinoMediaTypes.TRINO_PAGES;
 import static io.trino.execution.buffer.CompressionCodec.LZ4;
@@ -371,7 +371,7 @@ public class TestHttpPageBufferClient
         TestingTicker ticker = new TestingTicker();
         AtomicReference<Duration> tickerIncrement = new AtomicReference<>(new Duration(0, TimeUnit.SECONDS));
 
-        TestingHttpClient.Processor processor = input -> {
+        TestingHttpClient.Processor processor = _ -> {
             Duration delta = tickerIncrement.get();
             ticker.increment(delta.toMillis(), TimeUnit.MILLISECONDS);
             throw new RuntimeException("Foo");
@@ -522,7 +522,8 @@ public class TestHttpPageBufferClient
 
     private static void assertStatus(
             HttpPageBufferClient client,
-            URI location, String status,
+            URI location,
+            String status,
             int pagesReceived,
             int requestsScheduled,
             int requestsCompleted,

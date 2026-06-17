@@ -75,7 +75,9 @@ public class TrinoEventData
                 Optional.of(new ResourceGroupId("name")),
                 new HashMap<>(), // sessionProperties
                 new ResourceEstimates(Optional.empty(), Optional.empty(), Optional.of(1000L)),
-                "serverAddress", "serverVersion", "environment",
+                "serverAddress",
+                "serverVersion",
+                "environment",
                 Optional.of(QueryType.INSERT),
                 RetryPolicy.QUERY.toString());
 
@@ -99,6 +101,7 @@ public class TrinoEventData
                 ofSeconds(1),
                 ofSeconds(1),
                 ofSeconds(1),
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -139,6 +142,7 @@ public class TrinoEventData
                 Collections.emptyList(),
                 Collections.emptyList(),
                 ImmutableMap.of(),
+                ImmutableMap.of(),
                 Optional.empty());
 
         queryCompleteEvent = new QueryCompletedEvent(
@@ -146,6 +150,7 @@ public class TrinoEventData
                 queryStatistics,
                 queryContext,
                 queryIOMetadata,
+                Optional.empty(),
                 Optional.empty(),
                 Collections.emptyList(),
                 Instant.parse("2025-04-28T11:23:55.384424Z"),

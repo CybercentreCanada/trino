@@ -13,11 +13,11 @@
  */
 package io.trino.faulttolerant.iceberg;
 
+import io.trino.Session;
 import io.trino.filesystem.Location;
-import io.trino.plugin.exchange.filesystem.FileSystemExchangePlugin;
 import io.trino.plugin.exchange.filesystem.containers.MinioStorage;
+import io.trino.plugin.iceberg.BaseIcebergParquetConnectorTest;
 import io.trino.plugin.iceberg.IcebergQueryRunner;
-import io.trino.plugin.iceberg.TestIcebergParquetConnectorTest;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -25,6 +25,7 @@ import org.junit.jupiter.api.parallel.Isolated;
 
 import static io.trino.plugin.exchange.filesystem.containers.MinioStorage.getExchangeManagerProperties;
 import static io.trino.plugin.iceberg.IcebergTestUtils.checkParquetFileSorting;
+import static io.trino.plugin.iceberg.IcebergTestUtils.withSmallRowGroups;
 import static io.trino.testing.FaultTolerantExecutionConnectorTestHelper.getExtraProperties;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,9 +35,14 @@ import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 @Isolated
 @TestInstance(PER_CLASS)
 public class TestIcebergParquetFaultTolerantExecutionConnectorTest
-        extends TestIcebergParquetConnectorTest
+        extends BaseIcebergParquetConnectorTest
 {
     private MinioStorage minioStorage;
+
+    public TestIcebergParquetFaultTolerantExecutionConnectorTest()
+    {
+        super(2);
+    }
 
     @Override
     protected IcebergQueryRunner.Builder createQueryRunnerBuilder()
@@ -46,10 +52,7 @@ public class TestIcebergParquetFaultTolerantExecutionConnectorTest
 
         return super.createQueryRunnerBuilder()
                 .addExtraProperties(getExtraProperties())
-                .setAdditionalSetup(runner -> {
-                    runner.installPlugin(new FileSystemExchangePlugin());
-                    runner.loadExchangeManager("filesystem", getExchangeManagerProperties(minioStorage));
-                });
+                .withExchange("filesystem", getExchangeManagerProperties(minioStorage));
     }
 
     @Test
@@ -89,6 +92,20 @@ public class TestIcebergParquetFaultTolerantExecutionConnectorTest
     protected boolean isFileSorted(String path, String sortColumnName)
     {
         return checkParquetFileSorting(fileSystem.newInputFile(Location.of(path)), sortColumnName);
+    }
+
+    @Override
+    protected Session withTableChangesRowGroups(Session session)
+    {
+        return Session.builder(withSmallRowGroups(session))
+                .setCatalogSessionProperty("iceberg", "parquet_writer_block_size", "16kB")
+                .build();
+    }
+
+    @Override
+    protected int getTableChangesSplitBatchSize()
+    {
+        return 2;
     }
 
     @AfterAll

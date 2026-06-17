@@ -54,24 +54,21 @@ public class ArrayBlockBuilder
      */
     public ArrayBlockBuilder(BlockBuilder valuesBlock, BlockBuilderStatus blockBuilderStatus, int expectedEntries)
     {
-        this(
-                blockBuilderStatus,
+        this(blockBuilderStatus,
                 valuesBlock,
                 expectedEntries);
     }
 
     public ArrayBlockBuilder(Type elementType, BlockBuilderStatus blockBuilderStatus, int expectedEntries, int expectedBytesPerEntry)
     {
-        this(
-                blockBuilderStatus,
+        this(blockBuilderStatus,
                 elementType.createBlockBuilder(blockBuilderStatus, expectedEntries, expectedBytesPerEntry),
                 expectedEntries);
     }
 
     public ArrayBlockBuilder(Type elementType, BlockBuilderStatus blockBuilderStatus, int expectedEntries)
     {
-        this(
-                blockBuilderStatus,
+        this(blockBuilderStatus,
                 elementType.createBlockBuilder(blockBuilderStatus, expectedEntries),
                 expectedEntries);
     }
@@ -117,6 +114,45 @@ public class ArrayBlockBuilder
         builder.build(values);
         entryAdded(false);
         currentEntryOpened = false;
+    }
+
+    public ArrayEntryBuilder buildEntry()
+    {
+        return new ArrayEntryBuilderImplementation();
+    }
+
+    private class ArrayEntryBuilderImplementation
+            implements ArrayEntryBuilder
+    {
+        private boolean entryBuilt;
+
+        public ArrayEntryBuilderImplementation()
+        {
+            if (currentEntryOpened) {
+                throw new IllegalStateException("Expected current entry to be closed but was opened");
+            }
+            currentEntryOpened = true;
+        }
+
+        @Override
+        public BlockBuilder getElementBuilder()
+        {
+            if (entryBuilt || !currentEntryOpened) {
+                throw new IllegalStateException("Entry has already been built");
+            }
+            return values;
+        }
+
+        @Override
+        public void build()
+        {
+            if (entryBuilt || !currentEntryOpened) {
+                throw new IllegalStateException("Entry has already been built");
+            }
+            entryBuilt = true;
+            entryAdded(false);
+            currentEntryOpened = false;
+        }
     }
 
     @Override

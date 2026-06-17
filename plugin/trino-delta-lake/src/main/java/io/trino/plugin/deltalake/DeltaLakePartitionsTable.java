@@ -45,6 +45,7 @@ import java.lang.invoke.MethodHandle;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.Function;
@@ -172,7 +173,7 @@ public class DeltaLakePartitionsTable
             statisticsByPartition = getStatisticsByPartition(activeFiles);
         }
 
-        for (Map.Entry<Map<String, Optional<String>>, DeltaLakePartitionStatistics> partitionEntry : statisticsByPartition.entrySet()) {
+        for (Entry<Map<String, Optional<String>>, DeltaLakePartitionStatistics> partitionEntry : statisticsByPartition.entrySet()) {
             Map<String, Optional<String>> partitionValue = partitionEntry.getKey();
             DeltaLakePartitionStatistics deltaLakePartitionStatistics = partitionEntry.getValue();
 
@@ -219,12 +220,12 @@ public class DeltaLakePartitionsTable
 
         addFileEntryStream.forEach(addFileEntry -> {
             Map<String, Optional<String>> partitionValues = addFileEntry.getCanonicalPartitionValues();
-            partitionValueStatistics.computeIfAbsent(partitionValues, key -> new DeltaLakePartitionStatistics.Builder(regularColumns, typeManager))
+            partitionValueStatistics.computeIfAbsent(partitionValues, _ -> new DeltaLakePartitionStatistics.Builder(regularColumns, typeManager))
                     .acceptAddFileEntry(addFileEntry);
         });
 
         return partitionValueStatistics.entrySet().stream()
-                .collect(toImmutableMap(Map.Entry::getKey, entry -> entry.getValue().build()));
+                .collect(toImmutableMap(Entry::getKey, entry -> entry.getValue().build()));
     }
 
     private List<DeltaLakeColumnHandle> getPartitionColumns()
@@ -237,9 +238,12 @@ public class DeltaLakePartitionsTable
                     DeltaLakeColumnMetadata columnMetadata = columnsMetadataByName.get(partitionColumnName);
                     return new DeltaLakeColumnHandle(
                             columnMetadata.name(),
-                            columnMetadata.type(), OptionalInt.empty(),
+                            columnMetadata.type(),
+                            OptionalInt.empty(),
                             columnMetadata.physicalName(),
-                            columnMetadata.physicalColumnType(), PARTITION_KEY, Optional.empty());
+                            columnMetadata.physicalColumnType(),
+                            PARTITION_KEY,
+                            Optional.empty());
                 })
                 .collect(toImmutableList());
     }
@@ -373,7 +377,7 @@ public class DeltaLakePartitionsTable
                 if (type.isOrderable() && recordCount != 0L) {
                     // Capture the initial bounds during construction so there are always valid min/max values to compare to. This does make the first call to
                     // `ColumnStatistics#updateMinMax` a no-op.
-                    columnStatistics.computeIfAbsent(key, ignored -> {
+                    columnStatistics.computeIfAbsent(key, _ -> {
                         MethodHandle comparisonHandle = typeManager.getTypeOperators()
                                 .getComparisonUnorderedLastOperator(type, simpleConvention(FAIL_ON_NULL, NEVER_NULL, NEVER_NULL));
                         return new ColumnStatistics(comparisonHandle, lowerBound, upperBound);

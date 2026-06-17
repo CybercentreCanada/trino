@@ -50,6 +50,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
@@ -258,15 +259,15 @@ public final class ParquetUtil
                 MetricsModes.Truncate truncateMode = (MetricsModes.Truncate) metricsMode;
                 int truncateLength = truncateMode.length();
                 switch (type.typeId()) {
-                    case STRING:
+                    case STRING -> {
                         lowerBounds.put(id, UnicodeUtil.truncateStringMin((Literal<CharSequence>) min, truncateLength));
-                        break;
-                    case FIXED:
-                    case BINARY:
+                    }
+                    case FIXED, BINARY -> {
                         lowerBounds.put(id, BinaryUtil.truncateBinaryMin((Literal<ByteBuffer>) min, truncateLength));
-                        break;
-                    default:
+                    }
+                    default -> {
                         lowerBounds.put(id, min);
+                    }
                 }
             }
         }
@@ -289,21 +290,21 @@ public final class ParquetUtil
                 MetricsModes.Truncate truncateMode = (MetricsModes.Truncate) metricsMode;
                 int truncateLength = truncateMode.length();
                 switch (type.typeId()) {
-                    case STRING:
+                    case STRING -> {
                         Literal<CharSequence> truncatedMaxString = UnicodeUtil.truncateStringMax((Literal<CharSequence>) max, truncateLength);
                         if (truncatedMaxString != null) {
                             upperBounds.put(id, truncatedMaxString);
                         }
-                        break;
-                    case FIXED:
-                    case BINARY:
+                    }
+                    case FIXED, BINARY -> {
                         Literal<ByteBuffer> truncatedMaxBinary = BinaryUtil.truncateBinaryMax((Literal<ByteBuffer>) max, truncateLength);
                         if (truncatedMaxBinary != null) {
                             upperBounds.put(id, truncatedMaxBinary);
                         }
-                        break;
-                    default:
+                    }
+                    default -> {
                         upperBounds.put(id, max);
+                    }
                 }
             }
         }
@@ -312,7 +313,7 @@ public final class ParquetUtil
     private static Map<Integer, ByteBuffer> toBufferMap(Schema schema, Map<Integer, Literal<?>> map)
     {
         Map<Integer, ByteBuffer> bufferMap = new HashMap<>();
-        for (Map.Entry<Integer, Literal<?>> entry : map.entrySet()) {
+        for (Entry<Integer, Literal<?>> entry : map.entrySet()) {
             bufferMap.put(
                     entry.getKey(),
                     Conversions.toByteBuffer(schema.findType(entry.getKey()), entry.getValue().value()));
@@ -353,10 +354,11 @@ public final class ParquetUtil
     {
         if (type.getOriginalType() != null) {
             switch (type.getOriginalType()) {
-                case UTF8:
+                case UTF8 -> {
                     // decode to CharSequence to avoid copying into a new String
                     return binary -> StandardCharsets.UTF_8.decode(((Binary) binary).toByteBuffer());
-                case DECIMAL:
+                }
+                case DECIMAL -> {
                     DecimalLogicalTypeAnnotation decimal = (DecimalLogicalTypeAnnotation) type.getLogicalTypeAnnotation();
                     int scale = decimal.getScale();
                     return switch (type.getPrimitiveTypeName()) {
@@ -364,7 +366,8 @@ public final class ParquetUtil
                         case FIXED_LEN_BYTE_ARRAY, BINARY -> binary -> new BigDecimal(new BigInteger(((Binary) binary).getBytes()), scale);
                         default -> throw new IllegalArgumentException("Unsupported primitive type for decimal: " + type.getPrimitiveTypeName());
                     };
-                default:
+                }
+                default -> {}
             }
         }
 

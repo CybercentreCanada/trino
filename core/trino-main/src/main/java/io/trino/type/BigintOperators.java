@@ -23,6 +23,9 @@ import io.trino.spi.function.LiteralParameters;
 import io.trino.spi.function.ScalarOperator;
 import io.trino.spi.function.SqlType;
 import io.trino.spi.type.StandardTypes;
+import io.trino.spi.type.TrinoNumber;
+
+import java.math.BigDecimal;
 
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.spi.StandardErrorCode.DIVISION_BY_ZERO;
@@ -31,14 +34,16 @@ import static io.trino.spi.StandardErrorCode.NUMERIC_VALUE_OUT_OF_RANGE;
 import static io.trino.spi.function.OperatorType.ADD;
 import static io.trino.spi.function.OperatorType.CAST;
 import static io.trino.spi.function.OperatorType.DIVIDE;
-import static io.trino.spi.function.OperatorType.MODULUS;
+import static io.trino.spi.function.OperatorType.MODULO;
 import static io.trino.spi.function.OperatorType.MULTIPLY;
 import static io.trino.spi.function.OperatorType.NEGATION;
 import static io.trino.spi.function.OperatorType.SATURATED_FLOOR_CAST;
 import static io.trino.spi.function.OperatorType.SUBTRACT;
 import static java.lang.Float.floatToRawIntBits;
-import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
+import static java.lang.runtime.ExactConversionsSupport.isLongToByteExact;
+import static java.lang.runtime.ExactConversionsSupport.isLongToIntExact;
+import static java.lang.runtime.ExactConversionsSupport.isLongToShortExact;
 
 public final class BigintOperators
 {
@@ -95,9 +100,9 @@ public final class BigintOperators
         }
     }
 
-    @ScalarOperator(MODULUS)
+    @ScalarOperator(MODULO)
     @SqlType(StandardTypes.BIGINT)
-    public static long modulus(@SqlType(StandardTypes.BIGINT) long left, @SqlType(StandardTypes.BIGINT) long right)
+    public static long modulo(@SqlType(StandardTypes.BIGINT) long left, @SqlType(StandardTypes.BIGINT) long right)
     {
         try {
             return left % right;
@@ -130,12 +135,10 @@ public final class BigintOperators
     @SqlType(StandardTypes.INTEGER)
     public static long castToInteger(@SqlType(StandardTypes.BIGINT) long value)
     {
-        try {
-            return toIntExact(value);
+        if (!isLongToIntExact(value)) {
+            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for integer: " + value);
         }
-        catch (ArithmeticException e) {
-            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for integer: " + value, e);
-        }
+        return (int) value;
     }
 
     @ScalarOperator(SATURATED_FLOOR_CAST)
@@ -163,24 +166,20 @@ public final class BigintOperators
     @SqlType(StandardTypes.SMALLINT)
     public static long castToSmallint(@SqlType(StandardTypes.BIGINT) long value)
     {
-        try {
-            return Shorts.checkedCast(value);
+        if (!isLongToShortExact(value)) {
+            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for smallint: " + value);
         }
-        catch (IllegalArgumentException e) {
-            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for smallint: " + value, e);
-        }
+        return (short) value;
     }
 
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.TINYINT)
     public static long castToTinyint(@SqlType(StandardTypes.BIGINT) long value)
     {
-        try {
-            return SignedBytes.checkedCast(value);
+        if (!isLongToByteExact(value)) {
+            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for tinyint: " + value);
         }
-        catch (IllegalArgumentException e) {
-            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for tinyint: " + value, e);
-        }
+        return (byte) value;
     }
 
     @ScalarOperator(CAST)
@@ -195,6 +194,13 @@ public final class BigintOperators
     public static long castToReal(@SqlType(StandardTypes.BIGINT) long value)
     {
         return floatToRawIntBits((float) value);
+    }
+
+    @ScalarOperator(CAST)
+    @SqlType(StandardTypes.NUMBER)
+    public static TrinoNumber castToNumber(@SqlType(StandardTypes.BIGINT) long value)
+    {
+        return TrinoNumber.from(new BigDecimal(value));
     }
 
     @ScalarOperator(CAST)

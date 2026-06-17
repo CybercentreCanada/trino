@@ -48,7 +48,6 @@ import static io.trino.plugin.hive.parquet.ParquetWriterConfig.PARQUET_WRITER_MA
 import static io.trino.plugin.hive.parquet.ParquetWriterConfig.PARQUET_WRITER_MIN_PAGE_SIZE;
 import static io.trino.plugin.hive.parquet.ParquetWriterConfig.PARQUET_WRITER_MIN_PAGE_VALUE_COUNT;
 import static io.trino.plugin.iceberg.IcebergConfig.COLLECT_EXTENDED_STATISTICS_ON_WRITE_DESCRIPTION;
-import static io.trino.plugin.iceberg.IcebergConfig.EXTENDED_STATISTICS_DESCRIPTION;
 import static io.trino.spi.StandardErrorCode.INVALID_SESSION_PROPERTY;
 import static io.trino.spi.session.PropertyMetadata.booleanProperty;
 import static io.trino.spi.session.PropertyMetadata.doubleProperty;
@@ -93,7 +92,6 @@ public final class IcebergSessionProperties
     private static final String PARQUET_WRITER_BATCH_SIZE = "parquet_writer_batch_size";
     public static final String DYNAMIC_FILTERING_WAIT_TIMEOUT = "dynamic_filtering_wait_timeout";
     private static final String STATISTICS_ENABLED = "statistics_enabled";
-    public static final String EXTENDED_STATISTICS_ENABLED = "extended_statistics_enabled";
     private static final String PROJECTION_PUSHDOWN_ENABLED = "projection_pushdown_enabled";
     private static final String TARGET_MAX_FILE_SIZE = "target_max_file_size";
     private static final String IDLE_WRITER_MIN_FILE_SIZE = "idle_writer_min_file_size";
@@ -108,7 +106,6 @@ public final class IcebergSessionProperties
     private static final String QUERY_PARTITION_FILTER_REQUIRED_SCHEMAS = "query_partition_filter_required_schemas";
     private static final String INCREMENTAL_REFRESH_ENABLED = "incremental_refresh_enabled";
     public static final String BUCKET_EXECUTION_ENABLED = "bucket_execution_enabled";
-    public static final String FILE_BASED_CONFLICT_DETECTION_ENABLED = "file_based_conflict_detection_enabled";
     private static final String MAX_PARTITIONS_PER_WRITER = "max_partitions_per_writer";
 
     private final List<PropertyMetadata<?>> sessionProperties;
@@ -304,11 +301,6 @@ public final class IcebergSessionProperties
                         icebergConfig.isTableStatisticsEnabled(),
                         false))
                 .add(booleanProperty(
-                        EXTENDED_STATISTICS_ENABLED,
-                        EXTENDED_STATISTICS_DESCRIPTION,
-                        icebergConfig.isExtendedStatisticsEnabled(),
-                        false))
-                .add(booleanProperty(
                         PROJECTION_PUSHDOWN_ENABLED,
                         "Read only required fields from a row type",
                         icebergConfig.isProjectionPushdownEnabled(),
@@ -391,11 +383,6 @@ public final class IcebergSessionProperties
                         BUCKET_EXECUTION_ENABLED,
                         "Enable bucket-aware execution: use physical bucketing information to optimize queries",
                         icebergConfig.isBucketExecutionEnabled(),
-                        false))
-                .add(booleanProperty(
-                        FILE_BASED_CONFLICT_DETECTION_ENABLED,
-                        "Enable file-based conflict detection: take partition information from the actual written files as a source for the conflict detection system",
-                        icebergConfig.isFileBasedConflictDetectionEnabled(),
                         false))
                 .add(integerProperty(
                         MAX_PARTITIONS_PER_WRITER,
@@ -575,11 +562,6 @@ public final class IcebergSessionProperties
         return session.getProperty(STATISTICS_ENABLED, Boolean.class);
     }
 
-    public static boolean isExtendedStatisticsEnabled(ConnectorSession session)
-    {
-        return session.getProperty(EXTENDED_STATISTICS_ENABLED, Boolean.class);
-    }
-
     public static boolean isCollectExtendedStatisticsOnWrite(ConnectorSession session)
     {
         return session.getProperty(COLLECT_EXTENDED_STATISTICS_ON_WRITE, Boolean.class);
@@ -651,11 +633,6 @@ public final class IcebergSessionProperties
     public static boolean isBucketExecutionEnabled(ConnectorSession session)
     {
         return session.getProperty(BUCKET_EXECUTION_ENABLED, Boolean.class);
-    }
-
-    public static boolean isFileBasedConflictDetectionEnabled(ConnectorSession session)
-    {
-        return session.getProperty(FILE_BASED_CONFLICT_DETECTION_ENABLED, Boolean.class);
     }
 
     public static int maxPartitionsPerWriter(ConnectorSession session)

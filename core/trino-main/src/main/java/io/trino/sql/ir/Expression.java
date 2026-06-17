@@ -44,11 +44,35 @@ import java.util.List;
         @JsonSubTypes.Type(value = Switch.class, name = "switch"),
 })
 public sealed interface Expression
-        permits Array, Between, Bind, Call, Case, Cast, Coalesce,
-        Comparison, Constant, FieldReference, In, IsNull, Lambda, Logical,
-        NullIf, Reference, Row, Switch
+        permits Array,
+                Between,
+                Bind,
+                Call,
+                Case,
+                Cast,
+                Coalesce,
+                Comparison,
+                Constant,
+                FieldReference,
+                In,
+                IsNull,
+                Lambda,
+                Logical,
+                NullIf,
+                Reference,
+                Row,
+                Switch
 {
     Type type();
+
+    @Override
+    boolean equals(Object other);
+
+    @Override
+    int hashCode();
+
+    @Override
+    String toString();
 
     /**
      * Accessible for {@link IrVisitor}, use {@link IrVisitor#process(Expression, Object)} instead.

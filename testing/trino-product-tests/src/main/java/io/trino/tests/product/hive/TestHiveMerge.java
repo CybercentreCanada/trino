@@ -15,6 +15,7 @@ package io.trino.tests.product.hive;
 
 import io.trino.tempto.assertions.QueryAssert;
 import io.trino.tempto.query.QueryResult;
+import io.trino.testng.services.Flaky;
 import io.trino.tests.product.hive.util.TemporaryHiveTable;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
@@ -34,6 +35,8 @@ import static io.trino.tests.product.hive.BucketingType.NONE;
 import static io.trino.tests.product.hive.TestHiveTransactionalTable.TEST_TIMEOUT;
 import static io.trino.tests.product.hive.TestHiveTransactionalTable.tableName;
 import static io.trino.tests.product.hive.TestHiveTransactionalTable.verifySelectForTrinoAndHive;
+import static io.trino.tests.product.utils.HadoopTestUtils.RETRYABLE_FAILURES_ISSUES;
+import static io.trino.tests.product.utils.HadoopTestUtils.RETRYABLE_FAILURES_MATCH;
 import static io.trino.tests.product.utils.QueryExecutors.onHive;
 import static io.trino.tests.product.utils.QueryExecutors.onTrino;
 import static java.lang.String.format;
@@ -44,6 +47,7 @@ public class TestHiveMerge
         extends HiveProductTest
 {
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeSimpleSelect()
     {
         withTemporaryTable("merge_simple_select_target", false, NONE, targetTable -> {
@@ -69,6 +73,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeSimpleSelectPartitioned()
     {
         withTemporaryTable("merge_simple_select_partitioned_target", true, NONE, targetTable -> {
@@ -94,6 +99,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = TEST_TIMEOUT, dataProvider = "partitionedAndBucketedProvider")
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeUpdateWithVariousLayouts(boolean partitioned, String bucketing)
     {
         BucketingType bucketingType = bucketing.isEmpty() ? NONE : BUCKETED_V2;
@@ -131,6 +137,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = TEST_TIMEOUT)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeUnBucketedUnPartitionedFailure()
     {
         withTemporaryTable("merge_with_various_formats_failure", false, NONE, targetTable -> {
@@ -168,6 +175,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeMultipleOperationsUnbucketedUnpartitioned()
     {
         withTemporaryTable("merge_multiple", false, NONE, targetTable -> {
@@ -177,6 +185,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeMultipleOperationsUnbucketedPartitioned()
     {
         withTemporaryTable("merge_multiple", true, NONE, targetTable -> {
@@ -186,6 +195,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeMultipleOperationsBucketedUnpartitioned()
     {
         withTemporaryTable("merge_multiple", false, BUCKETED_V2, targetTable -> {
@@ -261,6 +271,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeSimpleQuery()
     {
         withTemporaryTable("merge_simple_query_target", false, NONE, targetTable -> {
@@ -281,6 +292,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeAllInserts()
     {
         withTemporaryTable("merge_all_inserts", false, NONE, targetTable -> {
@@ -299,6 +311,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeSimpleQueryPartitioned()
     {
         withTemporaryTable("merge_simple_query_partitioned_target", true, NONE, targetTable -> {
@@ -320,6 +333,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeAllColumnsUpdated()
     {
         withTemporaryTable("merge_all_columns_updated_target", false, NONE, targetTable -> {
@@ -341,6 +355,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeAllMatchesDeleted()
     {
         withTemporaryTable("merge_all_matches_deleted_target", false, NONE, targetTable -> {
@@ -362,6 +377,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000, dataProvider = "partitionedBucketedFailure")
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeMultipleRowsMatchFails(String createTableSql)
     {
         withTemporaryTable("merge_all_matches_deleted_target", true, NONE, targetTable -> {
@@ -393,11 +409,12 @@ public class TestHiveMerge
                 {"CREATE TABLE %s (customer STRING, purchases INT, address STRING) CLUSTERED BY (customer) INTO 3 BUCKETS STORED AS ORC TBLPROPERTIES ('transactional'='true')"},
                 {"CREATE TABLE %s (purchases INT, address STRING) PARTITIONED BY (customer STRING) STORED AS ORC TBLPROPERTIES ('transactional'='true')"},
                 {"CREATE TABLE %s (customer STRING, purchases INT) PARTITIONED BY (address STRING) CLUSTERED BY (customer) INTO 3 BUCKETS STORED AS ORC TBLPROPERTIES ('transactional'='true')"},
-                {"CREATE TABLE %s (purchases INT, address STRING) PARTITIONED BY (customer STRING) CLUSTERED BY (address) INTO 3 BUCKETS STORED AS ORC TBLPROPERTIES ('transactional'='true')"}
+                {"CREATE TABLE %s (purchases INT, address STRING) PARTITIONED BY (customer STRING) CLUSTERED BY (address) INTO 3 BUCKETS STORED AS ORC TBLPROPERTIES ('transactional'='true')"},
         };
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeFailingPartitioning()
     {
         String testDescription = "failing_merge";
@@ -424,6 +441,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeFailureWithDifferentPartitioning()
     {
         testMergeWithDifferentPartitioningInternal(
@@ -433,6 +451,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000, dataProvider = "targetAndSourceWithDifferentPartitioning")
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeWithDifferentPartitioning(String testDescription, String createTargetTableSql, String createSourceTableSql)
     {
         testMergeWithDifferentPartitioningInternal(testDescription, createTargetTableSql, createSourceTableSql);
@@ -474,7 +493,7 @@ public class TestHiveMerge
                 {
                         "target_flat_source_partitioned_by_customer",
                         "CREATE TABLE %s (customer STRING, purchases INT, address STRING) STORED AS ORC TBLPROPERTIES ('transactional'='true')",
-                        "CREATE TABLE %s (purchases INT, address STRING) PARTITIONED BY (customer STRING) STORED AS ORC TBLPROPERTIES ('transactional'='true')"
+                        "CREATE TABLE %s (purchases INT, address STRING) PARTITIONED BY (customer STRING) STORED AS ORC TBLPROPERTIES ('transactional'='true')",
                 },
                 {
                         "target_partitioned_by_customer_source_flat",
@@ -495,11 +514,12 @@ public class TestHiveMerge
                         "target_partitioned_target_partitioned_and_bucketed",
                         "CREATE TABLE %s (customer STRING, purchases INT) PARTITIONED BY (address STRING) CLUSTERED BY (customer) INTO 3 BUCKETS STORED AS ORC TBLPROPERTIES ('transactional'='true')",
                         "CREATE TABLE %s (purchases INT, address STRING) PARTITIONED BY (customer STRING) STORED AS ORC TBLPROPERTIES ('transactional'='true')",
-                }
+                },
         };
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeQueryWithStrangeCapitalization()
     {
         withTemporaryTable("test_without_aliases_target", false, NONE, targetTable -> {
@@ -519,6 +539,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeWithoutTablesAliases()
     {
         withTemporaryTable("test_without_aliases_target", false, NONE, targetTable -> {
@@ -543,6 +564,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeWithUnpredictablePredicates()
     {
         withTemporaryTable("test_without_aliases_target", false, NONE, targetTable -> {
@@ -561,8 +583,13 @@ public class TestHiveMerge
                         "    WHEN MATCHED THEN UPDATE SET purchases = s.purchases + t.purchases, address = s.address" +
                         "    WHEN NOT MATCHED THEN INSERT (customer, purchases, address) VALUES(s.customer, s.purchases, s.address)");
 
-                verifySelectForTrinoAndHive("SELECT * FROM " + targetTable,
-                        row("Aaron", 11, "Arches"), row("Bill", 7, "Buena"), row("Dave", 11, "Darbyshire"), row("Dave", 11, "Devon"), row("Ed", 7, "Etherville"));
+                verifySelectForTrinoAndHive(
+                        "SELECT * FROM " + targetTable,
+                        row("Aaron", 11, "Arches"),
+                        row("Bill", 7, "Buena"),
+                        row("Dave", 11, "Darbyshire"),
+                        row("Dave", 11, "Devon"),
+                        row("Ed", 7, "Etherville"));
 
                 onTrino().executeQuery(format("MERGE INTO %s t USING %s s", targetTable, sourceTable) +
                         " ON t.customer = s.customer" +
@@ -573,17 +600,29 @@ public class TestHiveMerge
                         "    WHEN NOT MATCHED" +
                         "        THEN INSERT (customer, purchases, address) VALUES(s.customer, s.purchases, s.address)");
 
-                verifySelectForTrinoAndHive("SELECT * FROM " + targetTable,
-                        row("Aaron", 17, "Arches/Arches"), row("Bill", 7, "Buena"), row("Carol", 9, "Centreville"), row("Dave", 22, "Darbyshire/Darbyshire"), row("Ed", 14, "Etherville/Etherville"));
+                verifySelectForTrinoAndHive(
+                        "SELECT * FROM " + targetTable,
+                        row("Aaron", 17, "Arches/Arches"),
+                        row("Bill", 7, "Buena"),
+                        row("Carol", 9, "Centreville"),
+                        row("Dave", 22, "Darbyshire/Darbyshire"),
+                        row("Ed", 14, "Etherville/Etherville"));
 
                 onTrino().executeQuery(format("INSERT INTO %s (customer, purchases, address) VALUES('Fred', 30, 'Franklin')", targetTable));
-                verifySelectForTrinoAndHive("SELECT * FROM " + targetTable,
-                        row("Aaron", 17, "Arches/Arches"), row("Bill", 7, "Buena"), row("Carol", 9, "Centreville"), row("Dave", 22, "Darbyshire/Darbyshire"), row("Ed", 14, "Etherville/Etherville"), row("Fred", 30, "Franklin"));
+                verifySelectForTrinoAndHive(
+                        "SELECT * FROM " + targetTable,
+                        row("Aaron", 17, "Arches/Arches"),
+                        row("Bill", 7, "Buena"),
+                        row("Carol", 9, "Centreville"),
+                        row("Dave", 22, "Darbyshire/Darbyshire"),
+                        row("Ed", 14, "Etherville/Etherville"),
+                        row("Fred", 30, "Franklin"));
             });
         });
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeWithSimplifiedUnpredictablePredicates()
     {
         withTemporaryTable("test_without_aliases_target", false, NONE, targetTable -> {
@@ -609,6 +648,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeCasts()
     {
         withTemporaryTable("merge_cast_target", false, NONE, targetTable -> {
@@ -631,6 +671,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeSubqueries()
     {
         withTemporaryTable("merge_nation_target", false, NONE, targetTable -> {
@@ -656,6 +697,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = 60 * 60 * 1000)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeOriginalFilesTarget()
     {
         withTemporaryTable("region", false, NONE, targetTable -> {
@@ -678,6 +720,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = TEST_TIMEOUT)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeOverManySplits()
     {
         withTemporaryTable("delete_select", false, NONE, targetTable -> {
@@ -696,6 +739,7 @@ public class TestHiveMerge
     }
 
     @Test(groups = {HIVE_TRANSACTIONAL, PROFILE_SPECIFIC_TESTS}, timeOut = TEST_TIMEOUT)
+    @Flaky(issue = RETRYABLE_FAILURES_ISSUES, match = RETRYABLE_FAILURES_MATCH)
     public void testMergeFalseJoinCondition()
     {
         withTemporaryTable("join_false", false, NONE, targetTable -> {
@@ -749,7 +793,7 @@ public class TestHiveMerge
         return new Object[][] {
                 {Engine.HIVE, Engine.TRINO},
                 {Engine.TRINO, Engine.TRINO},
-                {Engine.TRINO, Engine.HIVE}
+                {Engine.TRINO, Engine.HIVE},
         };
     }
 

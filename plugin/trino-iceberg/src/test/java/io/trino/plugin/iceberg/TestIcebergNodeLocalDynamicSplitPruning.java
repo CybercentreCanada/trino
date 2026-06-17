@@ -63,13 +63,14 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
+import static io.trino.hdfs.HdfsTestUtils.HDFS_ENVIRONMENT;
+import static io.trino.hdfs.HdfsTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.orc.metadata.CompressionKind.NONE;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.plugin.iceberg.ColumnIdentity.TypeCategory.PRIMITIVE;
 import static io.trino.plugin.iceberg.IcebergFileFormat.ORC;
 import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
@@ -77,6 +78,7 @@ import static io.trino.plugin.iceberg.util.OrcTypeConverter.toOrcType;
 import static io.trino.spi.type.DateType.DATE;
 import static io.trino.spi.type.Decimals.writeShortDecimal;
 import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.spi.type.TypeUtils.writeNativeValue;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.testing.TestingHandles.TEST_CATALOG_HANDLE;
 import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
@@ -144,13 +146,14 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                     inputFile.length(),
                     -1, // invalid; normally known
                     ORC,
-                    PartitionSpecParser.toJson(PartitionSpec.unpartitioned()),
-                    PartitionData.toJson(new PartitionData(new Object[] {})),
+                    PartitionSpec.unpartitioned().specId(),
+                    ImmutableList.of(),
                     ImmutableList.of(),
                     SplitWeight.standard(),
                     TupleDomain.all(),
-                    ImmutableMap.of(),
-                    0);
+                    Optional.empty(),
+                    0,
+                    OptionalLong.empty());
 
             String tablePath = inputFile.location().fileName();
             TableHandle tableHandle = new TableHandle(
@@ -159,9 +162,10 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                             "test_schema",
                             tableName,
                             TableType.DATA,
-                            Optional.empty(),
+                            OptionalLong.empty(),
                             SchemaParser.toJson(tableSchema),
-                            Optional.of(PartitionSpecParser.toJson(PartitionSpec.unpartitioned())),
+                            OptionalInt.of(0),
+                            ImmutableMap.of(0, PartitionSpecParser.toJson(PartitionSpec.unpartitioned())),
                             2,
                             TupleDomain.withColumnDomains(ImmutableMap.of(keyColumnHandle, Domain.singleValue(INTEGER, (long) keyColumnValue))),
                             TupleDomain.all(),
@@ -179,16 +183,14 @@ public class TestIcebergNodeLocalDynamicSplitPruning
 
             TupleDomain<ColumnHandle> splitPruningPredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            keyColumnHandle,
-                            Domain.singleValue(INTEGER, 1L)));
+                            keyColumnHandle, Domain.singleValue(INTEGER, 1L)));
             try (ConnectorPageSource emptyPageSource = createTestingPageSource(transaction, icebergConfig, split, tableHandle, ImmutableList.of(keyColumnHandle, dataColumnHandle), getDynamicFilter(splitPruningPredicate))) {
                 assertThat(emptyPageSource.getNextSourcePage()).isNull();
             }
 
             TupleDomain<ColumnHandle> nonSelectivePredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            keyColumnHandle,
-                            Domain.singleValue(INTEGER, (long) keyColumnValue)));
+                            keyColumnHandle, Domain.singleValue(INTEGER, (long) keyColumnValue)));
             try (ConnectorPageSource nonEmptyPageSource = createTestingPageSource(transaction, icebergConfig, split, tableHandle, ImmutableList.of(keyColumnHandle, dataColumnHandle), getDynamicFilter(nonSelectivePredicate))) {
                 SourcePage page = nonEmptyPageSource.getNextSourcePage();
                 assertThat(page).isNotNull();
@@ -205,13 +207,14 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                     inputFile.length(),
                     -1, // invalid; normally known
                     ORC,
-                    PartitionSpecParser.toJson(PartitionSpec.unpartitioned()),
-                    PartitionData.toJson(new PartitionData(new Object[] {})),
+                    PartitionSpec.unpartitioned().specId(),
+                    ImmutableList.of(),
                     ImmutableList.of(),
                     SplitWeight.standard(),
                     TupleDomain.withColumnDomains(ImmutableMap.of(keyColumnHandle, Domain.singleValue(INTEGER, (long) keyColumnValue))),
-                    ImmutableMap.of(),
-                    0);
+                    Optional.empty(),
+                    0,
+                    OptionalLong.empty());
 
             tableHandle = new TableHandle(
                     TEST_CATALOG_HANDLE,
@@ -219,9 +222,10 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                             "test_schema",
                             tableName,
                             TableType.DATA,
-                            Optional.empty(),
+                            OptionalLong.empty(),
                             SchemaParser.toJson(tableSchema),
-                            Optional.of(PartitionSpecParser.toJson(PartitionSpec.unpartitioned())),
+                            OptionalInt.of(0),
+                            ImmutableMap.of(0, PartitionSpecParser.toJson(PartitionSpec.unpartitioned())),
                             2,
                             TupleDomain.all(),
                             TupleDomain.all(),
@@ -314,13 +318,14 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                     inputFile.length(),
                     -1, // invalid; normally known
                     ORC,
-                    PartitionSpecParser.toJson(partitionSpec),
-                    PartitionData.toJson(new PartitionData(new Object[] {dateColumnValue})),
+                    partitionSpec.specId(),
+                    ImmutableList.of(writeNativeValue(DATE, dateColumnValue)),
                     ImmutableList.of(),
                     SplitWeight.standard(),
                     TupleDomain.all(),
-                    ImmutableMap.of(),
-                    0);
+                    Optional.empty(),
+                    0,
+                    OptionalLong.empty());
 
             String tablePath = inputFile.location().fileName();
             TableHandle tableHandle = new TableHandle(
@@ -329,9 +334,10 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                             "test_schema",
                             tableName,
                             TableType.DATA,
-                            Optional.empty(),
+                            OptionalLong.empty(),
                             SchemaParser.toJson(tableSchema),
-                            Optional.of(PartitionSpecParser.toJson(partitionSpec)),
+                            OptionalInt.of(partitionSpec.specId()),
+                            ImmutableMap.of(partitionSpec.specId(), PartitionSpecParser.toJson(partitionSpec)),
                             2,
                             TupleDomain.all(),
                             TupleDomain.all(),
@@ -352,12 +358,10 @@ public class TestIcebergNodeLocalDynamicSplitPruning
 
             TupleDomain<ColumnHandle> differentDatePredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            dateColumnHandle,
-                            Domain.singleValue(DATE, LocalDate.of(2023, 2, 2).toEpochDay())));
+                            dateColumnHandle, Domain.singleValue(DATE, LocalDate.of(2023, 2, 2).toEpochDay())));
             TupleDomain<ColumnHandle> nonOverlappingDatePredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            dateColumnHandle,
-                            Domain.create(ValueSet.ofRanges(Range.greaterThanOrEqual(DATE, LocalDate.of(2023, 2, 2).toEpochDay())), true)));
+                            dateColumnHandle, Domain.create(ValueSet.ofRanges(Range.greaterThanOrEqual(DATE, LocalDate.of(2023, 2, 2).toEpochDay())), true)));
             for (TupleDomain<ColumnHandle> partitionPredicate : List.of(differentDatePredicate, nonOverlappingDatePredicate)) {
                 try (ConnectorPageSource emptyPageSource = createTestingPageSource(
                         transaction,
@@ -372,12 +376,10 @@ public class TestIcebergNodeLocalDynamicSplitPruning
 
             TupleDomain<ColumnHandle> sameDatePredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            dateColumnHandle,
-                            Domain.singleValue(DATE, dateColumnValue)));
+                            dateColumnHandle, Domain.singleValue(DATE, dateColumnValue)));
             TupleDomain<ColumnHandle> overlappingDatePredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            dateColumnHandle,
-                            Domain.create(ValueSet.ofRanges(Range.range(DATE, LocalDate.of(2023, 1, 1).toEpochDay(), true, LocalDate.of(2023, 2, 1).toEpochDay(), false)), true)));
+                            dateColumnHandle, Domain.create(ValueSet.ofRanges(Range.range(DATE, LocalDate.of(2023, 1, 1).toEpochDay(), true, LocalDate.of(2023, 2, 1).toEpochDay(), false)), true)));
             for (TupleDomain<ColumnHandle> partitionPredicate : List.of(sameDatePredicate, overlappingDatePredicate)) {
                 try (ConnectorPageSource nonEmptyPageSource = createTestingPageSource(
                         transaction,
@@ -466,13 +468,14 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                     inputFile.length(),
                     -1, // invalid; normally known
                     ORC,
-                    PartitionSpecParser.toJson(partitionSpec),
-                    PartitionData.toJson(new PartitionData(new Object[] {yearColumnValue})),
+                    partitionSpec.specId(),
+                    ImmutableList.of(writeNativeValue(INTEGER, yearColumnValue)),
                     ImmutableList.of(),
                     SplitWeight.standard(),
                     TupleDomain.all(),
-                    ImmutableMap.of(),
-                    0);
+                    Optional.empty(),
+                    0,
+                    OptionalLong.empty());
 
             String tablePath = inputFile.location().fileName();
             // Simulate the situation where `month` column is added at a later phase as partitioning column
@@ -484,18 +487,17 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                             "test_schema",
                             tableName,
                             TableType.DATA,
-                            Optional.empty(),
+                            OptionalLong.empty(),
                             SchemaParser.toJson(tableSchema),
-                            Optional.of(PartitionSpecParser.toJson(partitionSpec)),
+                            OptionalInt.of(partitionSpec.specId()),
+                            ImmutableMap.of(partitionSpec.specId(), PartitionSpecParser.toJson(partitionSpec)),
                             2,
                             TupleDomain.withColumnDomains(
                                     ImmutableMap.of(
-                                            yearColumnHandle,
-                                            Domain.create(ValueSet.ofRanges(Range.range(INTEGER, 2023L, true, 2024L, true)), true))),
+                                            yearColumnHandle, Domain.create(ValueSet.ofRanges(Range.range(INTEGER, 2023L, true, 2024L, true)), true))),
                             TupleDomain.withColumnDomains(
                                     ImmutableMap.of(
-                                            monthColumnHandle,
-                                            Domain.create(ValueSet.ofRanges(Range.range(INTEGER, 1L, true, 12L, true)), true))),
+                                            monthColumnHandle, Domain.create(ValueSet.ofRanges(Range.range(INTEGER, 1L, true, 12L, true)), true))),
                             OptionalLong.empty(),
                             ImmutableSet.of(yearColumnHandle, monthColumnHandle, receiptColumnHandle, amountColumnHandle),
                             Optional.empty(),
@@ -512,14 +514,11 @@ public class TestIcebergNodeLocalDynamicSplitPruning
             // the amount of data to be processed from the current table
             TupleDomain<ColumnHandle> differentYearPredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            yearColumnHandle,
-                            Domain.singleValue(INTEGER, 2024L)));
+                            yearColumnHandle, Domain.singleValue(INTEGER, 2024L)));
             TupleDomain<ColumnHandle> sameYearAndDifferentMonthPredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            yearColumnHandle,
-                            Domain.singleValue(INTEGER, 2023L),
-                            monthColumnHandle,
-                            Domain.singleValue(INTEGER, 2L)));
+                            yearColumnHandle, Domain.singleValue(INTEGER, 2023L),
+                            monthColumnHandle, Domain.singleValue(INTEGER, 2L)));
             for (TupleDomain<ColumnHandle> partitionPredicate : List.of(differentYearPredicate, sameYearAndDifferentMonthPredicate)) {
                 try (ConnectorPageSource emptyPageSource = createTestingPageSource(
                         transaction,
@@ -534,14 +533,11 @@ public class TestIcebergNodeLocalDynamicSplitPruning
 
             TupleDomain<ColumnHandle> sameYearPredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            yearColumnHandle,
-                            Domain.singleValue(INTEGER, 2023L)));
+                            yearColumnHandle, Domain.singleValue(INTEGER, 2023L)));
             TupleDomain<ColumnHandle> sameYearAndMonthPredicate = TupleDomain.withColumnDomains(
                     ImmutableMap.of(
-                            yearColumnHandle,
-                            Domain.singleValue(INTEGER, 2023L),
-                            monthColumnHandle,
-                            Domain.singleValue(INTEGER, 1L)));
+                            yearColumnHandle, Domain.singleValue(INTEGER, 2023L),
+                            monthColumnHandle, Domain.singleValue(INTEGER, 1L)));
             for (TupleDomain<ColumnHandle> partitionPredicate : List.of(sameYearPredicate, sameYearAndMonthPredicate)) {
                 try (ConnectorPageSource nonEmptyPageSource = createTestingPageSource(
                         transaction,
@@ -583,6 +579,7 @@ public class TestIcebergNodeLocalDynamicSplitPruning
                 getSession(icebergConfig),
                 split,
                 tableHandle.connectorHandle(),
+                Optional.empty(),
                 columns,
                 dynamicFilter);
     }

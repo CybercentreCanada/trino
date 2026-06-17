@@ -61,6 +61,7 @@ import java.util.Optional;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 import static io.airlift.json.JsonCodec.jsonCodec;
+import static io.airlift.units.Duration.ZERO;
 import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
 import static io.trino.plugin.iceberg.IcebergTestUtils.TABLE_STATISTICS_READER;
 import static io.trino.plugin.iceberg.catalog.snowflake.TestIcebergSnowflakeCatalogConnectorSmokeTest.S3_ACCESS_KEY;
@@ -74,6 +75,7 @@ import static io.trino.plugin.iceberg.catalog.snowflake.TestingSnowflakeServer.S
 import static io.trino.plugin.iceberg.catalog.snowflake.TestingSnowflakeServer.SNOWFLAKE_TEST_DATABASE;
 import static io.trino.plugin.iceberg.catalog.snowflake.TestingSnowflakeServer.SNOWFLAKE_USER;
 import static io.trino.plugin.iceberg.catalog.snowflake.TestingSnowflakeServer.TableType.ICEBERG;
+import static io.trino.plugin.iceberg.delete.DeletionVectorWriter.UNSUPPORTED_DELETION_VECTOR_WRITER;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
@@ -173,7 +175,8 @@ public class TestTrinoSnowflakeCatalog
                                 .setAwsAccessKey(S3_ACCESS_KEY)
                                 .setAwsSecretKey(S3_SECRET_KEY)
                                 .setRegion(S3_REGION)
-                                .setStreamingPartSize(DataSize.valueOf("5.5MB")), new S3FileSystemStats());
+                                .setStreamingPartSize(DataSize.valueOf("5.5MB")),
+                        new S3FileSystemStats());
 
         CatalogName catalogName = new CatalogName("snowflake_test_catalog");
         TrinoIcebergSnowflakeCatalogFileIOFactory catalogFileIOFactory = new TrinoIcebergSnowflakeCatalogFileIOFactory(s3FileSystemFactory, FILE_IO_FACTORY, ConnectorIdentity.ofUser("trino"));
@@ -226,18 +229,21 @@ public class TestTrinoSnowflakeCatalog
                 PLANNER_CONTEXT.getTypeManager(),
                 jsonCodec(CommitTaskData.class),
                 catalog,
-                (connectorIdentity, fileIOProperties) -> {
+                (_, _) -> {
                     throw new UnsupportedOperationException();
                 },
                 TABLE_STATISTICS_READER,
                 new TableStatisticsWriter(new NodeVersion("test-version")),
+                UNSUPPORTED_DELETION_VECTOR_WRITER,
                 Optional.empty(),
                 false,
                 _ -> false,
                 newDirectExecutorService(),
                 directExecutor(),
                 newDirectExecutorService(),
-                newDirectExecutorService());
+                newDirectExecutorService(),
+                0,
+                ZERO);
         assertThat(icebergMetadata.schemaExists(SESSION, namespace)).as("icebergMetadata.schemaExists(namespace)")
                 .isTrue();
         assertThat(icebergMetadata.schemaExists(SESSION, schema)).as("icebergMetadata.schemaExists(schema)")
@@ -279,7 +285,8 @@ public class TestTrinoSnowflakeCatalog
         String namespace = "test_create_sort_table_" + randomNameSuffix();
         String table = "tableName";
         SchemaTableName schemaTableName = new SchemaTableName(namespace, table);
-        Schema tableSchema = new Schema(Types.NestedField.optional(1, "col1", Types.LongType.get()),
+        Schema tableSchema = new Schema(
+                Types.NestedField.optional(1, "col1", Types.LongType.get()),
                 Types.NestedField.optional(2, "col2", Types.StringType.get()),
                 Types.NestedField.optional(3, "col3", Types.TimestampType.withZone()),
                 Types.NestedField.optional(4, "col4", Types.StringType.get()));

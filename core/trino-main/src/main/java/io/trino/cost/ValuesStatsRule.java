@@ -76,13 +76,13 @@ public class ValuesStatsRule
         return Optional.of(statsBuilder.build());
     }
 
-    private List<Object> getSymbolValues(ValuesNode valuesNode, int symbolId, Type rowType)
+    private List<Object> getSymbolValues(ValuesNode valuesNode, int symbolId, RowType rowType)
     {
-        Type symbolType = rowType.getTypeParameters().get(symbolId);
+        Type symbolType = rowType.getFieldTypes().get(symbolId);
         if (UNKNOWN.equals(symbolType)) {
             // special casing for UNKNOWN as evaluateConstantExpression does not handle that
             return IntStream.range(0, valuesNode.getRowCount())
-                    .mapToObj(rowId -> null)
+                    .mapToObj(_ -> null)
                     .collect(toList());
         }
         checkState(valuesNode.getRows().isPresent(), "rows is empty");

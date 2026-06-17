@@ -18,6 +18,7 @@ import io.trino.operator.aggregation.TestingAggregationFunction;
 import io.trino.security.AllowAllAccessControl;
 import io.trino.spi.Plugin;
 import io.trino.spi.function.CatalogSchemaFunctionName;
+import io.trino.spi.function.FunctionBundle;
 import io.trino.spi.function.FunctionMetadata;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.type.Type;
@@ -116,7 +117,7 @@ public class TestingFunctionResolution
 
     public PageFunctionCompiler getPageFunctionCompiler(int expressionCacheSize)
     {
-        return new PageFunctionCompiler(plannerContext.getFunctionManager(), expressionCacheSize);
+        return new PageFunctionCompiler(plannerContext.getFunctionManager(), plannerContext.getMetadata(), plannerContext.getTypeManager(), expressionCacheSize);
     }
 
     public Collection<FunctionMetadata> listGlobalFunctions()
@@ -131,23 +132,23 @@ public class TestingFunctionResolution
 
     public ColumnarFilterCompiler getColumnarFilterCompiler(int expressionCacheSize)
     {
-        return new ColumnarFilterCompiler(plannerContext.getFunctionManager(), expressionCacheSize);
+        return new ColumnarFilterCompiler(plannerContext, expressionCacheSize);
     }
 
     public ResolvedFunction resolveOperator(OperatorType operatorType, List<? extends Type> argumentTypes)
             throws OperatorNotFoundException
     {
-        return inTransaction(session -> metadata.resolveOperator(operatorType, argumentTypes));
+        return inTransaction(_ -> metadata.resolveOperator(operatorType, argumentTypes));
     }
 
     public ResolvedFunction getCoercion(Type fromType, Type toType)
     {
-        return inTransaction(session -> metadata.getCoercion(fromType, toType));
+        return inTransaction(_ -> metadata.getCoercion(fromType, toType));
     }
 
     public ResolvedFunction getCoercion(CatalogSchemaFunctionName name, Type fromType, Type toType)
     {
-        return inTransaction(session -> metadata.getCoercion(name, fromType, toType));
+        return inTransaction(_ -> metadata.getCoercion(name, fromType, toType));
     }
 
     public TestingFunctionCallBuilder functionCallBuilder(String name)
@@ -167,7 +168,7 @@ public class TestingFunctionResolution
 
     public TestingAggregationFunction getAggregateFunction(String name, List<TypeSignatureProvider> parameterTypes)
     {
-        return inTransaction(session -> {
+        return inTransaction(_ -> {
             ResolvedFunction resolvedFunction = metadata.resolveBuiltinFunction(name, parameterTypes);
             return new TestingAggregationFunction(
                     resolvedFunction.signature(),

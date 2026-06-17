@@ -59,7 +59,6 @@ import org.apache.parquet.column.values.plain.PlainValuesWriter;
 import org.apache.parquet.io.api.Binary;
 import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
-import org.testng.annotations.DataProvider;
 
 import java.math.BigInteger;
 import java.time.LocalDateTime;
@@ -149,23 +148,23 @@ public class TestingColumnReader
             .buildOrThrow();
 
     private static final IntFunction<DictionaryValuesWriter> DICTIONARY_INT_WRITER =
-            length -> new PlainIntegerDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
+            _ -> new PlainIntegerDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
     public static final IntFunction<DictionaryValuesWriter> DICTIONARY_LONG_WRITER =
-            length -> new PlainLongDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
+            _ -> new PlainLongDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
     private static final IntFunction<DictionaryValuesWriter> DICTIONARY_FIXED_LENGTH_WRITER =
             length -> new PlainFixedLenArrayDictionaryValuesWriter(Integer.MAX_VALUE, length, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
     private static final IntFunction<DictionaryValuesWriter> DICTIONARY_FLOAT_WRITER =
-            length -> new PlainFloatDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
+            _ -> new PlainFloatDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
     private static final IntFunction<DictionaryValuesWriter> DICTIONARY_DOUBLE_WRITER =
-            length -> new PlainDoubleDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
+            _ -> new PlainDoubleDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
     private static final IntFunction<DictionaryValuesWriter> DICTIONARY_BINARY_WRITER =
-            length -> new PlainBinaryDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
+            _ -> new PlainBinaryDictionaryValuesWriter(Integer.MAX_VALUE, Encoding.RLE, Encoding.PLAIN, HeapByteBufferAllocator.getInstance());
 
-    private static final IntFunction<ValuesWriter> BOOLEAN_WRITER = length -> new BooleanPlainValuesWriter();
+    private static final IntFunction<ValuesWriter> BOOLEAN_WRITER = _ -> new BooleanPlainValuesWriter();
     private static final IntFunction<ValuesWriter> FIXED_LENGTH_WRITER =
             length -> new FixedLenByteArrayPlainValuesWriter(length, 1024, 1024, HeapByteBufferAllocator.getInstance());
     public static final IntFunction<ValuesWriter> PLAIN_WRITER =
-            length -> new PlainValuesWriter(1024, 1024, HeapByteBufferAllocator.getInstance());
+            _ -> new PlainValuesWriter(1024, 1024, HeapByteBufferAllocator.getInstance());
     private static final Writer<Number> WRITE_BOOLEAN = (writer, values) -> {
         Number[] result = new Number[values.length];
         for (int i = 0; i < values.length; i++) {
@@ -662,7 +661,6 @@ public class TestingColumnReader
         return toTrinoDictionaryPage(apacheDictionaryPage);
     }
 
-    @DataProvider(name = "readersWithPageVersions")
     public static Object[][] readersWithPageVersions()
     {
         return cartesianProduct(
@@ -670,7 +668,6 @@ public class TestingColumnReader
                 Stream.of(TestingColumnReader.columnReaders()).collect(toDataProvider()));
     }
 
-    @DataProvider(name = "dictionaryReadersWithPageVersions")
     public static Object[][] dictionaryReadersWithPageVersions()
     {
         return cartesianProduct(
@@ -776,6 +773,8 @@ public class TestingColumnReader
                 new ColumnReaderFormat<>(INT64, timestampType(false, NANOS), TIMESTAMP_MILLIS, PLAIN_WRITER, DICTIONARY_LONG_WRITER, WRITE_LONG_TIMESTAMP, assertTime(TIME_NANOS, -3, 6)),
                 new ColumnReaderFormat<>(INT64, timestampType(false, NANOS), TIMESTAMP_MICROS, PLAIN_WRITER, DICTIONARY_LONG_WRITER, WRITE_LONG_TIMESTAMP, assertTime(TIME_NANOS, -3)),
                 new ColumnReaderFormat<>(INT64, timestampType(false, NANOS), TIMESTAMP_NANOS, PLAIN_WRITER, DICTIONARY_LONG_WRITER, WRITE_LONG_TIMESTAMP, assertTimestampNanos(3)),
+                new ColumnReaderFormat<>(INT64, timestampType(false, NANOS), TIMESTAMP_TZ_MILLIS, PLAIN_WRITER, DICTIONARY_LONG_WRITER, WRITE_LONG_TIMESTAMP, assertTimestampWithTimeZoneMillis(-6, 3)),
+                new ColumnReaderFormat<>(INT64, timestampType(false, NANOS), TIMESTAMP_TZ_NANOS, PLAIN_WRITER, DICTIONARY_LONG_WRITER, WRITE_LONG_TIMESTAMP, assertLongTimestampWithTimeZoneNanos(3)),
                 new ColumnReaderFormat<>(INT96, 12, null, TIMESTAMP_MILLIS, FIXED_LENGTH_WRITER, DICTIONARY_FIXED_LENGTH_WRITER, WRITE_INT96, assertTimestampMicros(6)),
                 new ColumnReaderFormat<>(INT96, 12, null, TIMESTAMP_MICROS, FIXED_LENGTH_WRITER, DICTIONARY_FIXED_LENGTH_WRITER, WRITE_INT96, assertTimestampMicros(3)),
                 new ColumnReaderFormat<>(INT96, 12, null, TIMESTAMP_NANOS, FIXED_LENGTH_WRITER, DICTIONARY_FIXED_LENGTH_WRITER, WRITE_INT96, assertTimestampNanos()),
@@ -787,7 +786,8 @@ public class TestingColumnReader
                 // timestamps read as bigint
                 new ColumnReaderFormat<>(INT64, timestampType(false, MILLIS), BIGINT, PLAIN_WRITER, DICTIONARY_LONG_WRITER, WRITE_LONG_TIMESTAMP, ASSERT_LONG),
                 new ColumnReaderFormat<>(INT64, timestampType(false, MICROS), BIGINT, PLAIN_WRITER, DICTIONARY_LONG_WRITER, WRITE_LONG_TIMESTAMP, ASSERT_LONG),
-                new ColumnReaderFormat<>(INT64, timestampType(false, NANOS), BIGINT, PLAIN_WRITER, DICTIONARY_LONG_WRITER, WRITE_LONG_TIMESTAMP, ASSERT_LONG)};
+                new ColumnReaderFormat<>(INT64, timestampType(false, NANOS), BIGINT, PLAIN_WRITER, DICTIONARY_LONG_WRITER, WRITE_LONG_TIMESTAMP, ASSERT_LONG),
+        };
     }
 
     // Simple helper interface that writes given data into the parquet writer

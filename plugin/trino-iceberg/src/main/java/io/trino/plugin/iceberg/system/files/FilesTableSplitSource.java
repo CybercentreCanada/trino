@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.iceberg.system.files;
 
+import com.google.common.collect.ImmutableMap;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.type.Type;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
 import static java.util.Objects.requireNonNull;
@@ -34,31 +36,27 @@ public final class FilesTableSplitSource
         implements ConnectorSplitSource
 {
     private final Table icebergTable;
-    private final Optional<Long> snapshotId;
+    private final OptionalLong snapshotId;
     private final String schemaJson;
     private final String metadataSchemaJson;
     private final Map<Integer, String> partitionSpecsByIdJson;
     private final Optional<Type> partitionColumnType;
-    private final Map<String, String> fileIoProperties;
     private boolean finished;
 
     public FilesTableSplitSource(
             Table icebergTable,
-            Optional<Long> snapshotId,
+            OptionalLong snapshotId,
             String schemaJson,
             String metadataSchemaJson,
             Map<Integer, String> partitionSpecsByIdJson,
-            Optional<Type> partitionColumnType,
-            Map<String, String> fileIoProperties)
+            Optional<Type> partitionColumnType)
     {
         this.icebergTable = requireNonNull(icebergTable, "icebergTable is null");
         this.snapshotId = requireNonNull(snapshotId, "snapshotId is null");
         this.schemaJson = requireNonNull(schemaJson, "schemaJson is null");
         this.metadataSchemaJson = requireNonNull(metadataSchemaJson, "metadataSchemaJson is null");
-        this.partitionSpecsByIdJson = requireNonNull(partitionSpecsByIdJson, "partitionSpecsByIdJson is null");
+        this.partitionSpecsByIdJson = ImmutableMap.copyOf(partitionSpecsByIdJson);
         this.partitionColumnType = requireNonNull(partitionColumnType, "partitionColumnType is null");
-        this.fileIoProperties = requireNonNull(fileIoProperties, "fileIoProperties is null");
-        this.finished = false;
     }
 
     @Override
@@ -75,8 +73,7 @@ public final class FilesTableSplitSource
                         schemaJson,
                         metadataSchemaJson,
                         partitionSpecsByIdJson,
-                        partitionColumnType,
-                        fileIoProperties));
+                        partitionColumnType));
             }
         }
 

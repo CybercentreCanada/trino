@@ -171,13 +171,13 @@ public class TestComparisonStatsCalculator
             return symbolStats;
         }
         return symbolStats
-                .mapDistinctValuesCount(n -> (min(ndv, rowCount) + rowCount * (1 - nulls)) / 2)
-                .mapNullsFraction(n -> nulls / 2);
+                .mapDistinctValuesCount(_ -> (min(ndv, rowCount) + rowCount * (1 - nulls)) / 2)
+                .mapNullsFraction(_ -> nulls / 2);
     }
 
     private SymbolStatsEstimate zeroNullsFraction(SymbolStatsEstimate symbolStats)
     {
-        return symbolStats.mapNullsFraction(fraction -> 0.0);
+        return symbolStats.mapNullsFraction(_ -> 0.0);
     }
 
     private PlanNodeStatsAssertion assertCalculate(Expression comparisonExpression)
@@ -418,7 +418,7 @@ public class TestComparisonStatsCalculator
                 .outputRowsCount(450.0) // all rows minus nulls times range coverage (50% - heuristic)
                 .symbolStats("leftOpen", symbolAssert -> {
                     symbolAssert.averageRowSize(4.0)
-                            .distinctValuesCount(25.0) //(50% heuristic)
+                            .distinctValuesCount(25.0) // (50% heuristic)
                             .lowValueUnknown()
                             .highValue(0.0)
                             .nullsFraction(0.0);
@@ -429,7 +429,7 @@ public class TestComparisonStatsCalculator
                 .outputRowsCount(225.0) // all rows minus nulls times range coverage (25% - heuristic)
                 .symbolStats("rightOpen", symbolAssert -> {
                     symbolAssert.averageRowSize(4.0)
-                            .distinctValuesCount(12.5) //(25% heuristic)
+                            .distinctValuesCount(12.5) // (25% heuristic)
                             .lowValue(-15.0)
                             .highValue(0.0)
                             .nullsFraction(0.0);
@@ -503,7 +503,7 @@ public class TestComparisonStatsCalculator
                 .outputRowsCount(225.0) // all rows minus nulls times range coverage (25% - heuristic)
                 .symbolStats("leftOpen", symbolAssert -> {
                     symbolAssert.averageRowSize(4.0)
-                            .distinctValuesCount(12.5) //(25% heuristic)
+                            .distinctValuesCount(12.5) // (25% heuristic)
                             .lowValue(0.0)
                             .highValue(15.0)
                             .nullsFraction(0.0);
@@ -514,7 +514,7 @@ public class TestComparisonStatsCalculator
                 .outputRowsCount(450.0) // all rows minus nulls times range coverage (50% - heuristic)
                 .symbolStats("rightOpen", symbolAssert -> {
                     symbolAssert.averageRowSize(4.0)
-                            .distinctValuesCount(25.0) //(50% heuristic)
+                            .distinctValuesCount(25.0) // (50% heuristic)
                             .lowValue(0.0)
                             .highValueUnknown()
                             .nullsFraction(0.0);

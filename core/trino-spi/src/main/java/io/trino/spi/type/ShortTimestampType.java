@@ -58,7 +58,7 @@ final class ShortTimestampType
     private static final VarHandle LONG_HANDLE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
     private final Range range;
 
-    public ShortTimestampType(int precision)
+    ShortTimestampType(int precision)
     {
         super(precision, long.class, LongArrayBlock.class);
 
@@ -181,10 +181,10 @@ final class ShortTimestampType
     @ScalarOperator(READ_VALUE)
     private static void writeFlat(
             long value,
-            byte[] fixedSizeSlice,
-            int fixedSizeOffset,
-            byte[] unusedVariableSizeSlice,
-            int unusedVariableSizeOffset)
+            @FlatFixed byte[] fixedSizeSlice,
+            @FlatFixedOffset int fixedSizeOffset,
+            @FlatVariableWidth byte[] unusedVariableSizeSlice,
+            @FlatVariableOffset int unusedVariableSizeOffset)
     {
         LONG_HANDLE.set(fixedSizeSlice, fixedSizeOffset, value);
     }

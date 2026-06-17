@@ -5,6 +5,7 @@ on:
     branches:
       - master
   pull_request:
+  merge_group:
   repository_dispatch:
     types: [test-with-secrets-command]
 
@@ -53,7 +54,7 @@ jobs:
       docs: ${{ steps.filter.outputs.docs }}
       non_docs: ${{ steps.filter.outputs.non_docs }}
     steps:
-      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         id: filter
         if: github.event_name == 'pull_request'
         with:
@@ -67,14 +68,15 @@ jobs:
     runs-on: ubuntu-latest
     name: maven-checks ${{ matrix.java-version }}
     strategy:
-      fail-fast: false
+      fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
         include:
-          - { java-version: 25, cache: 'true', cleanup-node: true }
-          - { java-version: 26-ea, cache: 'restore', cleanup-node: true }
+          - { java-version: 25.0.2, cache: 'true', cleanup-node: true }
+          - { java-version: 26, cache: 'restore', cleanup-node: true }
+          - { java-version: 27-ea, cache: 'restore', cleanup-node: true }
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits, as the build result depends on `git describe` equivalent
           ref: |
@@ -100,6 +102,13 @@ jobs:
         # Avoid caching artifacts built in this job, cache should only include dependencies
         if: steps.cache.outputs.cache-hit != 'true' && matrix.cache == 'true'
         run: rm -rf ~/.m2/repository/io/trino/trino-*
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because maven-checks ${{ matrix.java-version }} failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   artifact-checks:
     needs: path-filters
@@ -107,7 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits, as the build result depends on `git describe` equivalent
           ref: |
@@ -130,11 +139,18 @@ jobs:
           $MAVEN failsafe:integration-test failsafe:verify -B --strict-checksums -P ci -pl :trino-jdbc
       - name: Clean Maven Output
         run: $MAVEN clean -pl '!:trino-server,!:trino-cli'
-      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4
         with:
           platforms: arm64,ppc64le
       - name: Build and Test Docker Image
         run: core/docker/build.sh
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because artifact-checks failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   check-commits-dispatcher:
     needs: path-filters
@@ -143,7 +159,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base
       - name: Block illegal commits
@@ -173,10 +189,10 @@ jobs:
     timeout-minutes: 20
     if: github.event_name == 'pull_request' && needs.check-commits-dispatcher.outputs.matrix != ''
     strategy:
-      fail-fast: false
+      fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix: ${{ fromJson(needs.check-commits-dispatcher.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         if: matrix.commit != ''
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base
@@ -196,7 +212,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -207,7 +223,8 @@ jobs:
         timeout-minutes: 15
         with:
           cache: restore
-          java-version: 25
+          cleanup-node: true # fix "No space left on device" error
+          java-version: 25.0.2
       - name: Maven Install
         run: |
           # build everything to make sure dependencies of impacted modules are present
@@ -219,6 +236,13 @@ jobs:
           # Skip checks, these are run in `maven-checks` job and e.g. checkstyle is expensive.
           $MAVEN ${MAVEN_TEST} -T 1C clean compile test-compile -DskipTests -Dair.check.skip-all=true ${MAVEN_GIB} -Dgib.buildUpstream=never -P errorprone-compiler \
             -pl '!:trino-docs,!:trino-server'
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because error-prone-checks failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   test-jdbc-compatibility:
     needs: path-filters
@@ -226,7 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout tags so version in Manifest is set properly
           ref: |
@@ -261,20 +285,27 @@ jobs:
         with:
           has-failed-tests: ${{ steps.tests-old.outcome == 'failure' || steps.tests-current.outcome == 'failure' }}
           upload-heap-dump: ${{ env.SECRETS_PRESENT == '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because test-jdbc-compatibility failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   hive-tests:
     needs: path-filters
     if: github.event_name != 'pull_request' || needs.path-filters.outputs.non_docs == 'true'
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix:
         config:
           - config-hdp3
           # TODO: config-apache-hive3
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -319,6 +350,13 @@ jobs:
           check_name: ${{ github.job }} (${{ matrix.config }}) with secrets
           conclusion: ${{ job.status }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because hive-tests (${{ matrix.config }}) failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   test-other-modules:
     needs: path-filters
@@ -326,7 +364,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -400,7 +438,6 @@ jobs:
             !:trino-test-jdbc-compatibility-old-server,
             !:trino-tests,
             !:trino-thrift,
-            !:trino-vertica,
             !:trino-web-ui'
       - name: Upload test results
         uses: ./.github/actions/process-test-results
@@ -408,6 +445,13 @@ jobs:
         with:
           has-failed-tests: ${{ steps.tests.outcome == 'failure' }}
           upload-heap-dump: ${{ env.SECRETS_PRESENT == '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because test-other-modules failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   build-test-matrix:
     needs: path-filters
@@ -416,7 +460,7 @@ jobs:
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -475,7 +519,6 @@ jobs:
             - { modules: lib/trino-filesystem-azure, profile: cloud-tests }
             - { modules: lib/trino-filesystem-gcs, profile: cloud-tests }
             - { modules: lib/trino-filesystem-s3, profile: cloud-tests }
-            - { modules: lib/trino-hdfs, profile: cloud-tests }
             - { modules: plugin/trino-bigquery }
             - { modules: plugin/trino-bigquery, profile: cloud-tests-2 }
             - { modules: plugin/trino-cassandra }
@@ -486,6 +529,7 @@ jobs:
             - { modules: plugin/trino-druid }
             - { modules: plugin/trino-duckdb }
             - { modules: plugin/trino-elasticsearch }
+            - { modules: plugin/trino-exchange-filesystem, profile: cloud-tests }
             - { modules: plugin/trino-exasol }
             - { modules: plugin/trino-google-sheets }
             - { modules: plugin/trino-hive }
@@ -502,7 +546,6 @@ jobs:
             - { modules: plugin/trino-mariadb }
             - { modules: plugin/trino-mongodb }
             - { modules: plugin/trino-mysql }
-            - { modules: plugin/trino-openlineage }
             - { modules: plugin/trino-opensearch }
             - { modules: plugin/trino-oracle }
             - { modules: plugin/trino-pinot }
@@ -516,7 +559,6 @@ jobs:
             - { modules: plugin/trino-snowflake }
             - { modules: plugin/trino-snowflake, profile: cloud-tests }
             - { modules: plugin/trino-sqlserver }
-            - { modules: plugin/trino-vertica }
             - { modules: testing/trino-faulttolerant-tests, profile: default }
             - { modules: testing/trino-faulttolerant-tests, profile: test-fault-tolerant-delta }
             - { modules: testing/trino-faulttolerant-tests, profile: test-fault-tolerant-hive }
@@ -526,17 +568,24 @@ jobs:
           ./.github/bin/build-matrix-from-impacted.py -v -i gib-impacted.log -m .github/test-matrix.yaml -o matrix.json
           echo "Matrix: $(jq '.' matrix.json)"
           echo "matrix=$(jq -c '.' matrix.json)" >> $GITHUB_OUTPUT
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because build-test-matrix failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   test:
     runs-on: 'ubuntu-latest'
     needs: build-test-matrix
     if: needs.build-test-matrix.outputs.matrix != '{}'
     strategy:
-      fail-fast: false
+      fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix: ${{ fromJson(needs.build-test-matrix.outputs.matrix) }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -547,8 +596,8 @@ jobs:
         timeout-minutes: 15
         with:
           cache: restore
-          cleanup-node: ${{ format('{0}', matrix.modules == 'plugin/trino-singlestore' || matrix.modules == 'plugin/trino-exasol' || matrix.modules == 'plugin/trino-oracle') }}
-          java-version: ${{ matrix.jdk != '' && matrix.jdk || '25' }}
+          cleanup-node: ${{ format('{0}', matrix.modules == 'plugin/trino-singlestore' || matrix.modules == 'plugin/trino-exasol' || matrix.modules == 'plugin/trino-oracle' || matrix.modules == 'plugin/trino-iceberg' || matrix.modules == 'plugin/trino-lakehouse') }}
+          java-version: ${{ matrix.jdk != '' && matrix.jdk || '25.0.2' }}
       - name: Maven Install
         run: |
           export MAVEN_OPTS="${MAVEN_INSTALL_OPTS}"
@@ -562,10 +611,10 @@ jobs:
           && ! (contains(matrix.modules, 'trino-redshift') && contains(matrix.profile, 'cloud-tests'))
           && ! (contains(matrix.modules, 'trino-redshift') && contains(matrix.profile, 'fte-tests'))
           && ! (contains(matrix.modules, 'trino-snowflake') && contains(matrix.profile, 'cloud-tests'))
+          && ! (contains(matrix.modules, 'trino-exchange-filesystem') && contains(matrix.profile, 'cloud-tests'))
           && ! (contains(matrix.modules, 'trino-filesystem-azure') && contains(matrix.profile, 'cloud-tests'))
           && ! (contains(matrix.modules, 'trino-filesystem-gcs') && contains(matrix.profile, 'cloud-tests'))
           && ! (contains(matrix.modules, 'trino-filesystem-s3') && contains(matrix.profile, 'cloud-tests'))
-          && ! (contains(matrix.modules, 'trino-hdfs') && contains(matrix.profile, 'cloud-tests'))
         run: $MAVEN test ${MAVEN_TEST} -pl ${{ matrix.modules }} ${{ matrix.profile != '' && format('-P {0}', matrix.profile) || '' }}
       # Additional tests for selected modules
       - name: HDFS file system cache isolated JVM tests
@@ -573,19 +622,18 @@ jobs:
         if: contains(matrix.modules, 'trino-hdfs')
         run: |
           $MAVEN test ${MAVEN_TEST} -pl :trino-hdfs -P test-isolated-jvm-suites
-      - name: Hadoop FileSystem Cloud Tests
-        id: tests-hdfs
+      - name: FileSystem Exchange Storage Cloud Tests
+        id: tests-filesystem-exchange
         env:
-          AWS_ACCESS_KEY_ID: ${{ vars.TRINO_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ vars.TRINO_AWS_REGION }}
-          S3_BUCKET: ${{ vars.TRINO_S3_BUCKET }}
-          S3_BUCKET_ENDPOINT: "s3.${{ vars.TRINO_AWS_REGION }}.amazonaws.com"
+          ABFS_FLAT_ACCOUNT: ${{ vars.AZURE_ABFS_FLAT_ACCOUNT }}
+          ABFS_FLAT_ACCESS_KEY: ${{ secrets.AZURE_ABFS_FLAT_ACCESS_KEY }}
+          ABFS_HIERARCHICAL_ACCOUNT: ${{ vars.AZURE_ABFS_HIERARCHICAL_ACCOUNT }}
+          ABFS_HIERARCHICAL_ACCESS_KEY: ${{ secrets.AZURE_ABFS_HIERARCHICAL_ACCESS_KEY }}
         if: >-
-          contains(matrix.modules, 'trino-hdfs') && contains(matrix.profile, 'cloud-tests') &&
-          (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.AWS_ACCESS_KEY_ID != '' || env.AWS_SECRET_ACCESS_KEY != '')
+          contains(matrix.modules, 'trino-exchange-filesystem') && contains(matrix.profile, 'cloud-tests') &&
+          (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.ABFS_FLAT_ACCESS_KEY != '' || env.ABFS_HIERARCHICAL_ACCESS_KEY != '')
         run: |
-          $MAVEN test ${MAVEN_TEST} -pl :trino-hdfs -P cloud-tests
+          $MAVEN test ${MAVEN_TEST} -pl ${{ matrix.modules }} ${{ format('-P {0}', matrix.profile) }}
       - name: S3 FileSystem Cloud Tests
         id: tests-s3
         env:
@@ -662,6 +710,7 @@ jobs:
         id: tests-bq
         env:
           BIGQUERY_CREDENTIALS_KEY: ${{ secrets.BIGQUERY_CREDENTIALS_KEY }}
+          BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY: ${{ secrets.BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY }}
           GCP_STORAGE_BUCKET: ${{ vars.GCP_STORAGE_BUCKET }}
           BIGQUERY_TESTING_BIGLAKE_CONNECTION_ID: ${{ vars.BIGQUERY_TESTING_BIGLAKE_CONNECTION_ID }}
           BIGQUERY_TESTING_PROJECT_ID: ${{ vars.BIGQUERY_TESTING_PROJECT_ID }}
@@ -670,6 +719,7 @@ jobs:
         run: |
           $MAVEN test ${MAVEN_TEST} -pl :trino-bigquery -Pcloud-tests-1 \
             -Dtesting.bigquery.credentials-key="${BIGQUERY_CREDENTIALS_KEY}" \
+            -Dtesting.bigquery-case-insensitive.credentials-key="${BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY}" \
             -Dtesting.gcp-storage-bucket="${GCP_STORAGE_BUCKET}" \
             -Dtesting.bigquery-connection-id="${BIGQUERY_TESTING_BIGLAKE_CONNECTION_ID}" \
             -Dtesting.bigquery-project-id="${BIGQUERY_TESTING_PROJECT_ID}" \
@@ -685,13 +735,6 @@ jobs:
             -Dtesting.bigquery.credentials-key="${BIGQUERY_CREDENTIALS_KEY}" \
             -Dtesting.gcp-storage-bucket="${GCP_STORAGE_BUCKET}" \
             -Dtesting.alternate-bq-project-id=bigquery-cicd-alternate
-      - name: Cloud BigQuery Case Insensitive Mapping Tests
-        id: tests-bq-ci
-        env:
-          BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY: ${{ secrets.BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY }}
-        if: matrix.modules == 'plugin/trino-bigquery' && !contains(matrix.profile, 'cloud-tests-2') && (env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || env.BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY != '')
-        run: |
-          $MAVEN test ${MAVEN_TEST} -pl :trino-bigquery -Pcloud-tests-case-insensitive-mapping -Dtesting.bigquery.credentials-key="${BIGQUERY_CASE_INSENSITIVE_CREDENTIALS_KEY}"
       - name: Cloud Snowflake Tests
         id: tests-snowflake
         env:
@@ -808,13 +851,12 @@ jobs:
           has-failed-tests: >-
             ${{ steps.tests.outcome == 'failure'
               || steps.tests-hdfs-isolated.outcome == 'failure'
-              || steps.tests-hdfs.outcome == 'failure'
               || steps.tests-s3.outcome == 'failure'
               || steps.tests-azure.outcome == 'failure'
+              || steps.tests-filesystem-exchange.outcome == 'failure'
               || steps.tests-gcs.outcome == 'failure'
               || steps.tests-delta.outcome == 'failure'
               || steps.tests-bq.outcome == 'failure'
-              || steps.tests-bq-ci.outcome == 'failure'
               || steps.tests-bq-smoke.outcome == 'failure'
               || steps.tests-iceberg.outcome == 'failure'
               || steps.tests-redshift.outcome == 'failure'
@@ -833,6 +875,13 @@ jobs:
           check_name: ${{ github.job }} with secrets
           conclusion: ${{ job.status }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because test (${{ matrix.modules }}, ${{ matrix.profile }}, ${{ matrix.jdk }}) failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   build-pt:
     needs: path-filters
@@ -842,7 +891,7 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       product-tests-changed: ${{ steps.filter.outputs.product-tests }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits to be able to determine merge base for GIB
           ref: |
@@ -854,7 +903,7 @@ jobs:
         with:
           cache: restore
           cleanup-node: true
-      - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
         id: filter
         with:
           filters: |
@@ -881,7 +930,7 @@ jobs:
           echo "Impacted plugin features:"
           cat impacted-features.log
       - name: Product tests artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: product tests and server tarball
           path: |
@@ -906,11 +955,11 @@ jobs:
             - suite-7-non-generic
             - suite-hive-transactional
             - suite-azure
-            - suite-delta-lake-databricks122
             - suite-delta-lake-databricks133
             - suite-delta-lake-databricks143
             - suite-delta-lake-databricks154
             - suite-delta-lake-databricks164
+            - suite-delta-lake-databricks173
             - suite-exasol
             - suite-ranger
             - suite-gcs
@@ -923,6 +972,7 @@ jobs:
             - suite-parquet
             - suite-oauth2
             - suite-ldap
+            - suite-loki
             - suite-compatibility
             - suite-all-connectors-smoke
             - suite-delta-lake-oss
@@ -946,9 +996,6 @@ jobs:
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.GCP_CREDENTIALS_KEY != '' }}
 
-            - suite: suite-delta-lake-databricks122
-              ignore exclusion if: >-
-                ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
             - suite: suite-delta-lake-databricks133
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
@@ -959,6 +1006,9 @@ jobs:
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
             - suite: suite-delta-lake-databricks164
+              ignore exclusion if: >-
+                ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
+            - suite: suite-delta-lake-databricks173
               ignore exclusion if: >-
                 ${{ env.CI_SKIP_SECRETS_PRESENCE_CHECKS != '' || secrets.DATABRICKS_TOKEN != '' }}
             - suite: suite-snowflake
@@ -1005,11 +1055,11 @@ jobs:
           AWS_REGION: ""
           TRINO_AWS_ACCESS_KEY_ID: ""
           TRINO_AWS_SECRET_ACCESS_KEY: ""
-          DATABRICKS_122_JDBC_URL: ""
           DATABRICKS_133_JDBC_URL: ""
           DATABRICKS_143_JDBC_URL: ""
           DATABRICKS_154_JDBC_URL: ""
           DATABRICKS_164_JDBC_URL: ""
+          DATABRICKS_173_JDBC_URL: ""
           DATABRICKS_LOGIN: ""
           DATABRICKS_TOKEN: ""
           GCP_CREDENTIALS_KEY: ""
@@ -1028,6 +1078,13 @@ jobs:
         run: |
           echo "Matrix: $(jq '.' matrix.json)"
           echo "matrix=$(cat matrix.json)" >> $GITHUB_OUTPUT
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because build-pt failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   pt:
     runs-on: 'ubuntu-latest'
@@ -1035,13 +1092,13 @@ jobs:
     name: pt (${{ matrix.config }}, ${{ matrix.suite }}, ${{ matrix.jdk }})
     if: needs.build-pt.outputs.matrix != '{}'
     strategy:
-      fail-fast: false
+      fail-fast: ${{ github.event_name == 'merge_group' }}
       matrix: ${{ fromJson(needs.build-pt.outputs.matrix) }}
     # PT Launcher's timeout defaults to 2h, add some margin
     timeout-minutes: 130
     needs: build-pt
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # checkout all commits, as the build result depends on `git describe` equivalent
           ref: |
@@ -1053,8 +1110,9 @@ jobs:
         with:
           # The job doesn't build anything, so the ~/.m2/repository cache isn't useful
           cache: 'false'
+          cleanup-node: ${{ format('{0}', matrix.suite == 'suite-compatibility') }}
       - name: Product tests artifact
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: product tests and server tarball
       - name: Fix artifact permissions
@@ -1077,11 +1135,11 @@ jobs:
           AWS_REGION: ${{ vars.TRINO_AWS_REGION }}
           TRINO_AWS_ACCESS_KEY_ID: ${{ vars.TRINO_AWS_ACCESS_KEY_ID }}
           TRINO_AWS_SECRET_ACCESS_KEY: ${{ secrets.TRINO_AWS_SECRET_ACCESS_KEY }}
-          DATABRICKS_122_JDBC_URL: ${{ vars.DATABRICKS_122_JDBC_URL }}
           DATABRICKS_133_JDBC_URL: ${{ vars.DATABRICKS_133_JDBC_URL }}
           DATABRICKS_143_JDBC_URL: ${{ vars.DATABRICKS_143_JDBC_URL }}
           DATABRICKS_154_JDBC_URL: ${{ vars.DATABRICKS_154_JDBC_URL }}
           DATABRICKS_164_JDBC_URL: ${{ vars.DATABRICKS_164_JDBC_URL }}
+          DATABRICKS_173_JDBC_URL: ${{ vars.DATABRICKS_173_JDBC_URL }}
           DATABRICKS_LOGIN: token
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
           GCP_CREDENTIALS_KEY: ${{ secrets.GCP_CREDENTIALS_KEY }}
@@ -1117,6 +1175,13 @@ jobs:
           check_name: ${{ github.job }} with secrets
           conclusion: ${{ job.status }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cancel merge queue workflow
+        if: ${{ failure() && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "::error::Cancelling merge queue workflow because pt (${{ matrix.config }}, ${{ matrix.suite }}, ${{ matrix.jdk }}) failed"
+          gh run cancel "${GITHUB_RUN_ID}" --repo "${GITHUB_REPOSITORY}"
 
   build-success:
     if: ${{ always() }} # if `failure()` would not work for cancellations, `!success()` would not work for skipped jobs

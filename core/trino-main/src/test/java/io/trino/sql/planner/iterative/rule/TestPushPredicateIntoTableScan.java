@@ -40,11 +40,12 @@ import io.trino.spi.predicate.NullableValue;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.Type;
 import io.trino.sql.ir.Call;
-import io.trino.sql.ir.Coalesce;
+import io.trino.sql.ir.Case;
 import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Logical;
 import io.trino.sql.ir.Reference;
+import io.trino.sql.ir.WhenClause;
 import io.trino.sql.planner.iterative.rule.test.BaseRuleTest;
 import io.trino.testing.TestingTransactionHandle;
 import org.junit.jupiter.api.BeforeAll;
@@ -60,6 +61,8 @@ import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.spi.type.VarcharType.createVarcharType;
+import static io.trino.sql.ir.Booleans.FALSE;
+import static io.trino.sql.ir.Booleans.TRUE;
 import static io.trino.sql.ir.Comparison.Operator.EQUAL;
 import static io.trino.sql.ir.Logical.Operator.AND;
 import static io.trino.sql.ir.Logical.Operator.OR;
@@ -74,7 +77,7 @@ public class TestPushPredicateIntoTableScan
         extends BaseRuleTest
 {
     private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
-    private static final ResolvedFunction MODULUS_BIGINT = FUNCTIONS.resolveOperator(OperatorType.MODULUS, ImmutableList.of(BIGINT, BIGINT));
+    private static final ResolvedFunction MODULO_BIGINT = FUNCTIONS.resolveOperator(OperatorType.MODULO, ImmutableList.of(BIGINT, BIGINT));
 
     private static final String MOCK_CATALOG = "mock_catalog";
     private static final ConnectorTableHandle CONNECTOR_PARTITIONED_TABLE_HANDLE =
@@ -224,12 +227,14 @@ public class TestPushPredicateIntoTableScan
                                                         .build(),
                                                 new Constant(DOUBLE, 42.0)),
                                         // non-translatable to connector expression
-                                        new Coalesce(
-                                                new Constant(BOOLEAN, null),
-                                                new Comparison(
-                                                        EQUAL,
-                                                        new Call(MODULUS_BIGINT, ImmutableList.of(new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 17L))),
-                                                        new Constant(BIGINT, 44L))),
+                                        new Case(
+                                                ImmutableList.of(new WhenClause(
+                                                        TRUE,
+                                                        new Comparison(
+                                                                EQUAL,
+                                                                new Call(MODULO_BIGINT, ImmutableList.of(new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 17L))),
+                                                                new Constant(BIGINT, 44L)))),
+                                                FALSE),
                                         Logical.or(
                                                 new Comparison(EQUAL, new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 44L)),
                                                 new Comparison(EQUAL, new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 45L))))),
@@ -250,7 +255,7 @@ public class TestPushPredicateIntoTableScan
                                                 new Constant(DOUBLE, 42.0)),
                                         new Comparison(
                                                 EQUAL,
-                                                new Call(MODULUS_BIGINT, ImmutableList.of(new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 17L))),
+                                                new Call(MODULO_BIGINT, ImmutableList.of(new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 17L))),
                                                 new Constant(BIGINT, 44L))),
                                 constrainedTableScanWithTableLayout(
                                         "nation",
@@ -283,7 +288,7 @@ public class TestPushPredicateIntoTableScan
     {
         tester().assertThat(pushPredicateIntoTableScan)
                 .on(p -> p.filter(
-                        new Logical(AND, ImmutableList.of(new Comparison(EQUAL, new Call(MODULUS_BIGINT, ImmutableList.of(new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 17L))), new Constant(BIGINT, 44L)), new Comparison(EQUAL, new Call(MODULUS_BIGINT, ImmutableList.of(new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 15L))), new Constant(BIGINT, 43L)))),
+                        new Logical(AND, ImmutableList.of(new Comparison(EQUAL, new Call(MODULO_BIGINT, ImmutableList.of(new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 17L))), new Constant(BIGINT, 44L)), new Comparison(EQUAL, new Call(MODULO_BIGINT, ImmutableList.of(new Reference(BIGINT, "nationkey"), new Constant(BIGINT, 15L))), new Constant(BIGINT, 43L)))),
                         p.tableScan(
                                 nationTableHandle,
                                 ImmutableList.of(p.symbol("nationkey", BIGINT)),
@@ -406,7 +411,7 @@ public class TestPushPredicateIntoTableScan
     {
         MockConnectorFactory.Builder builder = MockConnectorFactory.builder();
         builder
-                .withApplyFilter((session, tableHandle, constraint) -> {
+                .withApplyFilter((_, tableHandle, constraint) -> {
                     if (tableHandle.equals(CONNECTOR_PARTITIONED_TABLE_HANDLE_TO_UNPARTITIONED)) {
                         return Optional.of(new ConstraintApplicationResult<>(CONNECTOR_UNPARTITIONED_TABLE_HANDLE, TupleDomain.all(), constraint.getExpression(), false));
                     }
@@ -415,7 +420,7 @@ public class TestPushPredicateIntoTableScan
                     }
                     return Optional.empty();
                 })
-                .withGetTableProperties((session, tableHandle) -> {
+                .withGetTableProperties((_, tableHandle) -> {
                     if (tableHandle.equals(CONNECTOR_PARTITIONED_TABLE_HANDLE) || tableHandle.equals(CONNECTOR_PARTITIONED_TABLE_HANDLE_TO_UNPARTITIONED)) {
                         return new ConnectorTableProperties(
                                 TupleDomain.all(),

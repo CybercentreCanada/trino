@@ -15,6 +15,7 @@ package io.trino.execution;
 
 import com.google.common.base.Ticker;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.SettableFuture;
@@ -209,13 +210,13 @@ public class TestSqlTaskExecution
                 driverTimeoutExecutor,
                 DataSize.of(1, MEGABYTE),
                 new SpillSpaceTracker(DataSize.of(1, GIGABYTE)));
-        return queryContext.addTaskContext(taskStateMachine, TEST_SESSION, () -> {}, false, false);
+        return queryContext.addTaskContext(taskStateMachine, ImmutableMap.of(), TEST_SESSION, () -> {}, false, false);
     }
 
     private PartitionedOutputBuffer newTestingOutputBuffer(ScheduledExecutorService taskNotificationExecutor)
     {
         return new PartitionedOutputBuffer(
-                TASK_ID.toString(),
+                TASK_ID.attemptId(),
                 new OutputBufferStateMachine(TASK_ID, taskNotificationExecutor),
                 PipelinedOutputBuffers.createInitial(PARTITIONED)
                         .withBuffer(OUTPUT_BUFFER_ID, 0)
@@ -266,11 +267,11 @@ public class TestSqlTaskExecution
                         .describedAs("bufferComplete is set before enough positions are consumed")
                         .isFalse();
                 BufferResult results = outputBuffer.get(outputBufferId, sequenceId, DataSize.of(1, MEGABYTE)).get(nanoUntil - System.nanoTime(), TimeUnit.NANOSECONDS);
-                bufferComplete = results.isBufferComplete();
-                for (Slice serializedPage : results.getSerializedPages()) {
+                bufferComplete = results.bufferComplete();
+                for (Slice serializedPage : results.serializedPages()) {
                     surplusPositions += getSerializedPagePositionCount(serializedPage);
                 }
-                sequenceId += results.getSerializedPages().size();
+                sequenceId += results.serializedPages().size();
             }
         }
 
@@ -281,18 +282,18 @@ public class TestSqlTaskExecution
             long nanoUntil = System.nanoTime() + timeout.toMillis() * 1_000_000;
             while (!bufferComplete) {
                 BufferResult results = outputBuffer.get(outputBufferId, sequenceId, DataSize.of(1, MEGABYTE)).get(nanoUntil - System.nanoTime(), TimeUnit.NANOSECONDS);
-                bufferComplete = results.isBufferComplete();
-                for (Slice serializedPage : results.getSerializedPages()) {
+                bufferComplete = results.bufferComplete();
+                for (Slice serializedPage : results.serializedPages()) {
                     assertThat(getSerializedPagePositionCount(serializedPage)).isEqualTo(0);
                 }
-                sequenceId += results.getSerializedPages().size();
+                sequenceId += results.serializedPages().size();
             }
         }
 
         public void abort()
         {
             outputBuffer.destroy(outputBufferId);
-            assertThat(outputBuffer.getInfo().getState()).isEqualTo(BufferState.FINISHED);
+            assertThat(outputBuffer.getInfo().state()).isEqualTo(BufferState.FINISHED);
         }
     }
 

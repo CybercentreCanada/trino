@@ -81,6 +81,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -242,22 +243,20 @@ public final class StreamPropertyDerivations
                 case LEFT -> leftProperties
                         .translate(column -> PropertyDerivations.filterIfMissing(node.getOutputSymbols(), column))
                         .unordered(unordered);
-                case RIGHT ->
-                    // since this is a right join, none of the matched output rows will contain nulls
-                    // in the left partitioning columns, and all of the unmatched rows will have
-                    // null for all left columns.  therefore, the output is still partitioned on the
-                    // left columns.  the only change is there will be at least two streams so the
-                    // output is multiple
-                    // There is one exception to this.  If the left is partitioned on empty set, we
-                    // we can't say that the output is partitioned on empty set, but we can say that
-                    // it is partitioned on the left join symbols
-                    // todo do something smarter after https://github.com/prestodb/presto/pull/5877 is merged
-                        new StreamProperties(MULTIPLE, Optional.empty(), false);
-                case FULL ->
-                    // the left can contain nulls in any stream so we can't say anything about the
-                    // partitioning, and nulls from the right are produced from a extra new stream
-                    // so we will always have multiple streams.
-                        new StreamProperties(MULTIPLE, Optional.empty(), false);
+                // since this is a right join, none of the matched output rows will contain nulls
+                // in the left partitioning columns, and all of the unmatched rows will have
+                // null for all left columns.  therefore, the output is still partitioned on the
+                // left columns.  the only change is there will be at least two streams so the
+                // output is multiple
+                // There is one exception to this.  If the left is partitioned on empty set, we
+                // we can't say that the output is partitioned on empty set, but we can say that
+                // it is partitioned on the left join symbols
+                // todo do something smarter after https://github.com/prestodb/presto/pull/5877 is merged
+                case RIGHT -> new StreamProperties(MULTIPLE, Optional.empty(), false);
+                // the left can contain nulls in any stream so we can't say anything about the
+                // partitioning, and nulls from the right are produced from a extra new stream
+                // so we will always have multiple streams.
+                case FULL -> new StreamProperties(MULTIPLE, Optional.empty(), false);
             };
         }
 
@@ -283,10 +282,9 @@ public final class StreamPropertyDerivations
 
             return switch (node.getType()) {
                 case INNER -> probeProperties;
-                case SOURCE_OUTER ->
-                    // the probe can contain nulls in any stream so we can't say anything about the
-                    // partitioning but the other properties of the probe will be maintained.
-                        probeProperties.withUnspecifiedPartitioning();
+                // the probe can contain nulls in any stream so we can't say anything about the
+                // partitioning but the other properties of the probe will be maintained.
+                case SOURCE_OUTER -> probeProperties.withUnspecifiedPartitioning();
             };
         }
 
@@ -377,8 +375,9 @@ public final class StreamPropertyDerivations
                         new StreamProperties(
                                 FIXED,
                                 Optional.of(node.getPartitioningScheme().getPartitioning().getArguments().stream()
-                                        .map(ArgumentBinding::getColumn)
-                                        .collect(toImmutableList())), false);
+                                            .map(ArgumentBinding::getColumn)
+                                            .collect(toImmutableList())),
+                                false);
                 case REPLICATE -> new StreamProperties(MULTIPLE, Optional.empty(), false);
             };
         }
@@ -412,7 +411,7 @@ public final class StreamPropertyDerivations
         private static Map<Symbol, Symbol> computeIdentityTranslations(Map<Symbol, Expression> assignments)
         {
             Map<Symbol, Symbol> inputToOutput = new HashMap<>();
-            for (Map.Entry<Symbol, Expression> assignment : assignments.entrySet()) {
+            for (Entry<Symbol, Expression> assignment : assignments.entrySet()) {
                 if (assignment.getValue() instanceof Reference) {
                     inputToOutput.put(Symbol.from(assignment.getValue()), assignment.getKey());
                 }
@@ -424,7 +423,7 @@ public final class StreamPropertyDerivations
         public StreamProperties visitGroupId(GroupIdNode node, List<StreamProperties> inputProperties)
         {
             Map<Symbol, Symbol> inputToOutputMappings = new HashMap<>();
-            for (Map.Entry<Symbol, Symbol> setMapping : node.getGroupingColumns().entrySet()) {
+            for (Entry<Symbol, Symbol> setMapping : node.getGroupingColumns().entrySet()) {
                 if (node.getCommonGroupingColumns().contains(setMapping.getKey())) {
                     // TODO: Add support for translating a property on a single column to multiple columns
                     // when GroupIdNode is copying a single input grouping column into multiple output grouping columns (i.e. aliases), this is basically picking one arbitrarily
@@ -582,7 +581,8 @@ public final class StreamPropertyDerivations
                 return properties;
             }
 
-            return new StreamProperties(properties.getDistribution(),
+            return new StreamProperties(
+                    properties.getDistribution(),
                     Optional.of(ImmutableList.of(node.getIdColumn())),
                     properties.isOrdered());
         }

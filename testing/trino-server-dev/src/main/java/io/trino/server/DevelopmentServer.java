@@ -24,8 +24,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static com.google.inject.multibindings.OptionalBinder.newOptionalBinder;
+import static io.airlift.bootstrap.ClosingBinder.closingBinder;
 import static io.airlift.configuration.ConfigBinder.configBinder;
-import static io.trino.plugin.base.ClosingBinder.closingBinder;
 
 public final class DevelopmentServer
         extends Server
@@ -55,7 +55,7 @@ public final class DevelopmentServer
         }
     }
 
-    public static void main(String[] args)
+    static void main()
     {
         new DevelopmentServer().start("dev");
     }

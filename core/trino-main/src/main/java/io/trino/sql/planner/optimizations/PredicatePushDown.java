@@ -98,7 +98,6 @@ import static io.trino.sql.ir.IrExpressions.mayFail;
 import static io.trino.sql.ir.IrUtils.combineConjuncts;
 import static io.trino.sql.ir.IrUtils.extractConjuncts;
 import static io.trino.sql.ir.IrUtils.filterDeterministicConjuncts;
-import static io.trino.sql.ir.optimizer.IrExpressionOptimizer.newOptimizer;
 import static io.trino.sql.planner.DeterminismEvaluator.isDeterministic;
 import static io.trino.sql.planner.EqualityInference.isInferenceCandidate;
 import static io.trino.sql.planner.ExpressionSymbolInliner.inlineSymbols;
@@ -177,7 +176,7 @@ public class PredicatePushDown
             this.effectivePredicateExtractor = new EffectivePredicateExtractor(
                     plannerContext,
                     useTableProperties && isPredicatePushdownUseTableProperties(session));
-            optimizer = newOptimizer(plannerContext);
+            optimizer = plannerContext.getExpressionOptimizer();
             this.allowUnsafePushdown = SystemSessionProperties.isUnsafePushdownAllowed(session);
         }
 
@@ -650,7 +649,7 @@ public class PredicatePushDown
             for (Symbol buildSymbol : buildSymbols) {
                 buildSymbolToDynamicFilter.computeIfAbsent(
                         buildSymbol,
-                        key -> new DynamicFilterId("df_" + idAllocator.getNextId().toString()));
+                        _ -> new DynamicFilterId("df_" + idAllocator.getNextId().toString()));
             }
 
             // Multiple probe symbols may depend on a single build symbol / dynamic filter ID:
@@ -921,7 +920,8 @@ public class PredicatePushDown
                 }
             });
 
-            return new OuterJoinPushDownResult(combineConjuncts(outerPushdownConjuncts.build()),
+            return new OuterJoinPushDownResult(
+                    combineConjuncts(outerPushdownConjuncts.build()),
                     combineConjuncts(innerPushdownConjuncts.build()),
                     combineConjuncts(joinConjuncts.build()),
                     combineConjuncts(postJoinConjuncts.build()));
@@ -1534,7 +1534,7 @@ public class PredicatePushDown
                 return new FilterNode(idAllocator.getNextId(), node, inheritedPredicate);
             }
 
-            //TODO for LEFT or INNER join type, push down UnnestNode's filter on replicate symbols
+            // TODO for LEFT or INNER join type, push down UnnestNode's filter on replicate symbols
             EqualityInference equalityInference = new EqualityInference(inheritedPredicate);
 
             List<Expression> pushdownConjuncts = new ArrayList<>();

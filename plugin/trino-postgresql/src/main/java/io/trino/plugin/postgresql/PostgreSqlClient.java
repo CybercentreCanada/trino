@@ -74,6 +74,7 @@ import io.trino.plugin.jdbc.aggregation.ImplementVariancePop;
 import io.trino.plugin.jdbc.aggregation.ImplementVarianceSamp;
 import io.trino.plugin.jdbc.expression.JdbcConnectorExpressionRewriterBuilder;
 import io.trino.plugin.jdbc.expression.ParameterizedExpression;
+import io.trino.plugin.jdbc.expression.RewriteCoalesce;
 import io.trino.plugin.jdbc.expression.RewriteIn;
 import io.trino.plugin.jdbc.logging.RemoteQueryModifier;
 import io.trino.plugin.postgresql.PostgreSqlConfig.ArrayMapping;
@@ -116,6 +117,7 @@ import io.trino.spi.type.TypeSignature;
 import io.trino.spi.type.VarcharType;
 import org.jdbi.v3.core.Handle;
 import org.jdbi.v3.core.Jdbi;
+import org.locationtech.jts.geom.Geometry;
 import org.postgresql.core.TypeInfo;
 import org.postgresql.jdbc.PgConnection;
 
@@ -157,11 +159,10 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.slice.Slices.wrappedBuffer;
+import static io.trino.geospatial.serde.JtsGeometrySerde.deserialize;
+import static io.trino.geospatial.serde.JtsGeometrySerde.serialize;
 import static io.trino.plugin.base.util.JsonTypeUtil.jsonParse;
 import static io.trino.plugin.base.util.JsonTypeUtil.toJsonValue;
-import static io.trino.plugin.geospatial.GeoFunctions.stAsBinary;
-import static io.trino.plugin.geospatial.GeoFunctions.stGeomFromBinary;
-import static io.trino.plugin.jdbc.DecimalConfig.DecimalMapping.ALLOW_OVERFLOW;
 import static io.trino.plugin.jdbc.DecimalSessionSessionProperties.getDecimalDefaultScale;
 import static io.trino.plugin.jdbc.DecimalSessionSessionProperties.getDecimalRounding;
 import static io.trino.plugin.jdbc.DecimalSessionSessionProperties.getDecimalRoundingMode;
@@ -185,6 +186,8 @@ import static io.trino.plugin.jdbc.StandardColumnMappings.fromTrinoTimestamp;
 import static io.trino.plugin.jdbc.StandardColumnMappings.integerColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.integerWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.longDecimalWriteFunction;
+import static io.trino.plugin.jdbc.StandardColumnMappings.numberColumnMapping;
+import static io.trino.plugin.jdbc.StandardColumnMappings.numberWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.realColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.realWriteFunction;
 import static io.trino.plugin.jdbc.StandardColumnMappings.shortDecimalWriteFunction;
@@ -220,6 +223,7 @@ import static io.trino.spi.type.DateType.DATE;
 import static io.trino.spi.type.DecimalType.createDecimalType;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.IntegerType.INTEGER;
+import static io.trino.spi.type.NumberType.NUMBER;
 import static io.trino.spi.type.RealType.REAL;
 import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.StandardTypes.JSON;
@@ -234,17 +238,16 @@ import static io.trino.spi.type.Timestamps.PICOSECONDS_PER_DAY;
 import static io.trino.spi.type.Timestamps.PICOSECONDS_PER_NANOSECOND;
 import static io.trino.spi.type.Timestamps.round;
 import static io.trino.spi.type.TinyintType.TINYINT;
-import static io.trino.spi.type.TypeSignature.mapType;
 import static io.trino.spi.type.UuidType.javaUuidToTrinoUuid;
 import static io.trino.spi.type.UuidType.trinoUuidToJavaUuid;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 import static io.trino.spi.type.VarcharType.createVarcharType;
+import static java.lang.Math.clamp;
 import static java.lang.Math.floorDiv;
 import static java.lang.Math.floorMod;
 import static java.lang.Math.max;
-import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.lang.String.join;
 import static java.math.RoundingMode.UNNECESSARY;
@@ -264,7 +267,11 @@ public class PostgreSqlClient
     private static final int ARRAY_RESULT_SET_VALUE_COLUMN = 2;
     private static final String DUPLICATE_TABLE_SQLSTATE = "42P07";
     private static final int POSTGRESQL_MAX_SUPPORTED_TIMESTAMP_PRECISION = 6;
-    private static final int PRECISION_OF_UNSPECIFIED_DECIMAL = 0;
+    /**
+     * COLUMN_SIZE value for "unconstrained numeric" columns.
+     * Starting with PostgreSQL 15, unconstrained numeric columns can store up to 131072 digits before the decimal point and up to 16383 digits after the decimal point.
+     */
+    private static final int UNCONSTRAINED_NUMERIC_COLUMN_SIZE = 0;
 
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss.SSSSSS");
 
@@ -311,7 +318,7 @@ public class PostgreSqlClient
         super("\"", connectionFactory, queryBuilder, config.getJdbcTypesMappedToVarchar(), identifierMapping, queryModifier, true);
         this.jsonType = typeManager.getType(new TypeSignature(JSON));
         this.uuidType = typeManager.getType(new TypeSignature(StandardTypes.UUID));
-        this.varcharMapType = (MapType) typeManager.getType(mapType(VARCHAR.getTypeSignature(), VARCHAR.getTypeSignature()));
+        this.varcharMapType = new MapType(VARCHAR, VARCHAR, typeManager.getTypeOperators());
         this.geometryType = typeManager.getType(new TypeSignature(StandardTypes.GEOMETRY));
 
         ImmutableList.Builder<String> tableTypes = ImmutableList.builder();
@@ -327,6 +334,7 @@ public class PostgreSqlClient
         this.connectorExpressionRewriter = JdbcConnectorExpressionRewriterBuilder.newBuilder()
                 .addStandardRules(this::quoted)
                 .add(new RewriteIn())
+                .add(new RewriteCoalesce())
                 .withTypeClass("integer_type", ImmutableSet.of("tinyint", "smallint", "integer", "bigint"))
                 .withTypeClass("numeric_type", ImmutableSet.of("tinyint", "smallint", "integer", "bigint", "decimal", "real", "double"))
                 .map("$equal(left, right)").to("left = right")
@@ -340,7 +348,7 @@ public class PostgreSqlClient
                 .map("$subtract(left: integer_type, right: integer_type)").to("left - right")
                 .map("$multiply(left: integer_type, right: integer_type)").to("left * right")
                 .map("$divide(left: integer_type, right: integer_type)").to("left / right")
-                .map("$modulus(left: integer_type, right: integer_type)").to("left % right")
+                .map("$modulo(left: integer_type, right: integer_type)").to("left % right")
                 .map("$negate(value: integer_type)").to("-value")
                 .map("$like(value: varchar, pattern: varchar): boolean").to("value LIKE pattern")
                 .map("$like(value: varchar, pattern: varchar, escape: varchar(1)): boolean").to("value LIKE pattern ESCAPE escape")
@@ -504,8 +512,7 @@ public class PostgreSqlClient
                     }
                     if (columnMapping.isEmpty()) {
                         UnsupportedTypeHandling unsupportedTypeHandling = getUnsupportedTypeHandling(session);
-                        verify(
-                                unsupportedTypeHandling == IGNORE,
+                        verify(unsupportedTypeHandling == IGNORE,
                                 "Unsupported type handling is set to %s, but toColumnMapping() returned empty for %s",
                                 unsupportedTypeHandling,
                                 typeHandle);
@@ -573,24 +580,22 @@ public class PostgreSqlClient
         if (mapping.isPresent()) {
             return mapping;
         }
-        switch (jdbcTypeName) {
-            case "money":
-                return Optional.of(moneyColumnMapping());
-            case "uuid":
-                return Optional.of(uuidColumnMapping());
-            case "jsonb":
-            case "json":
-                return Optional.of(jsonColumnMapping());
-            case "timestamptz":
+        Optional<ColumnMapping> typeNameMapping = switch (jdbcTypeName) {
+            case "money" -> Optional.of(moneyColumnMapping());
+            case "uuid" -> Optional.of(uuidColumnMapping());
+            case "jsonb", "json" -> Optional.of(jsonColumnMapping());
+            case "timestamptz" -> {
                 // PostgreSQL's "timestamp with time zone" is reported as Types.TIMESTAMP rather than Types.TIMESTAMP_WITH_TIMEZONE
                 int decimalDigits = typeHandle.requiredDecimalDigits();
-                return Optional.of(timestampWithTimeZoneColumnMapping(decimalDigits));
-            case "hstore":
-                return Optional.of(hstoreColumnMapping());
-            case "vector":
-                return Optional.of(vectorColumnMapping());
-            case "geometry":
-                return Optional.of(geometryColumnMapping());
+                yield Optional.of(timestampWithTimeZoneColumnMapping(decimalDigits));
+            }
+            case "hstore" -> Optional.of(hstoreColumnMapping());
+            case "vector" -> Optional.of(vectorColumnMapping());
+            case "geometry" -> Optional.of(geometryColumnMapping());
+            default -> Optional.empty();
+        };
+        if (typeNameMapping.isPresent()) {
+            return typeNameMapping;
         }
 
         // Handling of schema-qualified types
@@ -602,86 +607,117 @@ public class PostgreSqlClient
             return Optional.of(geometryColumnMapping());
         }
 
-        switch (typeHandle.jdbcType()) {
-            case Types.BIT:
-                return Optional.of(booleanColumnMapping());
+        return switch (typeHandle.jdbcType()) {
+            case Types.BIT -> Optional.of(booleanColumnMapping());
 
-            case Types.SMALLINT:
-                return Optional.of(smallintColumnMapping());
+            case Types.SMALLINT -> Optional.of(smallintColumnMapping());
 
-            case Types.INTEGER:
-                return Optional.of(integerColumnMapping());
+            case Types.INTEGER -> Optional.of(integerColumnMapping());
 
-            case Types.BIGINT:
-                return Optional.of(bigintColumnMapping());
+            case Types.BIGINT -> Optional.of(bigintColumnMapping());
 
-            case Types.REAL:
-                return Optional.of(realColumnMapping());
+            case Types.REAL -> Optional.of(realColumnMapping());
 
-            case Types.DOUBLE:
-                return Optional.of(doubleColumnMapping());
+            case Types.DOUBLE -> Optional.of(doubleColumnMapping());
 
-            case Types.NUMERIC: {
+            case Types.NUMERIC -> {
                 int columnSize = typeHandle.requiredColumnSize();
-                int precision;
-                int decimalDigits = typeHandle.decimalDigits().orElse(0);
-                if (getDecimalRounding(session) == ALLOW_OVERFLOW) {
-                    if (columnSize == PRECISION_OF_UNSPECIFIED_DECIMAL) {
-                        // decimal type with unspecified scale - up to 131072 digits before the decimal point; up to 16383 digits after the decimal point)
-                        return Optional.of(decimalColumnMapping(createDecimalType(Decimals.MAX_PRECISION, getDecimalDefaultScale(session)), getDecimalRoundingMode(session)));
-                    }
-                    precision = columnSize;
-                    if (precision > Decimals.MAX_PRECISION) {
-                        int scale = min(decimalDigits, getDecimalDefaultScale(session));
-                        return Optional.of(decimalColumnMapping(createDecimalType(Decimals.MAX_PRECISION, scale), getDecimalRoundingMode(session)));
+                OptionalInt pgScale = getPostgreSqlDecimalScale(typeHandle);
+                if (columnSize != UNCONSTRAINED_NUMERIC_COLUMN_SIZE && pgScale.isEmpty()) {
+                    // This is impossible in current PostgreSQL. We don't fall back to "overflow" mode,
+                    // as that could mean anything (e.g. PostgreSQL changing how decimal metadata is reported)
+                    // and we don't want future fix to be backwards incompatible change for connector's users.
+                    yield unsupportedTypeMapping(session, typeHandle);
+                }
+                if (columnSize != UNCONSTRAINED_NUMERIC_COLUMN_SIZE) {
+                    int scale = pgScale.orElseThrow();
+                    // Map decimal(p, -s) (negative scale) to decimal(p+s, 0).
+                    // Map decimal(p, s) with s>p, to decimal(s, s).
+                    int precision = max(columnSize + max(-scale, 0), scale);
+                    scale = max(scale, 0);
+                    if (precision <= Decimals.MAX_PRECISION) {
+                        yield Optional.of(decimalColumnMapping(createDecimalType(precision, scale), UNNECESSARY));
                     }
                 }
-                precision = columnSize + max(-decimalDigits, 0); // Map decimal(p, -s) (negative scale) to decimal(p+s, 0).
-                if (columnSize == PRECISION_OF_UNSPECIFIED_DECIMAL || precision > Decimals.MAX_PRECISION) {
-                    break;
-                }
-                return Optional.of(decimalColumnMapping(createDecimalType(precision, max(decimalDigits, 0)), UNNECESSARY));
+                yield switch (getDecimalRounding(session)) {
+                    case MAP_TO_NUMBER -> Optional.of(numberColumnMapping());
+                    case STRICT -> unsupportedTypeMapping(session, typeHandle);
+                    case ALLOW_OVERFLOW -> {
+                        int scale;
+                        if (columnSize == UNCONSTRAINED_NUMERIC_COLUMN_SIZE) {
+                            scale = getDecimalDefaultScale(session);
+                        }
+                        else {
+                            scale = clamp(pgScale.orElseThrow(), 0, getDecimalDefaultScale(session));
+                        }
+                        yield Optional.of(decimalColumnMapping(createDecimalType(Decimals.MAX_PRECISION, scale), getDecimalRoundingMode(session)));
+                    }
+                };
             }
 
-            case Types.CHAR:
-                return Optional.of(charColumnMapping(typeHandle.requiredColumnSize()));
+            case Types.CHAR -> Optional.of(charColumnMapping(typeHandle.requiredColumnSize()));
 
-            case Types.VARCHAR:
+            case Types.VARCHAR -> {
                 if (!jdbcTypeName.equals("varchar")) {
                     // This can be e.g. an ENUM
-                    return Optional.of(typedVarcharColumnMapping(jdbcTypeName));
+                    yield Optional.of(typedVarcharColumnMapping(jdbcTypeName));
                 }
-                return Optional.of(varcharColumnMapping(typeHandle.requiredColumnSize()));
+                yield Optional.of(varcharColumnMapping(typeHandle.requiredColumnSize()));
+            }
 
-            case Types.BINARY:
-                return Optional.of(varbinaryColumnMapping());
+            case Types.BINARY -> Optional.of(varbinaryColumnMapping());
 
-            case Types.DATE:
-                return Optional.of(dateColumnMappingUsingLocalDate());
+            case Types.DATE -> Optional.of(dateColumnMappingUsingLocalDate());
 
-            case Types.TIME:
-                return Optional.of(timeColumnMapping(typeHandle.requiredDecimalDigits()));
+            case Types.TIME -> Optional.of(timeColumnMapping(typeHandle.requiredDecimalDigits()));
 
-            case Types.TIMESTAMP:
+            case Types.TIMESTAMP -> {
                 TimestampType timestampType = createTimestampType(typeHandle.requiredDecimalDigits());
-                return Optional.of(ColumnMapping.longMapping(
+                yield Optional.of(ColumnMapping.longMapping(
                         timestampType,
                         timestampReadFunction(timestampType),
                         PostgreSqlClient::shortTimestampWriteFunction));
+            }
 
-            case Types.ARRAY:
+            case Types.ARRAY -> {
                 Optional<ColumnMapping> columnMapping = arrayToTrinoType(session, connection, typeHandle);
                 if (columnMapping.isPresent()) {
-                    return columnMapping;
+                    yield columnMapping;
                 }
-                break;
-        }
+                yield unsupportedTypeMapping(session, typeHandle);
+            }
+            default -> unsupportedTypeMapping(session, typeHandle);
+        };
+    }
 
+    private Optional<ColumnMapping> unsupportedTypeMapping(ConnectorSession session, JdbcTypeHandle typeHandle)
+    {
         if (getUnsupportedTypeHandling(session) == CONVERT_TO_VARCHAR) {
             return mapToUnboundedVarchar(typeHandle);
         }
-
         return Optional.empty();
+    }
+
+    private static OptionalInt getPostgreSqlDecimalScale(JdbcTypeHandle typeHandle)
+    {
+        // This should be the case for "unconstrained numeric", i.e. PostgreSQL "NUMERIC" / "DECIMAL"
+        // with precision and scale unspecified, and therefore enjoying dynamic scale.
+        if (typeHandle.decimalDigits().isEmpty()) {
+            return OptionalInt.empty();
+        }
+        int decimalDigits = typeHandle.requiredDecimalDigits();
+
+        // PostgreSQL supports scales from -1000 to 1000.
+        // The nonnegative scale number N is represented in metadata as DECIMAL_DIGITS N (so values 0..1000)
+        // The negative scale number -N is represented in metadata as DECIMAL_DIGITS 2048-N (so values 1048..2047)
+        if (0 <= decimalDigits && decimalDigits <= 1000) {
+            return OptionalInt.of(decimalDigits);
+        }
+        if ((2048 - 1000) <= decimalDigits && decimalDigits < 2048) {
+            return OptionalInt.of(decimalDigits - 2048);
+        }
+        // This is impossible in current PostgreSQL.
+        return OptionalInt.empty();
     }
 
     private Optional<ColumnMapping> arrayToTrinoType(ConnectorSession session, Connection connection, JdbcTypeHandle typeHandle)
@@ -776,6 +812,10 @@ public class PostgreSqlClient
                 return WriteMapping.longMapping(dataType, shortDecimalWriteFunction(decimalType));
             }
             return WriteMapping.objectMapping(dataType, longDecimalWriteFunction(decimalType));
+        }
+
+        if (type == NUMBER) {
+            return WriteMapping.objectMapping("decimal", numberWriteFunction());
         }
 
         if (type instanceof CharType charType) {
@@ -1001,19 +1041,20 @@ public class PostgreSqlClient
                 .map(this::quoted)
                 .collect(joining(", "));
 
-        String insertSql = """
+        String insertSql =
+                """
                 INSERT INTO %s (%s)
                 SELECT %s FROM %s temp_table
                 WHERE EXISTS (SELECT 1 FROM %s page_sink_table WHERE page_sink_table.%s = temp_table.%s)
                 """
-                .formatted(
-                        quoted(handle.getRemoteTableName()),
-                        columns,
-                        columns,
-                        quoted(temporaryTable),
-                        quoted(pageSinkTable),
-                        pageSinkIdName,
-                        pageSinkIdName);
+                        .formatted(
+                                quoted(handle.getRemoteTableName()),
+                                columns,
+                                columns,
+                                quoted(temporaryTable),
+                                quoted(pageSinkTable),
+                                pageSinkIdName,
+                                pageSinkIdName);
 
         execute(session, connection, insertSql);
     }
@@ -1053,20 +1094,21 @@ public class PostgreSqlClient
                 .map(column -> column + " = temp_table." + column)
                 .collect(joining(", "));
 
-        String updateSql = """
+        String updateSql =
+                """
                 UPDATE %s SET %s FROM
                   %s AS temp_table
                     JOIN
                   %s AS page_sink_table
                     ON page_sink_table.%s = temp_table.%s
                 """
-                .formatted(
-                        targetTableName,
-                        updateAssigns,
-                        sourceTableName,
-                        quoted(pageSinkTable),
-                        pageSinkIdName,
-                        pageSinkIdName);
+                        .formatted(
+                                targetTableName,
+                                updateAssigns,
+                                sourceTableName,
+                                quoted(pageSinkTable),
+                                pageSinkIdName,
+                                pageSinkIdName);
 
         ImmutableList.Builder<String> conditions = ImmutableList.builder();
         for (int i = 0; i < keyNamesSize; i++) {
@@ -1097,16 +1139,17 @@ public class PostgreSqlClient
 
         String pageSinkIdName = handle.getPageSinkIdColumnName().orElseThrow();
 
-        String deleteSql = """
+        String deleteSql =
+                """
                 DELETE FROM %s USING %s AS temp_table
                 JOIN %s AS page_sink_table ON page_sink_table.%s = temp_table.%s
                 """
-                .formatted(
-                        targetTableName,
-                        sourceTableName,
-                        quoted(pageSinkTable),
-                        pageSinkIdName,
-                        pageSinkIdName);
+                        .formatted(
+                                targetTableName,
+                                sourceTableName,
+                                quoted(pageSinkTable),
+                                pageSinkIdName,
+                                pageSinkIdName);
 
         String condition = handle.getColumnNames().stream()
                 .map(this::quoted)
@@ -1677,7 +1720,7 @@ public class PostgreSqlClient
         return ColumnMapping.sliceMapping(
                 jsonType,
                 arrayAsJsonReadFunction(baseElementMapping),
-                (statement, index, block) -> { throw new TrinoException(NOT_SUPPORTED, "Writing to array type is unsupported"); },
+                (_, _, _) -> { throw new TrinoException(NOT_SUPPORTED, "Writing to array type is unsupported"); },
                 DISABLE_PUSHDOWN);
     }
 
@@ -1811,7 +1854,7 @@ public class PostgreSqlClient
                         return utf8Slice(resultSet.getString(columnIndex));
                     }
                 },
-                (statement, index, value) -> { throw new TrinoException(NOT_SUPPORTED, "Money type is not supported for INSERT"); },
+                (_, _, _) -> { throw new TrinoException(NOT_SUPPORTED, "Money type is not supported for INSERT"); },
                 DISABLE_PUSHDOWN);
     }
 
@@ -1866,33 +1909,39 @@ public class PostgreSqlClient
 
     private ColumnMapping geometryColumnMapping()
     {
-        return ColumnMapping.sliceMapping(
+        return ColumnMapping.objectMapping(
                 geometryType,
-                (resultSet, columnIndex) -> {
+                ObjectReadFunction.of(Geometry.class, (resultSet, columnIndex) -> {
                     String hexWkb = resultSet.getString(columnIndex);
                     byte[] wkb = HexFormat.of().parseHex(hexWkb);
-                    return stGeomFromBinary(wrappedBuffer(wkb));
-                },
+                    return deserialize(wrappedBuffer(wkb));
+                }),
                 geometryWriteFunction(),
                 DISABLE_PUSHDOWN);
     }
 
-    private static SliceWriteFunction geometryWriteFunction()
+    private static ObjectWriteFunction geometryWriteFunction()
     {
-        return new SliceWriteFunction()
+        return new ObjectWriteFunction()
         {
             @Override
-            public String getBindExpression()
+            public Class<?> getJavaType()
             {
-                return "ST_GeomFromWKB(?)";
+                return Geometry.class;
             }
 
             @Override
-            public void set(PreparedStatement statement, int index, Slice slice)
+            public String getBindExpression()
+            {
+                return "ST_GeomFromEWKB(?)";
+            }
+
+            @Override
+            public void set(PreparedStatement statement, int index, Object value)
                     throws SQLException
             {
-                byte[] bytes = stAsBinary(slice).getBytes();
-                statement.setBytes(index, bytes);
+                Geometry geometry = (Geometry) value;
+                statement.setBytes(index, serialize(geometry).getBytes());
             }
         };
     }
@@ -1964,7 +2013,7 @@ public class PostgreSqlClient
             return handle.createQuery("SELECT attname, null_frac, n_distinct, avg_width FROM pg_stats WHERE schemaname = :schema AND tablename = :table_name")
                     .bind("schema", schema)
                     .bind("table_name", tableName)
-                    .map((rs, ctx) -> new ColumnStatisticsResult(
+                    .map((rs, _) -> new ColumnStatisticsResult(
                             requireNonNull(rs.getString("attname"), "attname is null"),
                             Optional.ofNullable(rs.getObject("null_frac", Float.class)),
                             Optional.ofNullable(rs.getObject("n_distinct", Float.class)),

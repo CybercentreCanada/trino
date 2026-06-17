@@ -35,7 +35,7 @@ public final class ApplyProjectionUtil
 
     public static List<ConnectorExpression> extractSupportedProjectedColumns(ConnectorExpression expression)
     {
-        return extractSupportedProjectedColumns(expression, connectorExpression -> true);
+        return extractSupportedProjectedColumns(expression, _ -> true);
     }
 
     public static List<ConnectorExpression> extractSupportedProjectedColumns(ConnectorExpression expression, Predicate<ConnectorExpression> expressionPredicate)
@@ -64,8 +64,8 @@ public final class ApplyProjectionUtil
     {
         return expressionPredicate.test(expression)
                 && (expression instanceof Variable ||
-                    (expression instanceof FieldDereference fieldDereference
-                            && isPushdownSupported(fieldDereference.getTarget(), expressionPredicate)));
+                (expression instanceof FieldDereference fieldDereference
+                        && isPushdownSupported(fieldDereference.getTarget(), expressionPredicate)));
     }
 
     public static ProjectedColumnRepresentation createProjectedColumnRepresentation(ConnectorExpression expression)

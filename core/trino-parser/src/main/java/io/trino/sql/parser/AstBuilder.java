@@ -50,6 +50,7 @@ import io.trino.sql.tree.Comment;
 import io.trino.sql.tree.CommentCharacteristic;
 import io.trino.sql.tree.Commit;
 import io.trino.sql.tree.ComparisonExpression;
+import io.trino.sql.tree.CompositeIntervalQualifier;
 import io.trino.sql.tree.CompoundStatement;
 import io.trino.sql.tree.ControlStatement;
 import io.trino.sql.tree.Corresponding;
@@ -57,6 +58,7 @@ import io.trino.sql.tree.CreateBranch;
 import io.trino.sql.tree.CreateCatalog;
 import io.trino.sql.tree.CreateFunction;
 import io.trino.sql.tree.CreateMaterializedView;
+import io.trino.sql.tree.CreateMaterializedView.WhenStaleBehavior;
 import io.trino.sql.tree.CreateRole;
 import io.trino.sql.tree.CreateSchema;
 import io.trino.sql.tree.CreateTable;
@@ -86,6 +88,7 @@ import io.trino.sql.tree.DoubleLiteral;
 import io.trino.sql.tree.DropBranch;
 import io.trino.sql.tree.DropCatalog;
 import io.trino.sql.tree.DropColumn;
+import io.trino.sql.tree.DropDefaultValue;
 import io.trino.sql.tree.DropFunction;
 import io.trino.sql.tree.DropMaterializedView;
 import io.trino.sql.tree.DropNotNullConstraint;
@@ -134,8 +137,10 @@ import io.trino.sql.tree.InListExpression;
 import io.trino.sql.tree.InPredicate;
 import io.trino.sql.tree.Insert;
 import io.trino.sql.tree.Intersect;
-import io.trino.sql.tree.IntervalDayTimeDataType;
+import io.trino.sql.tree.IntervalDataType;
+import io.trino.sql.tree.IntervalField;
 import io.trino.sql.tree.IntervalLiteral;
+import io.trino.sql.tree.IntervalQualifier;
 import io.trino.sql.tree.IsNotNullPredicate;
 import io.trino.sql.tree.IsNullPredicate;
 import io.trino.sql.tree.Isolation;
@@ -181,6 +186,7 @@ import io.trino.sql.tree.MergeDelete;
 import io.trino.sql.tree.MergeInsert;
 import io.trino.sql.tree.MergeUpdate;
 import io.trino.sql.tree.NaturalJoin;
+import io.trino.sql.tree.Nearest;
 import io.trino.sql.tree.NestedColumns;
 import io.trino.sql.tree.Node;
 import io.trino.sql.tree.NodeLocation;
@@ -251,6 +257,7 @@ import io.trino.sql.tree.SelectItem;
 import io.trino.sql.tree.SessionProperty;
 import io.trino.sql.tree.SetAuthorizationStatement;
 import io.trino.sql.tree.SetColumnType;
+import io.trino.sql.tree.SetDefaultValue;
 import io.trino.sql.tree.SetPath;
 import io.trino.sql.tree.SetProperties;
 import io.trino.sql.tree.SetRole;
@@ -271,6 +278,7 @@ import io.trino.sql.tree.ShowStats;
 import io.trino.sql.tree.ShowTables;
 import io.trino.sql.tree.SimpleCaseExpression;
 import io.trino.sql.tree.SimpleGroupBy;
+import io.trino.sql.tree.SimpleIntervalQualifier;
 import io.trino.sql.tree.SingleColumn;
 import io.trino.sql.tree.SkipTo;
 import io.trino.sql.tree.SortItem;
@@ -317,7 +325,6 @@ import io.trino.sql.tree.ZeroOrOneQuantifier;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.RuleContext;
 import org.antlr.v4.runtime.Token;
-import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.TerminalNode;
 
 import java.util.ArrayDeque;
@@ -326,6 +333,7 @@ import java.util.Deque;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.IntStream;
@@ -335,6 +343,12 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static io.trino.grammar.sql.SqlBaseLexer.DAY;
+import static io.trino.grammar.sql.SqlBaseLexer.HOUR;
+import static io.trino.grammar.sql.SqlBaseLexer.MINUTE;
+import static io.trino.grammar.sql.SqlBaseLexer.MONTH;
+import static io.trino.grammar.sql.SqlBaseLexer.SECOND;
+import static io.trino.grammar.sql.SqlBaseLexer.YEAR;
 import static io.trino.grammar.sql.SqlBaseParser.TIME;
 import static io.trino.grammar.sql.SqlBaseParser.TIMESTAMP;
 import static io.trino.sql.tree.AnchorPattern.Type.PARTITION_END;
@@ -611,6 +625,14 @@ class AstBuilder
             gracePeriod = Optional.of((IntervalLiteral) visit(context.interval()));
         }
 
+        Optional<WhenStaleBehavior> whenStale = Optional.empty();
+        if (context.INLINE() != null) {
+            whenStale = Optional.of(WhenStaleBehavior.INLINE);
+        }
+        else if (context.FAIL() != null) {
+            whenStale = Optional.of(WhenStaleBehavior.FAIL);
+        }
+
         Optional<String> comment = Optional.empty();
         if (context.COMMENT() != null) {
             comment = Optional.of(visitString(context.string()).getValue());
@@ -628,6 +650,7 @@ class AstBuilder
                 context.REPLACE() != null,
                 context.EXISTS() != null,
                 gracePeriod,
+                whenStale,
                 properties,
                 comment);
     }
@@ -845,7 +868,8 @@ class AstBuilder
     @Override
     public Node visitAddColumn(SqlBaseParser.AddColumnContext context)
     {
-        return new AddColumn(getLocation(context),
+        return new AddColumn(
+                getLocation(context),
                 getQualifiedName(context.qualifiedName()),
                 (ColumnDefinition) visit(context.columnDefinition()),
                 toColumnPosition(context),
@@ -868,6 +892,27 @@ class AstBuilder
         }
 
         return Optional.empty();
+    }
+
+    @Override
+    public Node visitSetDefaultValue(SqlBaseParser.SetDefaultValueContext context)
+    {
+        return new SetDefaultValue(
+                getLocation(context),
+                getQualifiedName(context.tableName),
+                getQualifiedName(context.columnName),
+                (Expression) visit(context.literal()),
+                context.EXISTS() != null);
+    }
+
+    @Override
+    public Node visitDropDefaultValue(SqlBaseParser.DropDefaultValueContext context)
+    {
+        return new DropDefaultValue(
+                getLocation(context),
+                getQualifiedName(context.tableName),
+                getQualifiedName(context.columnName),
+                context.EXISTS() != null);
     }
 
     @Override
@@ -894,7 +939,8 @@ class AstBuilder
     @Override
     public Node visitDropColumn(SqlBaseParser.DropColumnContext context)
     {
-        return new DropColumn(getLocation(context),
+        return new DropColumn(
+                getLocation(context),
                 getQualifiedName(context.tableName),
                 getQualifiedName(context.column),
                 context.EXISTS().stream().anyMatch(node -> node.getSymbol().getTokenIndex() < context.COLUMN().getSymbol().getTokenIndex()),
@@ -1140,6 +1186,14 @@ class AstBuilder
         return new DescribeOutput(
                 getLocation(context),
                 (Identifier) visit(context.identifier()));
+    }
+
+    @Override
+    public Node visitDescribeQueryOutput(SqlBaseParser.DescribeQueryOutputContext context)
+    {
+        return new DescribeOutput(
+                getLocation(context),
+                (Query) visit(context.rootQuery()));
     }
 
     @Override
@@ -1544,7 +1598,8 @@ class AstBuilder
     @Override
     public Node visitShowCatalogs(SqlBaseParser.ShowCatalogsContext context)
     {
-        return new ShowCatalogs(getLocation(context),
+        return new ShowCatalogs(
+                getLocation(context),
                 visitIfPresent(context.pattern, StringLiteral.class).map(StringLiteral::getValue),
                 visitIfPresent(context.escape, StringLiteral.class).map(StringLiteral::getValue));
     }
@@ -2112,6 +2167,16 @@ class AstBuilder
     }
 
     @Override
+    public Node visitNearest(SqlBaseParser.NearestContext context)
+    {
+        return new Nearest(
+                getLocation(context),
+                (Relation) visit(context.relation()),
+                visitIfPresent(context.where, Expression.class),
+                (Expression) visit(context.match));
+    }
+
+    @Override
     public Node visitTableFunctionInvocation(SqlBaseParser.TableFunctionInvocationContext context)
     {
         return visit(context.tableFunctionCall());
@@ -2398,9 +2463,10 @@ class AstBuilder
     {
         return new FunctionCall(
                 getLocation(context.CONCAT()),
-                QualifiedName.of("concat"), ImmutableList.of(
-                (Expression) visit(context.left),
-                (Expression) visit(context.right)));
+                QualifiedName.of("concat"),
+                ImmutableList.of(
+                        (Expression) visit(context.left),
+                        (Expression) visit(context.right)));
     }
 
     @Override
@@ -2435,7 +2501,21 @@ class AstBuilder
     @Override
     public Node visitRowConstructor(SqlBaseParser.RowConstructorContext context)
     {
-        return new Row(getLocation(context), visit(context.expression(), Expression.class));
+        if (context.fieldConstructor().isEmpty()) {
+            return new Row(getLocation(context), visit(context.expression(), Expression.class).stream()
+                    .map(expression -> new Row.Field(expression.getLocation().orElseThrow(), Optional.empty(), expression))
+                    .toList());
+        }
+        return new Row(getLocation(context), visit(context.fieldConstructor(), Row.Field.class));
+    }
+
+    @Override
+    public Node visitFieldConstructor(SqlBaseParser.FieldConstructorContext context)
+    {
+        return new Row.Field(
+                getLocation(context),
+                visitIfPresent(context.identifier(), Identifier.class),
+                (Expression) visit(context.expression()));
     }
 
     @Override
@@ -2587,7 +2667,7 @@ class AstBuilder
 
         List<Expression> arguments = ImmutableList.of(expression, separator, overflowError, overflowFiller, showOverflowEntryCount);
 
-        //TODO model this as a ListAgg node in the AST
+        // TODO model this as a ListAgg node in the AST
         return new FunctionCall(
                 Optional.of(getLocation(context)),
                 QualifiedName.of("LISTAGG"),
@@ -3412,17 +3492,14 @@ class AstBuilder
     @Override
     public Node visitInterval(SqlBaseParser.IntervalContext context)
     {
+        IntervalQualifier qualifier = (IntervalQualifier) visit(context.intervalQualifier());
         return new IntervalLiteral(
                 getLocation(context),
                 visitString(context.string()).getValue(),
                 Optional.ofNullable(context.sign)
                         .map(AstBuilder::getIntervalSign)
                         .orElse(IntervalLiteral.Sign.POSITIVE),
-                getIntervalFieldType((Token) context.from.getChild(0).getPayload()),
-                Optional.ofNullable(context.to)
-                        .map((x) -> x.getChild(0).getPayload())
-                        .map(Token.class::cast)
-                        .map(AstBuilder::getIntervalFieldType));
+                qualifier);
     }
 
     @Override
@@ -3509,15 +3586,89 @@ class AstBuilder
     @Override
     public Node visitIntervalType(SqlBaseParser.IntervalTypeContext context)
     {
-        String from = context.from.getText();
-        String to = Optional.ofNullable((ParserRuleContext) context.to)
-                .map(ParseTree::getText)
-                .orElse(from);
-
-        return new IntervalDayTimeDataType(
+        return new IntervalDataType(
                 getLocation(context),
-                IntervalDayTimeDataType.Field.valueOf(from.toUpperCase(ENGLISH)),
-                IntervalDayTimeDataType.Field.valueOf(to.toUpperCase(ENGLISH)));
+                (IntervalQualifier) visit(context.intervalQualifier()));
+    }
+
+    @Override
+    public Node visitCompositeYearToMonthInterval(SqlBaseParser.CompositeYearToMonthIntervalContext context)
+    {
+        return new CompositeIntervalQualifier(
+                getLocation(context),
+                context.precision != null ? OptionalInt.of(Integer.parseInt(context.precision.getText())) : OptionalInt.empty(),
+                new IntervalField.Year(),
+                new IntervalField.Month());
+    }
+
+    @Override
+    public Node visitSimpleYearMonthInterval(SqlBaseParser.SimpleYearMonthIntervalContext context)
+    {
+        return new SimpleIntervalQualifier(
+                getLocation(context),
+                context.precision != null ? OptionalInt.of(Integer.parseInt(context.precision.getText())) : OptionalInt.empty(),
+                switch (context.field.getType()) {
+                    case YEAR -> new IntervalField.Year();
+                    case MONTH -> new IntervalField.Month();
+                    default -> throw parseError("Unexpected year-month interval field: " + context.field.getText(), context);
+                });
+    }
+
+    @Override
+    public Node visitSimpleDayTimeInterval(SqlBaseParser.SimpleDayTimeIntervalContext context)
+    {
+        return new SimpleIntervalQualifier(
+                getLocation(context),
+                context.precision != null ? OptionalInt.of(Integer.parseInt(context.precision.getText())) : OptionalInt.empty(),
+                switch (context.field.getType()) {
+                    case DAY -> new IntervalField.Day();
+                    case HOUR -> new IntervalField.Hour();
+                    case MINUTE -> new IntervalField.Minute();
+                    default -> throw parseError("Unexpected day-time interval field: " + context.field.getText(), context);
+                });
+    }
+
+    @Override
+    public Node visitSecondsDayTimeInterval(SqlBaseParser.SecondsDayTimeIntervalContext context)
+    {
+        return new SimpleIntervalQualifier(
+                getLocation(context),
+                context.leadingPrecision != null ? OptionalInt.of(Integer.parseInt(context.leadingPrecision.getText())) : OptionalInt.empty(),
+                new IntervalField.Second(
+                        context.fractionalPrecision != null ? OptionalInt.of(Integer.parseInt(context.fractionalPrecision.getText())) : OptionalInt.empty()));
+    }
+
+    @Override
+    public Node visitCompositeDayTimeInterval(SqlBaseParser.CompositeDayTimeIntervalContext context)
+    {
+        IntervalField from = switch (context.start.getType()) {
+            case DAY -> new IntervalField.Day();
+            case HOUR -> new IntervalField.Hour();
+            case MINUTE -> new IntervalField.Minute();
+            default -> throw parseError("Unexpected day-time interval start field: " + context.start.getText(), context);
+        };
+
+        IntervalField to = switch (context.end.getType()) {
+            case HOUR -> new IntervalField.Hour();
+            case MINUTE -> new IntervalField.Minute();
+            case SECOND -> new IntervalField.Second(
+                    context.fractionalPrecision != null ? OptionalInt.of(Integer.parseInt(context.fractionalPrecision.getText())) : OptionalInt.empty());
+            default -> throw parseError("Unexpected day-time interval end field: " + context.end.getText(), context);
+        };
+
+        boolean valid = from instanceof IntervalField.Day ||
+                from instanceof IntervalField.Hour && (to instanceof IntervalField.Minute || to instanceof IntervalField.Second) ||
+                from instanceof IntervalField.Minute && to instanceof IntervalField.Second;
+
+        if (!valid) {
+            throw parseError("Invalid interval qualifier: " + context.start.getText() + " TO " + context.end.getText(), context);
+        }
+
+        return new CompositeIntervalQualifier(
+                getLocation(context),
+                context.leadingPrecision != null ? OptionalInt.of(Integer.parseInt(context.leadingPrecision.getText())) : OptionalInt.empty(),
+                from,
+                to);
     }
 
     @Override
@@ -3921,7 +4072,7 @@ class AstBuilder
     {
         return new PropertiesCharacteristic(
                 getLocation(context),
-                 visit(context.properties().propertyAssignments().property(), Property.class));
+                visit(context.properties().propertyAssignments().property(), Property.class));
     }
 
     @Override
@@ -4088,7 +4239,7 @@ class AstBuilder
     {
         EMPTY,
         ESCAPED,
-        UNICODE_SEQUENCE
+        UNICODE_SEQUENCE,
     }
 
     private static String decodeUnicodeLiteral(SqlBaseParser.UnicodeStringLiteralContext context)
@@ -4242,7 +4393,7 @@ class AstBuilder
             case SqlBaseLexer.MINUS -> ArithmeticBinaryExpression.Operator.SUBTRACT;
             case SqlBaseLexer.ASTERISK -> ArithmeticBinaryExpression.Operator.MULTIPLY;
             case SqlBaseLexer.SLASH -> ArithmeticBinaryExpression.Operator.DIVIDE;
-            case SqlBaseLexer.PERCENT -> ArithmeticBinaryExpression.Operator.MODULUS;
+            case SqlBaseLexer.PERCENT -> ArithmeticBinaryExpression.Operator.MODULO;
             default -> throw new UnsupportedOperationException("Unsupported operator: " + operator.getText());
         };
     }
@@ -4257,19 +4408,6 @@ class AstBuilder
             case SqlBaseLexer.GT -> ComparisonExpression.Operator.GREATER_THAN;
             case SqlBaseLexer.GTE -> ComparisonExpression.Operator.GREATER_THAN_OR_EQUAL;
             default -> throw new IllegalArgumentException("Unsupported operator: " + symbol.getText());
-        };
-    }
-
-    private static IntervalLiteral.IntervalField getIntervalFieldType(Token token)
-    {
-        return switch (token.getType()) {
-            case SqlBaseLexer.YEAR -> IntervalLiteral.IntervalField.YEAR;
-            case SqlBaseLexer.MONTH -> IntervalLiteral.IntervalField.MONTH;
-            case SqlBaseLexer.DAY -> IntervalLiteral.IntervalField.DAY;
-            case SqlBaseLexer.HOUR -> IntervalLiteral.IntervalField.HOUR;
-            case SqlBaseLexer.MINUTE -> IntervalLiteral.IntervalField.MINUTE;
-            case SqlBaseLexer.SECOND -> IntervalLiteral.IntervalField.SECOND;
-            default -> throw new IllegalArgumentException("Unsupported interval field: " + token.getText());
         };
     }
 
@@ -4430,8 +4568,7 @@ class AstBuilder
 
     private static void validateArgumentAlias(Identifier alias, ParserRuleContext context)
     {
-        check(
-                alias.isDelimited() || !alias.getValue().equalsIgnoreCase("COPARTITION"),
+        check(alias.isDelimited() || !alias.getValue().equalsIgnoreCase("COPARTITION"),
                 "The word \"COPARTITION\" is ambiguous in this context. " +
                         "To alias an argument, precede the alias with \"AS\". " +
                         "To specify co-partitioning, change the argument order so that the last argument cannot be aliased.",

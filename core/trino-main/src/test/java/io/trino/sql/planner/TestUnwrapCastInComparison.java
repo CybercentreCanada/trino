@@ -457,7 +457,8 @@ public class TestUnwrapCastInComparison
     {
         // ensure the optimization works when the terms of the comparison are reversed
         // vs the canonical <expr> <op> <literal> form
-        assertPlan("SELECT * FROM (VALUES REAL '1') t(a) WHERE DOUBLE '1' = a",
+        assertPlan(
+                "SELECT * FROM (VALUES REAL '1') t(a) WHERE DOUBLE '1' = a",
                 Session.builder(getPlanTester().getDefaultSession())
                         .setSystemProperty(PUSH_FILTER_INTO_VALUES_MAX_ROW_COUNT, "0")
                         .build(),
@@ -645,34 +646,34 @@ public class TestUnwrapCastInComparison
     public void testNoEffect()
     {
         // BIGINT->DOUBLE implicit cast is not injective if the double constant is >= 2^53 and <= double(2^63 - 1)
-        testUnwrap("bigint", "a = DOUBLE '9007199254740992'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), DOUBLE), new Constant(DOUBLE, 9.007199254740992E15)));
+        testUnwrap("bigint", "a = DOUBLE '9007199254740992'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), DOUBLE), new Constant(DOUBLE, 9.007199254740992e15)));
 
-        testUnwrap("bigint", "a = DOUBLE '9223372036854775807'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), DOUBLE), new Constant(DOUBLE, 9.223372036854776E18)));
+        testUnwrap("bigint", "a = DOUBLE '9223372036854775807'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), DOUBLE), new Constant(DOUBLE, 9.223372036854776e18)));
 
         // BIGINT->DOUBLE implicit cast is not injective if the double constant is <= -2^53 and >= double(-2^63 + 1)
-        testUnwrap("bigint", "a = DOUBLE '-9007199254740992'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), DOUBLE), new Constant(DOUBLE, -9.007199254740992E15)));
+        testUnwrap("bigint", "a = DOUBLE '-9007199254740992'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), DOUBLE), new Constant(DOUBLE, -9.007199254740992e15)));
 
-        testUnwrap("bigint", "a = DOUBLE '-9223372036854775807'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), DOUBLE), new Constant(DOUBLE, -9.223372036854776E18)));
+        testUnwrap("bigint", "a = DOUBLE '-9223372036854775807'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), DOUBLE), new Constant(DOUBLE, -9.223372036854776e18)));
 
         // BIGINT->REAL implicit cast is not injective if the real constant is >= 2^23 and <= real(2^63 - 1)
         testUnwrap("bigint", "a = REAL '8388608'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), REAL), new Constant(REAL, toReal(8388608.0f))));
 
-        testUnwrap("bigint", "a = REAL '9223372036854775807'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), REAL), new Constant(REAL, toReal(9.223372E18f))));
+        testUnwrap("bigint", "a = REAL '9223372036854775807'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), REAL), new Constant(REAL, toReal(9.223372e18f))));
 
         // BIGINT->REAL implicit cast is not injective if the real constant is <= -2^23 and >= real(-2^63 + 1)
         testUnwrap("bigint", "a = REAL '-8388608'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), REAL), new Constant(REAL, toReal(-8388608.0f))));
 
-        testUnwrap("bigint", "a = REAL '-9223372036854775807'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), REAL), new Constant(REAL, toReal(-9.223372E18f))));
+        testUnwrap("bigint", "a = REAL '-9223372036854775807'", new Comparison(EQUAL, new Cast(new Reference(BIGINT, "a"), REAL), new Constant(REAL, toReal(-9.223372e18f))));
 
         // INTEGER->REAL implicit cast is not injective if the real constant is >= 2^23 and <= 2^31 - 1
         testUnwrap("integer", "a = REAL '8388608'", new Comparison(EQUAL, new Cast(new Reference(INTEGER, "a"), REAL), new Constant(REAL, toReal(8388608.0f))));
 
-        testUnwrap("integer", "a = REAL '2147483647'", new Comparison(EQUAL, new Cast(new Reference(INTEGER, "a"), REAL), new Constant(REAL, toReal(2.1474836E9f))));
+        testUnwrap("integer", "a = REAL '2147483647'", new Comparison(EQUAL, new Cast(new Reference(INTEGER, "a"), REAL), new Constant(REAL, toReal(2.1474836e9f))));
 
         // INTEGER->REAL implicit cast is not injective if the real constant is <= -2^23 and >= -2^31 + 1
         testUnwrap("integer", "a = REAL '-8388608'", new Comparison(EQUAL, new Cast(new Reference(INTEGER, "a"), REAL), new Constant(REAL, toReal(-8388608.0f))));
 
-        testUnwrap("integer", "a = REAL '-2147483647'", new Comparison(EQUAL, new Cast(new Reference(INTEGER, "a"), REAL), new Constant(REAL, toReal(-2.1474836E9f))));
+        testUnwrap("integer", "a = REAL '-2147483647'", new Comparison(EQUAL, new Cast(new Reference(INTEGER, "a"), REAL), new Constant(REAL, toReal(-2.1474836e9f))));
 
         // DECIMAL(p)->DOUBLE not injective for p > 15
         testUnwrap("decimal(16)", "a = DOUBLE '1'", new Comparison(EQUAL, new Cast(new Reference(createDecimalType(16), "a"), DOUBLE), new Constant(DOUBLE, 1.0)));

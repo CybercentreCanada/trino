@@ -58,7 +58,6 @@ import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.stream.Stream;
 
-import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.MoreCollectors.onlyElement;
 import static io.airlift.slice.Slices.utf8Slice;
@@ -87,6 +86,9 @@ import static java.util.stream.Collectors.joining;
 import static java.util.stream.IntStream.range;
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * @see TestPostgreSqlConnectorSmokeTest
+ */
 public class TestPostgreSqlConnectorTest
         extends BaseJdbcConnectorTest
 {
@@ -117,27 +119,19 @@ public class TestPostgreSqlConnectorTest
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
         return switch (connectorBehavior) {
-            case SUPPORTS_PREDICATE_EXPRESSION_PUSHDOWN -> {
-                // TODO remove once super has this set to true
-                verify(!super.hasBehavior(connectorBehavior));
-                yield true;
-            }
             // Arrays are supported conditionally. Check the defaults.
             case SUPPORTS_ARRAY -> new PostgreSqlConfig().getArrayMapping() != PostgreSqlConfig.ArrayMapping.DISABLED;
             case SUPPORTS_CANCELLATION,
-                    SUPPORTS_JOIN_PUSHDOWN,
-                    SUPPORTS_JOIN_PUSHDOWN_WITH_VARCHAR_EQUALITY,
-                    SUPPORTS_MERGE,
-                    SUPPORTS_ROW_LEVEL_UPDATE,
-                    SUPPORTS_TOPN_PUSHDOWN,
-                    SUPPORTS_TOPN_PUSHDOWN_WITH_VARCHAR -> true;
+                 SUPPORTS_JOIN_PUSHDOWN,
+                 SUPPORTS_TOPN_PUSHDOWN_WITH_VARCHAR -> true;
             case SUPPORTS_ADD_COLUMN_WITH_COMMENT,
-                    SUPPORTS_CREATE_TABLE_WITH_COLUMN_COMMENT,
-                    SUPPORTS_JOIN_PUSHDOWN_WITH_FULL_JOIN,
-                    SUPPORTS_MAP_TYPE,
-                    SUPPORTS_PREDICATE_PUSHDOWN_WITH_VARCHAR_INEQUALITY,
-                    SUPPORTS_RENAME_TABLE_ACROSS_SCHEMAS,
-                    SUPPORTS_ROW_TYPE -> false;
+                 SUPPORTS_ADD_COLUMN_WITH_POSITION,
+                 SUPPORTS_CREATE_TABLE_WITH_COLUMN_COMMENT,
+                 SUPPORTS_JOIN_PUSHDOWN_WITH_FULL_JOIN,
+                 SUPPORTS_MAP_TYPE,
+                 SUPPORTS_PREDICATE_PUSHDOWN_WITH_VARCHAR_INEQUALITY,
+                 SUPPORTS_RENAME_TABLE_ACROSS_SCHEMAS,
+                 SUPPORTS_ROW_TYPE -> false;
             default -> super.hasBehavior(connectorBehavior);
         };
     }
@@ -161,7 +155,7 @@ public class TestPostgreSqlConnectorTest
         return new TestTable(
                 onRemoteDatabase(),
                 "tpch.test_unsupported_column_present",
-                "(one bigint, two decimal(50,0), three varchar(10))");
+                "(one bigint, two interval, three varchar(10))");
     }
 
     @Test
@@ -572,8 +566,10 @@ public class TestPostgreSqlConnectorTest
                                     .equals(ImmutableList.of(
                                             Range.range(
                                                     createVarcharType(25),
-                                                    utf8Slice("POLAND"), true,
-                                                    utf8Slice("VIETNAM"), true)));
+                                                    utf8Slice("POLAND"),
+                                                    true,
+                                                    utf8Slice("VIETNAM"),
+                                                    true)));
                         },
                         TupleDomain.all(),
                         ImmutableMap.of())));
@@ -603,7 +599,8 @@ public class TestPostgreSqlConnectorTest
                 node(JoinNode.class,
                         node(TableScanNode.class),
                         exchange(ExchangeNode.Scope.LOCAL,
-                                exchange(ExchangeNode.Scope.REMOTE, ExchangeNode.Type.REPLICATE,
+                                exchange(ExchangeNode.Scope.REMOTE,
+                                        ExchangeNode.Type.REPLICATE,
                                         node(TableScanNode.class))));
 
         Session sessionWithCollatePushdown = Session.builder(getSession())
@@ -811,6 +808,34 @@ public class TestPostgreSqlConnectorTest
         assertThat(query("SELECT * FROM nation WHERE name = 'ALGERIA' OR regionkey = 4")).isFullyPushedDown();
         assertThat(query("SELECT * FROM nation WHERE name IS NULL OR regionkey = 4")).isFullyPushedDown();
         assertThat(query("SELECT * FROM nation WHERE name = NULL OR regionkey = 4")).isFullyPushedDown();
+    }
+
+    @Test
+    public void testCoalescePredicatePushdown()
+    {
+        assertThat(query("SELECT * FROM nation WHERE COALESCE(nationkey, 1) = nationkey"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT * FROM nation WHERE COALESCE(nationkey, regionkey, 1) = nationkey"))
+                .isFullyPushedDown();
+
+        try (TestTable table = new TestTable(
+                getQueryRunner()::execute,
+                "test_coalesce_predicate_pushdown",
+                "(a_varchar varchar, b_varchar varchar, c_varchar varchar)",
+                List.of(
+                        "NULL, NULL, 'third not null'",
+                        "'1', '2', 'first and second not null'",
+                        "NULL, '2', 'second not null'"))) {
+            assertThat(query("SELECT c_varchar FROM " + table.getName() + " WHERE COALESCE(a_varchar, b_varchar) = '1'"))
+                    .matches("VALUES VARCHAR 'first and second not null'")
+                    .isFullyPushedDown();
+            assertThat(query("SELECT c_varchar FROM " + table.getName() + " WHERE COALESCE(a_varchar, b_varchar) = '2'"))
+                    .matches("VALUES VARCHAR 'second not null'")
+                    .isFullyPushedDown();
+            assertThat(query("SELECT c_varchar FROM " + table.getName() + " WHERE COALESCE(a_varchar, b_varchar, c_varchar) = 'third not null'"))
+                    .matches("VALUES VARCHAR 'third not null'")
+                    .isFullyPushedDown();
+        }
     }
 
     @Test
@@ -1117,12 +1142,12 @@ public class TestPostgreSqlConnectorTest
                     .isNotFullyPushedDown(ProjectNode.class)
                     .hasPlan(output(
                             project(ImmutableMap.of("expr", expression(
-                                    new Call(
-                                            FUNCTIONS.resolveFunction("reverse", ImmutableList.of(new TypeSignatureProvider(VARCHAR.getTypeSignature()))),
-                                            ImmutableList.of(
-                                                    new Call(
-                                                            FUNCTIONS.resolveFunction("lower", ImmutableList.of(new TypeSignatureProvider(VARCHAR.getTypeSignature()))),
-                                                            ImmutableList.of(new Reference(VARCHAR, "varchar_col"))))))),
+                                            new Call(
+                                                    FUNCTIONS.resolveFunction("reverse", ImmutableList.of(new TypeSignatureProvider(VARCHAR.getTypeSignature()))),
+                                                    ImmutableList.of(
+                                                            new Call(
+                                                                    FUNCTIONS.resolveFunction("lower", ImmutableList.of(new TypeSignatureProvider(VARCHAR.getTypeSignature()))),
+                                                                    ImmutableList.of(new Reference(VARCHAR, "varchar_col"))))))),
                                     tableScan(table.getName(), ImmutableMap.of("varchar_col", "varchar_col")))));
         }
     }
@@ -1241,15 +1266,13 @@ public class TestPostgreSqlConnectorTest
                     .hasPlan(output(
                             project(
                                     ImmutableMap.of(
-                                            "reverse_col_money",
-                                            expression(
+                                            "reverse_col_money", expression(
                                                     new Call(
                                                             FUNCTIONS.resolveFunction(
                                                                     "reverse",
                                                                     ImmutableList.of(new TypeSignatureProvider(VARCHAR.getTypeSignature()))),
                                                             ImmutableList.of(new Reference(VARCHAR, "col_money")))),
-                                            "reverse_col_enum",
-                                            expression(
+                                            "reverse_col_enum", expression(
                                                     new Call(
                                                             FUNCTIONS.resolveFunction(
                                                                     "reverse",

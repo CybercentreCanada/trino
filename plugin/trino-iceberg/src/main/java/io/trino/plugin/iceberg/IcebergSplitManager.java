@@ -17,7 +17,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.inject.Inject;
 import io.airlift.units.Duration;
-import io.trino.filesystem.cache.CachingHostAddressProvider;
+import io.trino.filesystem.cache.SplitAffinityProvider;
 import io.trino.plugin.base.classloader.ClassLoaderSafeConnectorSplitSource;
 import io.trino.plugin.iceberg.functions.tablechanges.TableChangesFunctionHandle;
 import io.trino.plugin.iceberg.functions.tablechanges.TableChangesSplitSource;
@@ -35,18 +35,24 @@ import org.apache.iceberg.CombinedScanTask;
 import org.apache.iceberg.DataOperations;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.Scan;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.metrics.InMemoryMetricsReporter;
 import org.apache.iceberg.metrics.MetricsReporter;
+import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SnapshotUtil;
 
+import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.getDynamicFilteringWaitTimeout;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.getMinimumAssignedSplitWeight;
 import static io.trino.spi.connector.FixedSplitSource.emptySplitSource;
 import static java.util.Objects.requireNonNull;
+import static org.apache.iceberg.util.SnapshotUtil.schemaFor;
 
 public class IcebergSplitManager
         implements ConnectorSplitManager
@@ -58,7 +64,7 @@ public class IcebergSplitManager
     private final IcebergFileSystemFactory fileSystemFactory;
     private final ListeningExecutorService splitSourceExecutor;
     private final ExecutorService icebergPlanningExecutor;
-    private final CachingHostAddressProvider cachingHostAddressProvider;
+    private final SplitAffinityProvider splitAffinityProvider;
 
     @Inject
     public IcebergSplitManager(
@@ -67,14 +73,14 @@ public class IcebergSplitManager
             IcebergFileSystemFactory fileSystemFactory,
             @ForIcebergSplitSource ListeningExecutorService splitSourceExecutor,
             @ForIcebergSplitManager ExecutorService icebergPlanningExecutor,
-            CachingHostAddressProvider cachingHostAddressProvider)
+            SplitAffinityProvider splitAffinityProvider)
     {
         this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
         this.fileSystemFactory = requireNonNull(fileSystemFactory, "fileSystemFactory is null");
         this.splitSourceExecutor = requireNonNull(splitSourceExecutor, "splitSourceExecutor is null");
         this.icebergPlanningExecutor = requireNonNull(icebergPlanningExecutor, "icebergPlanningExecutor is null");
-        this.cachingHostAddressProvider = requireNonNull(cachingHostAddressProvider, "cachingHostAddressProvider is null");
+        this.splitAffinityProvider = requireNonNull(splitAffinityProvider, "splitAffinityProvider is null");
     }
 
     @Override
@@ -114,7 +120,7 @@ public class IcebergSplitManager
                 typeManager,
                 table.isRecordScannedFiles(),
                 getMinimumAssignedSplitWeight(session),
-                cachingHostAddressProvider,
+                splitAffinityProvider,
                 metricsReporter,
                 splitSourceExecutor);
 
@@ -123,12 +129,12 @@ public class IcebergSplitManager
 
     private Scan<?, FileScanTask, CombinedScanTask> getScan(IcebergMetadata icebergMetadata, Table icebergTable, IcebergTableHandle table, MetricsReporter metricsReporter, ExecutorService executor)
     {
-        Long fromSnapshot = icebergMetadata.getIncrementalRefreshFromSnapshot().orElse(null);
-        if (fromSnapshot != null) {
+        if (icebergMetadata.getIncrementalRefreshFromSnapshot().isPresent()) {
+            long snapshotId = icebergMetadata.getIncrementalRefreshFromSnapshot().getAsLong();
             // check if fromSnapshot is still part of the table's snapshot history
-            if (SnapshotUtil.isAncestorOf(icebergTable, fromSnapshot)) {
+            if (SnapshotUtil.isAncestorOf(icebergTable, snapshotId)) {
                 boolean containsModifiedRows = false;
-                for (Snapshot snapshot : SnapshotUtil.ancestorsBetween(icebergTable, icebergTable.currentSnapshot().snapshotId(), fromSnapshot)) {
+                for (Snapshot snapshot : SnapshotUtil.ancestorsBetween(icebergTable, icebergTable.currentSnapshot().snapshotId(), snapshotId)) {
                     if (snapshot.operation().equals(DataOperations.OVERWRITE) || snapshot.operation().equals(DataOperations.DELETE)) {
                         containsModifiedRows = true;
                         break;
@@ -136,7 +142,7 @@ public class IcebergSplitManager
                 }
                 if (!containsModifiedRows) {
                     return icebergTable.newIncrementalAppendScan()
-                            .fromSnapshotExclusive(fromSnapshot)
+                            .fromSnapshotExclusive(snapshotId)
                             .planWith(executor)
                             .metricsReporter(metricsReporter);
                 }
@@ -145,8 +151,17 @@ public class IcebergSplitManager
             // (deletes or overwrites), so we cannot perform incremental refresh. Falling back to full refresh.
             icebergMetadata.disableIncrementalRefresh();
         }
+
+        Schema schema = schemaFor(icebergTable, table.getSnapshotId().getAsLong());
+        List<String> names = table.getProjectedColumns().stream()
+                .map(column -> schema.findField(column.getId()))
+                .filter(Objects::nonNull) // Newly added column may not be found in current snapshot schema until new files are added
+                .map(Types.NestedField::name)
+                .collect(toImmutableList());
+
         return icebergTable.newScan()
-                .useSnapshot(table.getSnapshotId().get())
+                .useSnapshot(table.getSnapshotId().getAsLong())
+                .project(schema.select(names)) // Using Scan.project method because Scan.select throws an exception for nested variant
                 .planWith(executor)
                 .metricsReporter(metricsReporter);
     }

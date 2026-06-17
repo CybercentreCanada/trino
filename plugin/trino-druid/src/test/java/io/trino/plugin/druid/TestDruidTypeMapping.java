@@ -26,7 +26,8 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.parallel.Isolated;
 
 import java.io.BufferedWriter;
-import java.io.FileWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -173,7 +174,7 @@ public class TestDruidTypeMapping
     @Test
     public void testVarchar()
     {
-        //TODO Add test for unicode characters
+        // TODO Add test for unicode characters
         SqlDataTypeTest.create()
                 .addRoundTrip("__time", "timestamp", "2020-01-01 00:00:00.000", TIMESTAMP_MILLIS, "TIMESTAMP '2020-01-01 00:00:00.000'")
                 .addRoundTrip("col_0", "string", "null", createUnboundedVarcharType(), "CAST('null' AS varchar)")
@@ -223,7 +224,7 @@ public class TestDruidTypeMapping
 
         try (DruidTable testTable = new DruidTable("test_timestamp")) {
             String dataFilePath = format("%s/%s.tsv", druidServer.getHostWorkingDirectory(), testTable.getName());
-            try (BufferedWriter writer = new BufferedWriter(new FileWriter(dataFilePath, UTF_8))) {
+            try (BufferedWriter writer = Files.newBufferedWriter(Path.of(dataFilePath), UTF_8)) {
                 for (TimestampCase row : rows) {
                     writer.write("%s\t%s".formatted(row.inputLiteral, row.id));
                     writer.newLine();

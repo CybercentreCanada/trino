@@ -14,6 +14,7 @@
 package io.trino.operator.scalar;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
@@ -28,8 +29,10 @@ import io.trino.spi.connector.SourcePage;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.Type;
 import io.trino.sql.gen.ExpressionCompiler;
-import io.trino.sql.relational.CallExpression;
-import io.trino.sql.relational.RowExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.Reference;
+import io.trino.sql.planner.Symbol;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -58,8 +61,7 @@ import static io.trino.spi.function.OperatorType.SUBSCRIPT;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
-import static io.trino.sql.relational.Expressions.constant;
-import static io.trino.sql.relational.Expressions.field;
+import static io.trino.sql.ir.IrExpressions.call;
 import static io.trino.testing.TestingConnectorSession.SESSION;
 
 @SuppressWarnings("MethodMayBeStatic")
@@ -107,39 +109,39 @@ public class BenchmarkArraySubscript
             ArrayType arrayType;
             Block elementsBlock;
             switch (name) {
-                case "fix-width":
+                case "fix-width" -> {
                     arrayType = new ArrayType(DOUBLE);
                     elementsBlock = createFixWidthValueBlock(POSITIONS, arraySize);
-                    break;
-                case "var-width":
+                }
+                case "var-width" -> {
                     arrayType = new ArrayType(createUnboundedVarcharType());
                     elementsBlock = createVarWidthValueBlock(POSITIONS, arraySize);
-                    break;
-                case "dictionary":
+                }
+                case "dictionary" -> {
                     arrayType = new ArrayType(createUnboundedVarcharType());
                     elementsBlock = createDictionaryValueBlock(POSITIONS, arraySize);
-                    break;
-                case "array":
+                }
+                case "array" -> {
                     arrayType = new ArrayType(new ArrayType(createUnboundedVarcharType()));
                     elementsBlock = createArrayBlock(POSITIONS * arraySize, createVarWidthValueBlock(POSITIONS, arraySize));
-                    break;
-                default:
-                    throw new UnsupportedOperationException();
+                }
+                default -> throw new UnsupportedOperationException();
             }
 
             Block block = createArrayBlock(POSITIONS, elementsBlock);
 
-            ImmutableList.Builder<RowExpression> projectionsBuilder = ImmutableList.builder();
+            ImmutableList.Builder<Expression> projectionsBuilder = ImmutableList.builder();
 
             ResolvedFunction resolvedFunction = functionResolution.resolveOperator(SUBSCRIPT, ImmutableList.of(arrayType, BIGINT));
             for (int i = 0; i < arraySize; i++) {
-                projectionsBuilder.add(new CallExpression(
+                projectionsBuilder.add(call(
                         resolvedFunction,
-                        ImmutableList.of(field(0, arrayType), constant((long) i + 1, BIGINT))));
+                        new Reference(arrayType, "$col_0"),
+                        new Constant(BIGINT, (long) i + 1)));
             }
 
-            List<RowExpression> projections = projectionsBuilder.build();
-            pageProcessor = compiler.compilePageProcessor(Optional.empty(), projections).get();
+            List<Expression> projections = projectionsBuilder.build();
+            pageProcessor = compiler.compilePageProcessor(Optional.empty(), projections, ImmutableMap.of(new Symbol(arrayType, "$col_0"), 0)).get();
             page = new Page(block);
         }
 
@@ -223,7 +225,7 @@ public class BenchmarkArraySubscript
         }
     }
 
-    public static void main(String[] args)
+    static void main()
             throws Exception
     {
         // assure the benchmarks are valid before running

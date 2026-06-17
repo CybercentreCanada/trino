@@ -23,7 +23,7 @@ import org.testng.annotations.Test;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Paths;
+import java.nio.file.Path;
 
 import static io.trino.tempto.assertions.QueryAssert.Row.row;
 import static io.trino.tempto.assertions.QueryAssert.assertQueryFailure;
@@ -67,7 +67,7 @@ public class TestAvroSchemaUrl
             throws IOException
     {
         hdfsClient.delete(location);
-        try (InputStream inputStream = newInputStream(Paths.get("/docker/trino-product-tests", resource))) {
+        try (InputStream inputStream = newInputStream(Path.of("/docker/trino-product-tests", resource))) {
             hdfsClient.saveFile(location, inputStream);
         }
     }
@@ -88,7 +88,8 @@ public class TestAvroSchemaUrl
     public void testHiveCreatedTable(String schemaLocation)
     {
         onHive().executeQuery("DROP TABLE IF EXISTS test_avro_schema_url_hive");
-        onHive().executeQuery(format("" +
+        onHive().executeQuery(format(
+                "" +
                         "CREATE TABLE test_avro_schema_url_hive " +
                         "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.avro.AvroSerDe' " +
                         "STORED AS " +
@@ -113,7 +114,8 @@ public class TestAvroSchemaUrl
 
         String schemaLocationOnHdfs = "/user/hive/warehouse/TestAvroSchemaUrl/schemas/test_avro_schema_url_in_serde_properties.avsc";
         saveResourceOnHdfs("avro/original_schema.avsc", schemaLocationOnHdfs);
-        onHive().executeQuery(format("" +
+        onHive().executeQuery(format(
+                "" +
                         "CREATE TABLE test_avro_schema_url_in_serde_properties " +
                         "ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.avro.AvroSerDe' " +
                         "WITH SERDEPROPERTIES ('avro.schema.url'='%s')" +

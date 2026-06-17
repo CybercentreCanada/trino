@@ -15,10 +15,10 @@ package io.trino.client;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Splitter;
-import com.google.common.collect.AbstractIterator;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Iterators;
 import com.google.common.collect.Sets;
 import com.google.common.io.Closeables;
 import com.google.errorprone.annotations.ThreadSafe;
@@ -58,6 +58,7 @@ import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Throwables.getCausalChain;
+import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.net.HttpHeaders.ACCEPT_ENCODING;
 import static io.trino.client.HttpStatusCodes.shouldRetry;
@@ -68,7 +69,6 @@ import static java.net.HttpURLConnection.HTTP_BAD_METHOD;
 import static java.net.HttpURLConnection.HTTP_NOT_FOUND;
 import static java.net.HttpURLConnection.HTTP_OK;
 import static java.net.HttpURLConnection.HTTP_UNAUTHORIZED;
-import static java.util.Arrays.stream;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
@@ -131,13 +131,16 @@ class StatementClientV1
                 .map(Optional::get)
                 .findFirst();
         this.setOriginalRoles.addAll(session.getOriginalRoles());
-        this.clientCapabilities = Joiner.on(",").join(clientCapabilities.orElseGet(() -> stream(ClientCapabilities.values())
+        Set<String> effectiveClientCapabilities = clientCapabilities.orElseGet(() -> Stream.of(ClientCapabilities.values())
                 .map(Enum::name)
-                .collect(toImmutableSet())));
+                .collect(toImmutableSet()));
+        this.clientCapabilities = Joiner.on(",").join(effectiveClientCapabilities);
         this.compressionDisabled = session.isCompressionDisabled();
         this.heartbeatInterval = session.getHeartbeatInterval().toMillis() * 1_000_000;
 
-        this.resultRowsDecoder = new ResultRowsDecoder(new OkHttpSegmentLoader(requireNonNull(segmentHttpCallFactory, "segmentHttpCallFactory is null")));
+        this.resultRowsDecoder = new ResultRowsDecoder(
+                new OkHttpSegmentLoader(requireNonNull(segmentHttpCallFactory, "segmentHttpCallFactory is null")),
+                effectiveClientCapabilities.contains(ClientCapabilities.VARIANT_BINARY.toString()));
 
         Request request = buildQueryRequest(session, query, session.getEncoding());
         // Pass empty as materializedJsonSizeLimit to always materialize the first response
@@ -401,7 +404,7 @@ class StatementClientV1
         }
 
         Request request = prepareRequest(HttpUrl.get(nextUri)).build();
-        return executeRequest(request, "fetching next", (e) -> true);
+        return executeRequest(request, "fetching next", e -> true);
     }
 
     public void heartbeat()
@@ -430,7 +433,8 @@ class StatementClientV1
                 .build();
 
         nextHeartbeat.set(System.nanoTime() + heartbeatInterval);
-        httpCallFactory.newCall(request).enqueue(new Callback() {
+        httpCallFactory.newCall(request).enqueue(new Callback()
+        {
             @Override
             public void onFailure(Call call, IOException e)
             {
@@ -512,8 +516,8 @@ class StatementClientV1
                     throw requestFailedException(taskName, request, response);
                 }
                 cause = new ClientException(format("Expected http code %d but got %d%s", HTTP_OK, response.getStatusCode(), response.getResponseBody()
-                                .map(message -> "\nResponse body was: " + message)
-                                .orElse("")));
+                        .map(message -> "\nResponse body was: " + message)
+                        .orElse("")));
                 continue;
             }
 
@@ -587,7 +591,15 @@ class StatementClientV1
         }
 
         currentResults.set(results);
-        currentRows.set(new HeartbeatingResultRows(resultRowsDecoder.toRows(results), this::heartbeat));
+        ResultRows previous = currentRows.getAndSet(new HeartbeatingResultRows(resultRowsDecoder.toRows(results), this::heartbeat));
+        if (previous != null) {
+            try {
+                previous.close();
+            }
+            catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        }
     }
 
     private List<String> safeSplitToList(String value)
@@ -690,46 +702,38 @@ class StatementClientV1
     private static class HeartbeatingResultRows
             implements ResultRows
     {
-        private final Iterator<List<Object>> iterator;
-        private final boolean isNull;
+        private final ResultRows delegate;
         private final Runnable heartbeat;
+        private boolean iterated;
 
         public HeartbeatingResultRows(ResultRows delegate, Runnable heartbeat)
         {
-            this.iterator = delegate.iterator();
-            this.isNull = delegate.isNull();
-            this.heartbeat = heartbeat;
+            this.delegate = requireNonNull(delegate, "delegate is null");
+            this.heartbeat = requireNonNull(heartbeat, "heartbeat is null");
         }
 
         @Override
         public void close()
                 throws IOException
         {
-            if (iterator instanceof CloseableIterator) {
-                ((CloseableIterator<?>) iterator).close();
-            }
+            delegate.close();
         }
 
         @Override
         public boolean isNull()
         {
-            return isNull;
+            return delegate.isNull();
         }
 
         @Override
         public Iterator<List<Object>> iterator()
         {
-            return new AbstractIterator<>() {
-                @Override
-                protected List<Object> computeNext()
-                {
-                    heartbeat.run();
-                    if (iterator.hasNext()) {
-                        return iterator.next();
-                    }
-                    return endOfData();
-                }
-            };
+            verify(!iterated, "Iterator already fetched");
+            iterated = true;
+            return Iterators.transform(delegate.iterator(), row -> {
+                heartbeat.run();
+                return row;
+            });
         }
     }
 }

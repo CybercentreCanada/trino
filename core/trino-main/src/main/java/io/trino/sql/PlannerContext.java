@@ -13,6 +13,7 @@
  */
 package io.trino.sql;
 
+import com.google.common.base.Suppliers;
 import com.google.inject.Inject;
 import io.opentelemetry.api.trace.Tracer;
 import io.trino.execution.warnings.WarningCollector;
@@ -23,7 +24,13 @@ import io.trino.metadata.Metadata;
 import io.trino.spi.block.BlockEncodingSerde;
 import io.trino.spi.type.TypeManager;
 import io.trino.spi.type.TypeOperators;
+import io.trino.sql.ir.optimizer.IrExpressionEvaluator;
+import io.trino.sql.ir.optimizer.IrExpressionOptimizer;
 
+import java.util.function.Supplier;
+
+import static io.trino.sql.ir.optimizer.IrExpressionOptimizer.newOptimizer;
+import static io.trino.sql.ir.optimizer.IrExpressionOptimizer.newPartialEvaluator;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -44,9 +51,13 @@ public class PlannerContext
     private final FunctionManager functionManager;
     private final LanguageFunctionManager languageFunctionManager;
     private final Tracer tracer;
+    private final Supplier<IrExpressionOptimizer> expressionOptimizer = Suppliers.memoize(() -> newOptimizer(this));
+    private final Supplier<IrExpressionEvaluator> expressionEvaluator = Suppliers.memoize(() -> new IrExpressionEvaluator(this));
+    private final Supplier<IrExpressionOptimizer> partialEvaluator = Suppliers.memoize(() -> newPartialEvaluator(this));
 
     @Inject
-    public PlannerContext(Metadata metadata,
+    public PlannerContext(
+            Metadata metadata,
             TypeOperators typeOperators,
             BlockEncodingSerde blockEncodingSerde,
             TypeManager typeManager,
@@ -96,6 +107,21 @@ public class PlannerContext
     public FunctionResolver getFunctionResolver(WarningCollector warningCollector)
     {
         return new FunctionResolver(metadata, typeManager, languageFunctionManager, warningCollector);
+    }
+
+    public IrExpressionOptimizer getExpressionOptimizer()
+    {
+        return expressionOptimizer.get();
+    }
+
+    public IrExpressionEvaluator getExpressionEvaluator()
+    {
+        return expressionEvaluator.get();
+    }
+
+    public IrExpressionOptimizer getPartialEvaluator()
+    {
+        return partialEvaluator.get();
     }
 
     public LanguageFunctionManager getLanguageFunctionManager()

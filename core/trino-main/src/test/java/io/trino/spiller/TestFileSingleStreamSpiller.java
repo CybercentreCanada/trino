@@ -28,7 +28,6 @@ import io.trino.memory.context.LocalMemoryContext;
 import io.trino.operator.PageAssertions;
 import io.trino.spi.Page;
 import io.trino.spi.block.BlockBuilder;
-import io.trino.spi.block.TestingBlockEncodingSerde;
 import io.trino.spi.type.Type;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -51,10 +50,9 @@ import static com.google.common.util.concurrent.MoreExecutors.listeningDecorator
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.trino.execution.buffer.CompressionCodec.LZ4;
 import static io.trino.execution.buffer.CompressionCodec.NONE;
-import static io.trino.execution.buffer.PagesSerdeUtil.isSerializedPageCompressed;
-import static io.trino.execution.buffer.PagesSerdeUtil.isSerializedPageEncrypted;
 import static io.trino.execution.buffer.PagesSerdes.createSpillingPagesSerdeFactory;
 import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
+import static io.trino.metadata.InternalBlockEncodingSerde.TESTING_BLOCK_ENCODING_SERDE;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
@@ -150,7 +148,7 @@ public class TestFileSingleStreamSpiller
         try {
             FileSingleStreamSpillerFactory spillerFactory = new FileSingleStreamSpillerFactory(
                     executor, // executor won't be closed, because we don't call destroy() on the spiller factory
-                    new TestingBlockEncodingSerde(),
+                    TESTING_BLOCK_ENCODING_SERDE,
                     new SpillerStats(),
                     ImmutableList.of(spillPath.toPath()),
                     1,
@@ -158,7 +156,7 @@ public class TestFileSingleStreamSpiller
                     compressionCodec,
                     encryption);
             LocalMemoryContext memoryContext = newSimpleAggregatedMemoryContext().newLocalMemoryContext("test");
-            SingleStreamSpiller singleStreamSpiller = spillerFactory.create(TYPES, bytes -> {}, memoryContext);
+            SingleStreamSpiller singleStreamSpiller = spillerFactory.create(TYPES, _ -> {}, memoryContext);
             assertThat(singleStreamSpiller).isInstanceOf(FileSingleStreamSpiller.class);
             FileSingleStreamSpiller spiller = (FileSingleStreamSpiller) singleStreamSpiller;
 
@@ -191,17 +189,6 @@ public class TestFileSingleStreamSpiller
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessage("Repeated reads are disallowed to prevent potential resource leaks");
 
-            // Assert the spill codec flags match the expected configuration
-            try (InputStream is = newInputStream(listFiles(spillPath.toPath()).get(0))) {
-                Iterator<Slice> serializedPages = PagesSerdeUtil.readSerializedPages(is);
-                assertThat(serializedPages.hasNext())
-                        .describedAs("at least one page should be successfully read back")
-                        .isTrue();
-                Slice serializedPage = serializedPages.next();
-                assertThat(isSerializedPageCompressed(serializedPage)).isEqualTo(compressionCodec == LZ4);
-                assertThat(isSerializedPageEncrypted(serializedPage)).isEqualTo(encryption);
-            }
-
             spiller.close();
             assertThat(listFiles(spillPath.toPath())).isEmpty();
             assertThat(memoryContext.getBytes()).isEqualTo(0);
@@ -220,7 +207,7 @@ public class TestFileSingleStreamSpiller
         try {
             // Set up serializer and memory tracking objects
             SpillerStats stats = new SpillerStats();
-            PagesSerdeFactory serdeFactory = createSpillingPagesSerdeFactory(new TestingBlockEncodingSerde(), NONE);
+            PagesSerdeFactory serdeFactory = createSpillingPagesSerdeFactory(TESTING_BLOCK_ENCODING_SERDE, NONE);
             LocalMemoryContext memoryContext = newSimpleAggregatedMemoryContext().newLocalMemoryContext("test");
             PageSerializer serializer = serdeFactory.createSerializer(Optional.empty());
             PageDeserializer deserializer = serdeFactory.createDeserializer(Optional.empty());
@@ -232,7 +219,7 @@ public class TestFileSingleStreamSpiller
                     executor,
                     ImmutableList.of(spillPath1.toPath(), spillPath2.toPath()),
                     stats,
-                    bytes -> {},
+                    _ -> {},
                     memoryContext,
                     () -> {});
 

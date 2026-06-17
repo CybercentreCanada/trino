@@ -84,6 +84,7 @@ public abstract class AbstractGreatestLeast
                         .variableArity()
                         .build())
                 .nullable()
+                .neverFails()
                 .argumentNullability(true)
                 .description(description)
                 .build());
@@ -105,10 +106,10 @@ public abstract class AbstractGreatestLeast
         MethodHandle compareMethod = getMinMaxCompare(functionDependencies, type, simpleConvention(FAIL_ON_NULL, NEVER_NULL, NEVER_NULL), min);
 
         List<Class<?>> javaTypes = IntStream.range(0, boundSignature.getArity())
-                .mapToObj(i -> wrap(type.getJavaType()))
+                .mapToObj(_ -> wrap(type.getJavaType()))
                 .collect(toImmutableList());
 
-        MethodHandle methodHandle = generate(boundSignature.getName().getFunctionName(), javaTypes, compareMethod);
+        MethodHandle methodHandle = generate(boundSignature.getName().functionName(), javaTypes, compareMethod);
 
         return new ChoicesSpecializedSqlScalarFunction(
                 boundSignature,

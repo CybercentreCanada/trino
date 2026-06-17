@@ -88,7 +88,6 @@ import static io.airlift.concurrent.MoreFutures.toCompletableFuture;
 import static io.airlift.concurrent.MoreFutures.unmodifiableFuture;
 import static io.airlift.concurrent.MoreFutures.whenAnyComplete;
 import static io.trino.SystemSessionProperties.getRetryPolicy;
-import static io.trino.SystemSessionProperties.isEnableLargeDynamicFilters;
 import static io.trino.spi.connector.DynamicFilter.EMPTY;
 import static io.trino.spi.predicate.Domain.union;
 import static io.trino.sql.DynamicFilters.extractDynamicFilters;
@@ -105,8 +104,7 @@ public class DynamicFilterService
     private final Metadata metadata;
     private final FunctionManager functionManager;
     private final TypeOperators typeOperators;
-    private final DataSize largeMaxSizePerFilter;
-    private final DataSize smallMaxSizePerFilter;
+    private final DataSize maxSizePerFilter;
     private final Map<QueryId, DynamicFilterContext> dynamicFilterContexts = new ConcurrentHashMap<>();
 
     @Inject
@@ -115,8 +113,7 @@ public class DynamicFilterService
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.functionManager = requireNonNull(functionManager, "functionManager is null");
         this.typeOperators = requireNonNull(typeOperators, "typeOperators is null");
-        this.largeMaxSizePerFilter = dynamicFilterConfig.getLargeMaxSizePerFilter();
-        this.smallMaxSizePerFilter = dynamicFilterConfig.getSmallMaxSizePerFilter();
+        this.maxSizePerFilter = dynamicFilterConfig.getMaxSizePerFilter();
     }
 
     public void registerQuery(Session session, PlanNode queryPlan, SubPlan fragmentedPlan)
@@ -152,16 +149,8 @@ public class DynamicFilterService
                 dynamicFilters,
                 lazyDynamicFilters,
                 replicatedDynamicFilters,
-                getDynamicFilterSizeLimit(session),
+                maxSizePerFilter,
                 0));
-    }
-
-    private DataSize getDynamicFilterSizeLimit(Session session)
-    {
-        if (isEnableLargeDynamicFilters(session)) {
-            return largeMaxSizePerFilter;
-        }
-        return smallMaxSizePerFilter;
     }
 
     public void registerQueryRetry(QueryId queryId, int attemptId)
@@ -915,7 +904,7 @@ public class DynamicFilterService
             this.dynamicFilters = requireNonNull(dynamicFilters, "dynamicFilters is null");
             requireNonNull(lazyDynamicFilters, "lazyDynamicFilters is null");
             this.lazyDynamicFilters = lazyDynamicFilters.stream()
-                    .collect(toImmutableMap(identity(), filter -> SettableFuture.create()));
+                    .collect(toImmutableMap(identity(), _ -> SettableFuture.create()));
             this.replicatedDynamicFilters = requireNonNull(replicatedDynamicFilters, "replicatedDynamicFilters is null");
             this.dynamicFilterSizeLimit = requireNonNull(dynamicFilterSizeLimit, "dynamicFilterSizeLimit is null");
             ImmutableMap.Builder<DynamicFilterId, DynamicFilterCollectionContext> collectionContexts = ImmutableMap.builder();
@@ -969,7 +958,7 @@ public class DynamicFilterService
                 collectionContext.collect(taskId, domain);
             });
 
-            if (stageDynamicFilters.computeIfAbsent(taskId.stageId(), key -> newConcurrentHashSet()).addAll(newDynamicFilters.keySet())) {
+            if (stageDynamicFilters.computeIfAbsent(taskId.stageId(), _ -> newConcurrentHashSet()).addAll(newDynamicFilters.keySet())) {
                 updateExpectedTaskCount();
             }
         }

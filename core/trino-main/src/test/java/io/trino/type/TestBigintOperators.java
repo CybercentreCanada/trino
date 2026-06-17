@@ -14,6 +14,7 @@
 package io.trino.type;
 
 import io.trino.spi.function.OperatorType;
+import io.trino.spi.type.SqlNumber;
 import io.trino.sql.query.QueryAssertions;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -30,7 +31,7 @@ import static io.trino.spi.function.OperatorType.IDENTICAL;
 import static io.trino.spi.function.OperatorType.INDETERMINATE;
 import static io.trino.spi.function.OperatorType.LESS_THAN;
 import static io.trino.spi.function.OperatorType.LESS_THAN_OR_EQUAL;
-import static io.trino.spi.function.OperatorType.MODULUS;
+import static io.trino.spi.function.OperatorType.MODULO;
 import static io.trino.spi.function.OperatorType.MULTIPLY;
 import static io.trino.spi.function.OperatorType.NEGATION;
 import static io.trino.spi.function.OperatorType.SUBTRACT;
@@ -168,18 +169,18 @@ public class TestBigintOperators
     }
 
     @Test
-    public void testModulus()
+    public void testModulo()
     {
-        assertThat(assertions.operator(MODULUS, "100000000037", "37"))
+        assertThat(assertions.operator(MODULO, "100000000037", "37"))
                 .isEqualTo(100000000037L % 37L);
 
-        assertThat(assertions.operator(MODULUS, "37", "100000000017"))
+        assertThat(assertions.operator(MODULO, "37", "100000000017"))
                 .isEqualTo(37 % 100000000017L);
 
-        assertThat(assertions.operator(MODULUS, "100000000017", "37"))
+        assertThat(assertions.operator(MODULO, "100000000017", "37"))
                 .isEqualTo(100000000017L % 37L);
 
-        assertThat(assertions.operator(MODULUS, "100000000017", "100000000017"))
+        assertThat(assertions.operator(MODULO, "100000000017", "100000000017"))
                 .isEqualTo(0L);
     }
 
@@ -420,7 +421,7 @@ public class TestBigintOperators
     }
 
     @Test
-    public void testCastToFloat()
+    public void testCastToReal()
     {
         assertThat(assertions.expression("cast(a as real)")
                 .binding("a", "BIGINT '37'"))
@@ -433,6 +434,22 @@ public class TestBigintOperators
         assertThat(assertions.expression("cast(a as real)")
                 .binding("a", "BIGINT '0'"))
                 .isEqualTo(0.0f);
+    }
+
+    @Test
+    public void testCastToNumber()
+    {
+        assertThat(assertions.expression("CAST(a AS number)")
+                .binding("a", "BIGINT '37'"))
+                .isEqualTo(new SqlNumber("37"));
+
+        assertThat(assertions.expression("CAST(a AS number)")
+                .binding("a", "-100000000017"))
+                .isEqualTo(new SqlNumber("-100000000017"));
+
+        assertThat(assertions.expression("CAST(a AS number)")
+                .binding("a", "BIGINT '0'"))
+                .isEqualTo(new SqlNumber("0"));
     }
 
     @Test

@@ -61,6 +61,7 @@ import java.util.UUID;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 import static io.airlift.json.JsonCodec.jsonCodec;
+import static io.airlift.units.Duration.ZERO;
 import static io.trino.metastore.TableInfo.ExtendedRelationType.TABLE;
 import static io.trino.metastore.TableInfo.ExtendedRelationType.TRINO_MATERIALIZED_VIEW;
 import static io.trino.metastore.TableInfo.ExtendedRelationType.TRINO_VIEW;
@@ -70,6 +71,7 @@ import static io.trino.plugin.iceberg.IcebergTableProperties.FILE_FORMAT_PROPERT
 import static io.trino.plugin.iceberg.IcebergTableProperties.FORMAT_VERSION_PROPERTY;
 import static io.trino.plugin.iceberg.IcebergTestUtils.TABLE_STATISTICS_READER;
 import static io.trino.plugin.iceberg.IcebergUtil.quotedTableName;
+import static io.trino.plugin.iceberg.delete.DeletionVectorWriter.UNSUPPORTED_DELETION_VECTOR_WRITER;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
@@ -142,18 +144,21 @@ public abstract class BaseTrinoCatalogTest
                     PLANNER_CONTEXT.getTypeManager(),
                     jsonCodec(CommitTaskData.class),
                     catalog,
-                    (connectorIdentity, fileIoProperties) -> {
+                    (_, _) -> {
                         throw new UnsupportedOperationException();
                     },
                     TABLE_STATISTICS_READER,
                     new TableStatisticsWriter(new NodeVersion("test-version")),
+                    UNSUPPORTED_DELETION_VECTOR_WRITER,
                     Optional.empty(),
                     false,
                     _ -> false,
                     newDirectExecutorService(),
                     directExecutor(),
                     newDirectExecutorService(),
-                    newDirectExecutorService());
+                    newDirectExecutorService(),
+                    0,
+                    ZERO);
             assertThat(icebergMetadata.schemaExists(SESSION, namespace)).as("icebergMetadata.schemaExists(namespace)")
                     .isFalse();
             assertThat(icebergMetadata.schemaExists(SESSION, schema)).as("icebergMetadata.schemaExists(schema)")
@@ -185,13 +190,16 @@ public abstract class BaseTrinoCatalogTest
                     },
                     TABLE_STATISTICS_READER,
                     new TableStatisticsWriter(new NodeVersion("test-version")),
+                    UNSUPPORTED_DELETION_VECTOR_WRITER,
                     Optional.empty(),
                     false,
                     _ -> false,
                     newDirectExecutorService(),
                     directExecutor(),
                     newDirectExecutorService(),
-                    newDirectExecutorService());
+                    newDirectExecutorService(),
+                    0,
+                    ZERO);
 
             assertThat(icebergMetadata.getSchemaProperties(SESSION, namespace))
                     .doesNotContainKey("invalid_property");
@@ -257,7 +265,8 @@ public abstract class BaseTrinoCatalogTest
         SchemaTableName schemaTableName = new SchemaTableName(namespace, table);
         try {
             catalog.createNamespace(SESSION, namespace, defaultNamespaceProperties(namespace), new TrinoPrincipal(PrincipalType.USER, SESSION.getUser()));
-            Schema tableSchema = new Schema(Types.NestedField.optional(1, "col1", Types.LongType.get()),
+            Schema tableSchema = new Schema(
+                    Types.NestedField.optional(1, "col1", Types.LongType.get()),
                     Types.NestedField.optional(2, "col2", Types.StringType.get()),
                     Types.NestedField.optional(3, "col3", Types.TimestampType.withZone()),
                     Types.NestedField.optional(4, "col4", Types.StringType.get()));
@@ -646,6 +655,7 @@ public abstract class BaseTrinoCatalogTest
                 Optional.empty(),
                 ImmutableList.of(new ConnectorMaterializedViewDefinition.Column("test", BIGINT.getTypeId(), Optional.empty())),
                 Optional.of(Duration.ZERO),
+                Optional.empty(),
                 Optional.empty(),
                 Optional.of("owner"),
                 ImmutableList.of());

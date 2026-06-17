@@ -24,7 +24,7 @@ import io.airlift.concurrent.BoundedExecutor;
 import io.airlift.stats.CounterStat;
 import io.airlift.units.DataSize;
 import io.trino.filesystem.TrinoFileSystemFactory;
-import io.trino.filesystem.cache.CachingHostAddressProvider;
+import io.trino.filesystem.cache.SplitAffinityProvider;
 import io.trino.metastore.Column;
 import io.trino.metastore.HiveBucketProperty;
 import io.trino.metastore.HivePartition;
@@ -65,7 +65,6 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 
-import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static com.google.common.base.Verify.verify;
@@ -101,6 +100,7 @@ import static java.lang.String.format;
 import static java.util.Collections.emptyIterator;
 import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
 public class HiveSplitManager
         implements ConnectorSplitManager
@@ -122,7 +122,7 @@ public class HiveSplitManager
     private final boolean recursiveDfsWalkerEnabled;
     private final CounterStat highMemorySplitSourceCounter;
     private final TypeManager typeManager;
-    private final CachingHostAddressProvider cachingHostAddressProvider;
+    private final SplitAffinityProvider splitAffinityProvider;
     private final int maxPartitionsPerScan;
 
     @Inject
@@ -134,10 +134,9 @@ public class HiveSplitManager
             @ForHiveSplitManager ExecutorService executorService,
             VersionEmbedder versionEmbedder,
             TypeManager typeManager,
-            CachingHostAddressProvider cachingHostAddressProvider)
+            SplitAffinityProvider splitAffinityProvider)
     {
-        this(
-                transactionManager,
+        this(transactionManager,
                 partitionManager,
                 fileSystemFactory,
                 versionEmbedder.embedVersion(new BoundedExecutor(executorService, hiveConfig.getMaxSplitIteratorThreads())),
@@ -151,7 +150,7 @@ public class HiveSplitManager
                 hiveConfig.getMaxSplitsPerSecond(),
                 hiveConfig.getRecursiveDirWalkerEnabled(),
                 typeManager,
-                cachingHostAddressProvider,
+                splitAffinityProvider,
                 hiveConfig.getMaxPartitionsPerScan());
     }
 
@@ -170,7 +169,7 @@ public class HiveSplitManager
             @Nullable Integer maxSplitsPerSecond,
             boolean recursiveDfsWalkerEnabled,
             TypeManager typeManager,
-            CachingHostAddressProvider cachingHostAddressProvider,
+            SplitAffinityProvider splitAffinityProvider,
             int maxPartitionsPerScan)
     {
         this.transactionManager = requireNonNull(transactionManager, "transactionManager is null");
@@ -185,10 +184,10 @@ public class HiveSplitManager
         this.maxPartitionBatchSize = maxPartitionBatchSize;
         this.maxInitialSplits = maxInitialSplits;
         this.splitLoaderConcurrency = splitLoaderConcurrency;
-        this.maxSplitsPerSecond = firstNonNull(maxSplitsPerSecond, Integer.MAX_VALUE);
+        this.maxSplitsPerSecond = requireNonNullElse(maxSplitsPerSecond, Integer.MAX_VALUE);
         this.recursiveDfsWalkerEnabled = recursiveDfsWalkerEnabled;
         this.typeManager = requireNonNull(typeManager, "typeManager is null");
-        this.cachingHostAddressProvider = requireNonNull(cachingHostAddressProvider, "cachingHostAddressProvider is null");
+        this.splitAffinityProvider = requireNonNull(splitAffinityProvider, "splitAffinityProvider is null");
         this.maxPartitionsPerScan = maxPartitionsPerScan;
     }
 
@@ -291,7 +290,7 @@ public class HiveSplitManager
                 hiveSplitLoader,
                 executor,
                 highMemorySplitSourceCounter,
-                cachingHostAddressProvider,
+                splitAffinityProvider,
                 hiveTable.isRecordScannedFiles());
         hiveSplitLoader.start(splitSource);
 
@@ -537,7 +536,8 @@ public class HiveSplitManager
 
     private static TrinoException tablePartitionColumnMismatchException(SchemaTableName tableName, String partName, String tableColumnName, HiveType tableType, String partitionColumnName, HiveType partitionType)
     {
-        return new TrinoException(HIVE_PARTITION_SCHEMA_MISMATCH, format("" +
+        return new TrinoException(HIVE_PARTITION_SCHEMA_MISMATCH, format(
+                "" +
                         "There is a mismatch between the table and partition schemas. " +
                         "The types are incompatible and cannot be coerced. " +
                         "The column '%s' in table '%s' is declared as type '%s', " +

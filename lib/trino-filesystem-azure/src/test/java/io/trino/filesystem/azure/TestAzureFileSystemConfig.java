@@ -16,6 +16,7 @@ package io.trino.filesystem.azure;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.units.DataSize;
 import io.airlift.units.DataSize.Unit;
+import io.airlift.units.Duration;
 import io.trino.filesystem.azure.AzureFileSystemConfig.AuthType;
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +26,10 @@ import static io.airlift.configuration.testing.ConfigAssertions.assertFullMappin
 import static io.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
 import static io.airlift.configuration.testing.ConfigAssertions.recordDefaults;
 import static java.lang.Math.max;
+<<<<<<< HEAD
+=======
+import static java.util.concurrent.TimeUnit.MINUTES;
+>>>>>>> tags/481
 
 class TestAzureFileSystemConfig
 {
@@ -40,6 +45,11 @@ class TestAzureFileSystemConfig
                 .setMaxSingleUploadSize(DataSize.of(4, Unit.MEGABYTE))
                 .setMaxHttpRequests(2 * Runtime.getRuntime().availableProcessors())
                 .setMaxHttpConnections(2 * max(8, Runtime.getRuntime().availableProcessors()))
+<<<<<<< HEAD
+=======
+                .setConnectionPoolMaxIdleTime(new Duration(5, MINUTES))
+                .setHttpRequestTimeout(new Duration(10, MINUTES))
+>>>>>>> tags/481
                 .setApplicationId("Trino")
                 .setMultipartWriteEnabled(false));
     }
@@ -56,6 +66,11 @@ class TestAzureFileSystemConfig
                 .put("azure.max-single-upload-size", "7MB")
                 .put("azure.max-http-requests", "128")
                 .put("azure.max-http-connections", "128")
+<<<<<<< HEAD
+=======
+                .put("azure.connection-pool-max-idle-time", "1m")
+                .put("azure.http-request-timeout", "1m")
+>>>>>>> tags/481
                 .put("azure.application-id", "application id")
                 .put("azure.multipart-write-enabled", "true")
                 .buildOrThrow();
@@ -69,6 +84,11 @@ class TestAzureFileSystemConfig
                 .setMaxSingleUploadSize(DataSize.of(7, Unit.MEGABYTE))
                 .setMaxHttpRequests(128)
                 .setMaxHttpConnections(128)
+<<<<<<< HEAD
+=======
+                .setConnectionPoolMaxIdleTime(new Duration(1, MINUTES))
+                .setHttpRequestTimeout(new Duration(1, MINUTES))
+>>>>>>> tags/481
                 .setApplicationId("application id")
                 .setMultipartWriteEnabled(true);
 

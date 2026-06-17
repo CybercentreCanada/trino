@@ -284,7 +284,7 @@ public class TestIcebergGlueCatalogAccessOperations
 
             assertGlueMetastoreApiInvocations("REFRESH MATERIALIZED VIEW test_refresh_mview_view",
                     ImmutableMultiset.<GlueMetastoreMethod>builder()
-                            .addCopies(GET_TABLE, 4)
+                            .addCopies(GET_TABLE, 6)
                             .add(UPDATE_TABLE)
                             .build());
         }
@@ -326,11 +326,11 @@ public class TestIcebergGlueCatalogAccessOperations
             // getting relations with their types, like some tools do
             assertGlueMetastoreApiInvocations(
                     """
-                            SELECT table_name, IF(mv.name IS NOT NULL, 'MATERIALIZED VIEW', table_type) AS table_type
-                            FROM information_schema.tables t
-                            JOIN system.metadata.materialized_views mv ON t.table_schema = mv.schema_name AND t.table_name = mv.name
-                            WHERE t.table_schema = CURRENT_SCHEMA AND mv.catalog_name = CURRENT_CATALOG
-                            """,
+                    SELECT table_name, IF(mv.name IS NOT NULL, 'MATERIALIZED VIEW', table_type) AS table_type
+                    FROM information_schema.tables t
+                    JOIN system.metadata.materialized_views mv ON t.table_schema = mv.schema_name AND t.table_name = mv.name
+                    WHERE t.table_schema = CURRENT_SCHEMA AND mv.catalog_name = CURRENT_CATALOG
+                    """,
                     ImmutableMultiset.<GlueMetastoreMethod>builder()
                             .addCopies(GET_TABLES, 2)
                             .build());
@@ -495,7 +495,8 @@ public class TestIcebergGlueCatalogAccessOperations
                             .add(GET_TABLE)
                             .build());
 
-            assertQueryFails("SELECT * FROM \"test_select_snapshots$materialized_view_storage\"",
+            assertQueryFails(
+                    "SELECT * FROM \"test_select_snapshots$materialized_view_storage\"",
                     "Table '" + testSchema + ".test_select_snapshots\\$materialized_view_storage' not found");
 
             // This test should get updated if a new system table is added.

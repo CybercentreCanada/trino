@@ -42,7 +42,7 @@ public class TestGroupedTopNRankBuilder
     {
         GroupedTopNBuilder groupedTopNBuilder = new GroupedTopNRankBuilder(
                 ImmutableList.of(BIGINT),
-                (left, leftPosition, right, rightPosition) -> {
+                (_, _, _, _) -> {
                     throw new UnsupportedOperationException();
                 },
                 new PageWithPositionEqualsAndHash()
@@ -258,10 +258,10 @@ public class TestGroupedTopNRankBuilder
     {
         return GroupByHash.createGroupByHash(
                 ImmutableList.of(partitionType),
-                GroupByHash.selectGroupByHashMode(false, ImmutableList.of(partitionType)),
+                GroupByHash.shouldCacheHashValue(false, ImmutableList.of(partitionType)),
                 1,
                 false,
-                new FlatHashStrategyCompiler(typeOperators),
+                new FlatHashStrategyCompiler(typeOperators, new NullSafeHashCompiler(typeOperators)),
                 updateMemory);
     }
 

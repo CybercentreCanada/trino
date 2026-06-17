@@ -28,7 +28,6 @@ import io.trino.spi.connector.ConnectorMetadata;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.security.PrincipalType;
 import io.trino.spi.security.TrinoPrincipal;
-import io.trino.spi.type.TestingTypeManager;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.nessie.NessieIcebergClient;
 import org.junit.jupiter.api.AfterAll;
@@ -49,12 +48,15 @@ import java.util.Optional;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 import static io.airlift.json.JsonCodec.jsonCodec;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_ENVIRONMENT;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_STATS;
+import static io.airlift.units.Duration.ZERO;
+import static io.trino.hdfs.HdfsTestUtils.HDFS_ENVIRONMENT;
+import static io.trino.hdfs.HdfsTestUtils.HDFS_FILE_SYSTEM_STATS;
 import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
 import static io.trino.plugin.iceberg.IcebergTestUtils.TABLE_STATISTICS_READER;
+import static io.trino.plugin.iceberg.delete.DeletionVectorWriter.UNSUPPORTED_DELETION_VECTOR_WRITER;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
 import static io.trino.testing.TestingNames.randomNameSuffix;
+import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static java.nio.file.Files.createTempDirectory;
 import static java.util.Locale.ENGLISH;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -116,7 +118,7 @@ public class TestTrinoNessieCatalog
         NessieIcebergClient nessieClient = new NessieIcebergClient(nessieApi, icebergNessieCatalogConfig.getDefaultReferenceName(), null, ImmutableMap.of());
         return new TrinoNessieCatalog(
                 new CatalogName("catalog_name"),
-                new TestingTypeManager(),
+                TESTING_TYPE_MANAGER,
                 fileSystemFactory,
                 FILE_IO_FACTORY,
                 new IcebergNessieTableOperationsProvider(fileSystemFactory, FILE_IO_FACTORY, nessieClient),
@@ -141,7 +143,7 @@ public class TestTrinoNessieCatalog
         NessieIcebergClient nessieClient = new NessieIcebergClient(nessieApi, icebergNessieCatalogConfig.getDefaultReferenceName(), null, ImmutableMap.of());
         TrinoCatalog catalogWithDefaultLocation = new TrinoNessieCatalog(
                 new CatalogName("catalog_name"),
-                new TestingTypeManager(),
+                TESTING_TYPE_MANAGER,
                 fileSystemFactory,
                 FILE_IO_FACTORY,
                 new IcebergNessieTableOperationsProvider(fileSystemFactory, FILE_IO_FACTORY, nessieClient),
@@ -152,7 +154,10 @@ public class TestTrinoNessieCatalog
         String namespace = "test_default_location_" + randomNameSuffix();
         String table = "tableName";
         SchemaTableName schemaTableName = new SchemaTableName(namespace, table);
-        catalogWithDefaultLocation.createNamespace(SESSION, namespace, ImmutableMap.of(),
+        catalogWithDefaultLocation.createNamespace(
+                SESSION,
+                namespace,
+                ImmutableMap.of(),
                 new TrinoPrincipal(PrincipalType.USER, SESSION.getUser()));
         try {
             File expectedSchemaDirectory = new File(tmpDirectory.toFile(), namespace);
@@ -199,18 +204,21 @@ public class TestTrinoNessieCatalog
                     PLANNER_CONTEXT.getTypeManager(),
                     jsonCodec(CommitTaskData.class),
                     catalog,
-                    (connectorIdentity, fileIoProperties) -> {
+                    (_, _) -> {
                         throw new UnsupportedOperationException();
                     },
                     TABLE_STATISTICS_READER,
                     new TableStatisticsWriter(new NodeVersion("test-version")),
+                    UNSUPPORTED_DELETION_VECTOR_WRITER,
                     Optional.empty(),
                     false,
                     _ -> false,
                     newDirectExecutorService(),
                     directExecutor(),
                     newDirectExecutorService(),
-                    newDirectExecutorService());
+                    newDirectExecutorService(),
+                    0,
+                    ZERO);
             assertThat(icebergMetadata.schemaExists(SESSION, namespace)).as("icebergMetadata.schemaExists(namespace)")
                     .isTrue();
             assertThat(icebergMetadata.schemaExists(SESSION, schema)).as("icebergMetadata.schemaExists(schema)")

@@ -43,7 +43,8 @@ public class TestHiveOnOrcLegacyDateCompatibility
 
         try {
             onTrino().executeQuery("CREATE TABLE %s (date_col date, t timestamp) WITH (format = 'ORC')".formatted(trinoTableName));
-            onTrino().executeQuery("""
+            onTrino().executeQuery(
+                    """
                     INSERT INTO %s VALUES
                     (DATE '0002-01-01', TIMESTAMP '0002-01-01 00:00:00.123'),
                     (DATE '1500-01-01', TIMESTAMP '1500-01-01 00:00:00.123'),
@@ -56,7 +57,8 @@ public class TestHiveOnOrcLegacyDateCompatibility
                     row(Date.valueOf("1500-01-01"), Timestamp.valueOf("1500-01-01 00:00:00.123")),
                     row(Date.valueOf("1582-10-04"), Timestamp.valueOf("1582-10-04 00:00:00.123")),
                     row(Date.valueOf("1582-11-04"), Timestamp.valueOf("1582-11-04 00:00:00.123")),
-                    row(Date.valueOf("2000-02-29"), Timestamp.valueOf("2000-02-29 00:00:00.123"))};
+                    row(Date.valueOf("2000-02-29"), Timestamp.valueOf("2000-02-29 00:00:00.123")),
+            };
 
             assertThat(onTrino().executeQuery("SELECT date_col, t FROM " + trinoTableName)).containsOnly(expectedRows);
             assertThat(onHive().executeQuery("SELECT date_col, t  FROM " + hiveTableName)).containsOnly(expectedRows);
@@ -74,7 +76,8 @@ public class TestHiveOnOrcLegacyDateCompatibility
 
         try {
             onHive().executeQuery("CREATE TABLE %s (date_col date, t timestamp) STORED AS ORC".formatted(hiveTableName));
-            onHive().executeQuery("""
+            onHive().executeQuery(
+                    """
                     INSERT INTO %s VALUES
                     ('0002-01-01', '0002-01-01 00:00:00.123'),
                     ('1500-01-01', '1500-01-01 00:00:00.123'),
@@ -87,7 +90,8 @@ public class TestHiveOnOrcLegacyDateCompatibility
                     row(Date.valueOf("1500-01-01"), Timestamp.valueOf("1500-01-01 00:00:00.123")),
                     row(Date.valueOf("1582-10-04"), Timestamp.valueOf("1582-10-04 00:00:00.123")),
                     row(Date.valueOf("1582-11-04"), Timestamp.valueOf("1582-11-04 00:00:00.123")),
-                    row(Date.valueOf("2000-02-29"), Timestamp.valueOf("2000-02-29 00:00:00.123"))};
+                    row(Date.valueOf("2000-02-29"), Timestamp.valueOf("2000-02-29 00:00:00.123")),
+            };
             assertThat(onHive().executeQuery("SELECT date_col, t FROM " + hiveTableName)).containsOnly(expectedRowsHive);
 
             // https://github.com/trinodb/trino/issues/26865
@@ -96,7 +100,8 @@ public class TestHiveOnOrcLegacyDateCompatibility
                     row(Date.valueOf("1500-01-10"), Timestamp.valueOf("1500-01-10 00:00:00.123")),
                     row(Date.valueOf("1582-10-24"), Timestamp.valueOf("1582-10-24 00:00:00.123")),
                     row(Date.valueOf("1582-11-04"), Timestamp.valueOf("1582-11-04 00:00:00.123")),
-                    row(Date.valueOf("2000-02-29"), Timestamp.valueOf("2000-02-29 00:00:00.123"))};
+                    row(Date.valueOf("2000-02-29"), Timestamp.valueOf("2000-02-29 00:00:00.123")),
+            };
             assertThat(onTrino().executeQuery("SELECT date_col, t FROM " + trinoTableName)).containsOnly(expectedRowsTrino);
         }
         finally {

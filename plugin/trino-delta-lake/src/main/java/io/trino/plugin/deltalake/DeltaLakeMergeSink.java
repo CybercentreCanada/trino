@@ -134,6 +134,7 @@ public class DeltaLakeMergeSink
     private final Map<String, DeletionVectorEntry> deletionVectors;
     private final int randomPrefixLength;
     private final Optional<String> shallowCloneSourceTableLocation;
+    private long writtenBytes;
 
     @Nullable
     private DeltaLakeCdfPageSink cdfPageSink;
@@ -213,6 +214,9 @@ public class DeltaLakeMergeSink
 
         mergePage.deletionsPage().ifPresent(deletions -> processDeletion(deletions, DELETE_CDF_LABEL));
         mergePage.updateDeletionsPage().ifPresent(deletions -> processDeletion(deletions, UPDATE_PREIMAGE_CDF_LABEL));
+
+        writtenBytes = insertPageSink.getCompletedBytes();
+        writtenBytes += cdfPageSink == null ? 0 : cdfPageSink.getCompletedBytes();
     }
 
     private void processInsertions(Optional<Page> optionalInsertionPage, String cdfOperation)
@@ -280,24 +284,23 @@ public class DeltaLakeMergeSink
         for (int position = 0; position < positionCount; position++) {
             byte operation = TINYINT.getByte(operationBlock, position);
             switch (operation) {
-                case DELETE_OPERATION_NUMBER:
+                case DELETE_OPERATION_NUMBER -> {
                     deletePositions[deletePositionCount] = position;
                     deletePositionCount++;
-                    break;
-                case INSERT_OPERATION_NUMBER:
+                }
+                case INSERT_OPERATION_NUMBER -> {
                     insertPositions[insertPositionCount] = position;
                     insertPositionCount++;
-                    break;
-                case UPDATE_INSERT_OPERATION_NUMBER:
+                }
+                case UPDATE_INSERT_OPERATION_NUMBER -> {
                     updateInsertPositions[updateInsertPositionCount] = position;
                     updateInsertPositionCount++;
-                    break;
-                case UPDATE_DELETE_OPERATION_NUMBER:
+                }
+                case UPDATE_DELETE_OPERATION_NUMBER -> {
                     updateDeletePositions[updateDeletePositionCount] = position;
                     updateDeletePositionCount++;
-                    break;
-                default:
-                    throw new IllegalArgumentException("Invalid merge operation: " + operation);
+                }
+                default -> throw new IllegalArgumentException("Invalid merge operation: " + operation);
             }
         }
         Optional<Page> deletePage = Optional.empty();
@@ -331,6 +334,12 @@ public class DeltaLakeMergeSink
     }
 
     @Override
+    public long getCompletedBytes()
+    {
+        return writtenBytes;
+    }
+
+    @Override
     public CompletableFuture<Collection<Slice>> finish()
     {
         List<Slice> fragments = new ArrayList<>();
@@ -342,6 +351,7 @@ public class DeltaLakeMergeSink
                 .map(mergeResultJsonCodec::toJsonBytes)
                 .map(Slices::wrappedBuffer)
                 .forEach(fragments::add);
+        writtenBytes = insertPageSink.getCompletedBytes();
 
         fileDeletions.forEach((path, deletion) -> {
             if (deletionVectorEnabled) {
@@ -360,6 +370,7 @@ public class DeltaLakeMergeSink
                     .map(mergeResultJsonCodec::toJsonBytes)
                     .map(Slices::wrappedBuffer)
                     .forEach(fragments::add);
+            writtenBytes += cdfPageSink.getCompletedBytes();
         }
 
         return completedFuture(fragments);
@@ -388,7 +399,7 @@ public class DeltaLakeMergeSink
         }
         TrinoInputFile inputFile = fileSystem.newInputFile(Location.of(path.toStringUtf8()));
         try (ParquetDataSource dataSource = new TrinoParquetDataSource(inputFile, parquetReaderOptions, fileFormatDataSourceStats)) {
-            ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, Optional.empty());
+            ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, parquetReaderOptions, Optional.empty(), Optional.empty());
             long rowCount = parquetMetadata.getBlocks().stream().map(BlockMetadata::rowCount).mapToLong(Long::longValue).sum();
             RoaringBitmapArray rowsRetained = new RoaringBitmapArray();
             rowsRetained.addRange(0, rowCount - 1);
@@ -424,6 +435,7 @@ public class DeltaLakeMergeSink
         catch (IOException e) {
             throw new TrinoException(DELTA_LAKE_BAD_WRITE, "Unable to write deletion vector file", e);
         }
+        writtenBytes += deletionVectorEntry.sizeInBytes();
 
         try {
             DataFileInfo newFileInfo = new DataFileInfo(
@@ -489,6 +501,7 @@ public class DeltaLakeMergeSink
                     DATA);
 
             Optional<DataFileInfo> newFileInfo = rewriteParquetFile(sourceLocation, deletion, writer);
+            writtenBytes += writer.getWrittenBytes();
 
             DeltaLakeMergeResult result = new DeltaLakeMergeResult(deletion.partitionValues(), Optional.of(sourceReferencePath), Optional.empty(), newFileInfo);
             return ImmutableList.of(utf8Slice(mergeResultJsonCodec.toJson(result)));

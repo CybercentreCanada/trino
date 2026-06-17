@@ -56,6 +56,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import static io.trino.spi.block.RowValueBuilder.buildRowValue;
 import static io.trino.spi.function.OperatorType.EQUAL;
@@ -175,7 +176,8 @@ public class IrExpressionEvaluator
         return buildRowValue((RowType) expression.type(), builders -> {
             for (int i = 0; i < expression.items().size(); ++i) {
                 writeNativeValue(
-                        expression.items().get(i).type(), builders.get(i),
+                        expression.items().get(i).type(),
+                        builders.get(i),
                         evaluate(expression.items().get(i), session, bindings));
             }
         });
@@ -358,7 +360,7 @@ public class IrExpressionEvaluator
     private Object evaluate(Session session, Expression body, Map<String, Integer> mappings, Object... arguments)
     {
         Map<String, Object> bindings = new HashMap<>();
-        for (Map.Entry<String, Integer> entry : mappings.entrySet()) {
+        for (Entry<String, Integer> entry : mappings.entrySet()) {
             bindings.put(entry.getKey(), arguments[entry.getValue()]);
         }
 

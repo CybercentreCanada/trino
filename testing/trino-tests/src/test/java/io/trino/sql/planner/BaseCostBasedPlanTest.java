@@ -43,7 +43,6 @@ import org.junit.jupiter.params.provider.MethodSource;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -160,10 +159,11 @@ public abstract class BaseCostBasedPlanTest
 
         // for EXPLAIN ANALYZE, the first two lines reflect the additional root fragment containing the ExplainAnalyze operator
         assertThat(String.join("\n", Arrays.copyOfRange(explainAnalyzeLines, 0, 2)) + "\n")
-                .isEqualTo("""
-                           local exchange (GATHER, SINGLE, [])
-                               remote exchange (GATHER, SINGLE, [])
-                           """);
+                .isEqualTo(
+                        """
+                        local exchange (GATHER, SINGLE, [])
+                            remote exchange (GATHER, SINGLE, [])
+                        """);
 
         // the remaining lines should match the original query plan, except for the indentation
         explainAnalyzeQueryPlan = Arrays.stream(Arrays.copyOfRange(explainAnalyzeLines, 2, explainAnalyzeLines.length))
@@ -175,7 +175,7 @@ public abstract class BaseCostBasedPlanTest
 
     private String getQueryPlanResourcePath(String queryResourcePath)
     {
-        Path queryPath = Paths.get(queryResourcePath);
+        Path queryPath = Path.of(queryResourcePath);
         String connectorName = getPlanTester().getCatalogManager().getCatalog(new CatalogName(CATALOG_NAME)).orElseThrow().getConnectorName().toString();
         Path directory = queryPath.getParent();
         directory = directory.resolve(connectorName);
@@ -193,7 +193,7 @@ public abstract class BaseCostBasedPlanTest
                     .parallel()
                     .forEach(queryResourcePath -> {
                         try {
-                            Path queryPlanWritePath = Paths.get(
+                            Path queryPlanWritePath = Path.of(
                                     getSourcePath().toString(),
                                     "src/test/resources",
                                     getQueryPlanResourcePath(queryResourcePath));
@@ -250,7 +250,7 @@ public abstract class BaseCostBasedPlanTest
 
     private Path getSourcePath()
     {
-        Path workingDir = Paths.get(System.getProperty("user.dir"));
+        Path workingDir = Path.of(System.getProperty("user.dir"));
         verify(isDirectory(workingDir), "Working directory is not a directory");
         if (isDirectory(workingDir.resolve(".git"))) {
             // Top-level of the repo
@@ -308,8 +308,7 @@ public abstract class BaseCostBasedPlanTest
         public Void visitExchange(ExchangeNode node, Integer indent)
         {
             Partitioning partitioning = node.getPartitioningScheme().getPartitioning();
-            output(
-                    indent,
+            output(indent,
                     "%s exchange (%s, %s, %s)",
                     node.getScope().name().toLowerCase(ENGLISH),
                     node.getType(),
@@ -325,8 +324,7 @@ public abstract class BaseCostBasedPlanTest
         @Override
         public Void visitAggregation(AggregationNode node, Integer indent)
         {
-            output(
-                    indent,
+            output(indent,
                     "%s aggregation over (%s)",
                     node.getStep().name().toLowerCase(ENGLISH),
                     node.getGroupingKeys().stream()

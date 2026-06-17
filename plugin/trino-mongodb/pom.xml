@@ -4,7 +4,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>478</version>
+        <version>481</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -15,10 +15,11 @@
 
     <properties>
         <air.compiler.fail-warnings>true</air.compiler.fail-warnings>
-        <mongo-java.version>5.6.1</mongo-java.version>
+        <mongo-java.version>5.7.0</mongo-java.version>
     </properties>
 
     <dependencies>
+
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
@@ -135,9 +136,9 @@
         </dependency>
 
         <dependency>
-            <groupId>org.openjdk.jol</groupId>
-            <artifactId>jol-core</artifactId>
-            <scope>provided</scope>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>runtime</scope>
         </dependency>
 
         <dependency>

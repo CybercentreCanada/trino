@@ -34,14 +34,18 @@ import io.trino.spi.connector.MaterializedViewNotFoundException;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.security.PrincipalType;
 import io.trino.spi.security.TrinoPrincipal;
-import io.trino.spi.type.TestingTypeManager;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.retries.api.BackoffStrategy;
 import software.amazon.awssdk.services.glue.GlueClient;
+import software.amazon.awssdk.services.glue.GlueClientBuilder;
+import software.amazon.awssdk.services.glue.model.ConcurrentModificationException;
+import software.amazon.awssdk.services.glue.model.ThrottlingException;
 
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -49,13 +53,15 @@ import java.util.Optional;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static com.google.common.util.concurrent.MoreExecutors.newDirectExecutorService;
 import static io.airlift.json.JsonCodec.jsonCodec;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_FACTORY;
+import static io.airlift.units.Duration.ZERO;
+import static io.trino.hdfs.HdfsTestUtils.HDFS_FILE_SYSTEM_FACTORY;
 import static io.trino.plugin.iceberg.IcebergFileFormat.PARQUET;
 import static io.trino.plugin.iceberg.IcebergSchemaProperties.LOCATION_PROPERTY;
 import static io.trino.plugin.iceberg.IcebergTableProperties.FILE_FORMAT_PROPERTY;
 import static io.trino.plugin.iceberg.IcebergTableProperties.FORMAT_VERSION_PROPERTY;
 import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
 import static io.trino.plugin.iceberg.IcebergTestUtils.TABLE_STATISTICS_READER;
+import static io.trino.plugin.iceberg.delete.DeletionVectorWriter.UNSUPPORTED_DELETION_VECTOR_WRITER;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
 import static io.trino.testing.TestingNames.randomNameSuffix;
@@ -85,13 +91,13 @@ public class TestTrinoGlueCatalog
 
     private TrinoCatalog createGlueTrinoCatalog(boolean useUniqueTableLocations, boolean useSystemSecurity)
     {
-        GlueClient glueClient = GlueClient.create();
+        GlueClient glueClient = createGlueClient();
         IcebergGlueCatalogConfig catalogConfig = new IcebergGlueCatalogConfig();
         return new TrinoGlueCatalog(
                 new CatalogName("catalog_name"),
                 HDFS_FILE_SYSTEM_FACTORY,
                 FILE_IO_FACTORY,
-                new TestingTypeManager(),
+                TESTING_TYPE_MANAGER,
                 catalogConfig.isCacheTableMetadata(),
                 new GlueIcebergTableOperationsProvider(
                         HDFS_FILE_SYSTEM_FACTORY,
@@ -101,13 +107,24 @@ public class TestTrinoGlueCatalog
                         new GlueMetastoreStats(),
                         glueClient),
                 "test",
-                glueClient,
-                new GlueMetastoreStats(),
+                new StatsRecordingGlueClient(glueClient, new GlueMetastoreStats()),
                 useSystemSecurity,
                 Optional.empty(),
                 useUniqueTableLocations,
                 new IcebergConfig().isHideMaterializedViewStorageTable(),
                 directExecutor());
+    }
+
+    private static GlueClient createGlueClient()
+    {
+        GlueClientBuilder glue = GlueClient.builder();
+
+        glue.overrideConfiguration(builder -> builder
+                .retryStrategy(retryBuilder -> retryBuilder
+                        .retryOnException(throwable -> throwable instanceof ConcurrentModificationException || throwable instanceof ThrottlingException)
+                        .backoffStrategy(BackoffStrategy.exponentialDelay(Duration.ofMillis(20), Duration.ofMillis(1500)))
+                        .maxAttempts(10)));
+        return glue.build();
     }
 
     /**
@@ -141,18 +158,21 @@ public class TestTrinoGlueCatalog
                     PLANNER_CONTEXT.getTypeManager(),
                     jsonCodec(CommitTaskData.class),
                     catalog,
-                    (connectorIdentity, fileIoProperties) -> {
+                    (_, _) -> {
                         throw new UnsupportedOperationException();
                     },
                     TABLE_STATISTICS_READER,
                     new TableStatisticsWriter(new NodeVersion("test-version")),
+                    UNSUPPORTED_DELETION_VECTOR_WRITER,
                     Optional.empty(),
                     false,
                     _ -> false,
                     newDirectExecutorService(),
                     directExecutor(),
                     newDirectExecutorService(),
-                    newDirectExecutorService());
+                    newDirectExecutorService(),
+                    0,
+                    ZERO);
             assertThat(icebergMetadata.schemaExists(SESSION, databaseName)).as("icebergMetadata.schemaExists(databaseName)")
                     .isFalse();
             assertThat(icebergMetadata.schemaExists(SESSION, trinoSchemaName)).as("icebergMetadata.schemaExists(trinoSchemaName)")
@@ -185,6 +205,7 @@ public class TestTrinoGlueCatalog
                             Optional.of("catalog_name"),
                             Optional.of("schema_name"),
                             ImmutableList.of(new ConnectorMaterializedViewDefinition.Column("col1", INTEGER.getTypeId(), Optional.empty())),
+                            Optional.empty(),
                             Optional.empty(),
                             Optional.empty(),
                             Optional.of("test_owner"),
@@ -232,7 +253,7 @@ public class TestTrinoGlueCatalog
                 new CatalogName("catalog_name"),
                 fileSystemFactory,
                 FILE_IO_FACTORY,
-                new TestingTypeManager(),
+                TESTING_TYPE_MANAGER,
                 catalogConfig.isCacheTableMetadata(),
                 new GlueIcebergTableOperationsProvider(
                         fileSystemFactory,
@@ -242,8 +263,7 @@ public class TestTrinoGlueCatalog
                         new GlueMetastoreStats(),
                         glueClient),
                 "test",
-                glueClient,
-                new GlueMetastoreStats(),
+                new StatsRecordingGlueClient(glueClient, new GlueMetastoreStats()),
                 false,
                 Optional.of(tmpDirectory.toAbsolutePath().toString()),
                 false,

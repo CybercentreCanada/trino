@@ -19,7 +19,8 @@ import com.google.common.collect.ImmutableMultimap;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Multimap;
 import io.trino.Session;
-import io.trino.client.NodeVersion;
+import io.trino.execution.scheduler.ConsistentHashingAddressProvider;
+import io.trino.execution.scheduler.ConsistentHashingAddressProviderConfig;
 import io.trino.execution.scheduler.FlatNetworkTopology;
 import io.trino.execution.scheduler.NetworkLocation;
 import io.trino.execution.scheduler.NetworkTopology;
@@ -36,6 +37,7 @@ import io.trino.node.InternalNode;
 import io.trino.node.InternalNodeManager;
 import io.trino.node.TestingInternalNodeManager;
 import io.trino.spi.HostAddress;
+import io.trino.spi.NodeVersion;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.testing.TestingSession;
@@ -128,9 +130,11 @@ public class BenchmarkNodeScheduler
     @State(Scope.Thread)
     public static class BenchmarkData
     {
-        @Param({"uniform",
+        @Param({
+                "uniform",
                 "benchmark",
-                "topology"})
+                "topology",
+        })
         private String policy = "uniform";
 
         private FinalizerService finalizerService = new FinalizerService();
@@ -194,16 +198,13 @@ public class BenchmarkNodeScheduler
         {
             InternalNodeManager nodeManager = TestingInternalNodeManager.createDefault();
             NodeSchedulerConfig nodeSchedulerConfig = getNodeSchedulerConfig();
-            switch (policy) {
-                case "uniform":
-                    return new UniformNodeSelectorFactory(CURRENT_NODE, nodeManager, nodeSchedulerConfig, nodeTaskMap);
-                case "topology":
-                    return new TopologyAwareNodeSelectorFactory(new FlatNetworkTopology(), CURRENT_NODE, nodeManager, nodeSchedulerConfig, nodeTaskMap, new TopologyAwareNodeSelectorConfig());
-                case "benchmark":
-                    return new TopologyAwareNodeSelectorFactory(new BenchmarkNetworkTopology(), CURRENT_NODE, nodeManager, nodeSchedulerConfig, nodeTaskMap, getBenchmarkNetworkTopologyConfig());
-                default:
-                    throw new IllegalStateException();
-            }
+            ConsistentHashingAddressProvider consistentHashingAddressProvider = new ConsistentHashingAddressProvider(nodeManager, new ConsistentHashingAddressProviderConfig());
+            return switch (policy) {
+                case "uniform" -> new UniformNodeSelectorFactory(CURRENT_NODE, nodeManager, nodeSchedulerConfig, nodeTaskMap, consistentHashingAddressProvider);
+                case "topology" -> new TopologyAwareNodeSelectorFactory(new FlatNetworkTopology(), CURRENT_NODE, nodeManager, nodeSchedulerConfig, nodeTaskMap, new TopologyAwareNodeSelectorConfig(), consistentHashingAddressProvider);
+                case "benchmark" -> new TopologyAwareNodeSelectorFactory(new BenchmarkNetworkTopology(), CURRENT_NODE, nodeManager, nodeSchedulerConfig, nodeTaskMap, getBenchmarkNetworkTopologyConfig(), consistentHashingAddressProvider);
+                default -> throw new IllegalStateException();
+            };
         }
 
         public Map<InternalNode, MockRemoteTaskFactory.MockRemoteTask> getTaskMap()
@@ -222,7 +223,7 @@ public class BenchmarkNodeScheduler
         }
     }
 
-    public static void main(String[] args)
+    static void main()
             throws Exception
     {
         Benchmarks.benchmark(BenchmarkNodeScheduler.class).run();

@@ -18,6 +18,7 @@ import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.MapType;
+import io.trino.spi.type.NumberType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.StandardTypes;
 import io.trino.spi.type.TimeType;
@@ -25,8 +26,8 @@ import io.trino.spi.type.TimeWithTimeZoneType;
 import io.trino.spi.type.TimestampType;
 import io.trino.spi.type.TimestampWithTimeZoneType;
 import io.trino.spi.type.Type;
+import io.trino.spi.type.TypeParameter;
 import io.trino.spi.type.TypeSignature;
-import io.trino.spi.type.TypeSignatureParameter;
 import io.trino.spi.type.VarcharType;
 
 import java.util.List;
@@ -241,7 +242,7 @@ public final class TypeCoercion
     {
         int targetScale = Math.max(firstType.getScale(), secondType.getScale());
         int targetPrecision = Math.max(firstType.getPrecision() - firstType.getScale(), secondType.getPrecision() - secondType.getScale()) + targetScale;
-        //we allow potential loss of precision here. Overflow checking is done in operators.
+        // we allow potential loss of precision here. Overflow checking is done in operators.
         targetPrecision = Math.min(38, targetPrecision);
         return createDecimalType(targetPrecision, targetScale);
     }
@@ -294,7 +295,7 @@ public final class TypeCoercion
     private TypeCompatibility typeCompatibilityForCovariantParametrizedType(Type fromType, Type toType)
     {
         checkState(fromType.getClass().equals(toType.getClass()));
-        ImmutableList.Builder<TypeSignatureParameter> commonParameterTypes = ImmutableList.builder();
+        ImmutableList.Builder<TypeParameter> commonParameterTypes = ImmutableList.builder();
         List<Type> fromTypeParameters = fromType.getTypeParameters();
         List<Type> toTypeParameters = toType.getTypeParameters();
 
@@ -309,7 +310,7 @@ public final class TypeCoercion
                 return TypeCompatibility.incompatible();
             }
             coercible &= compatibility.isCoercible();
-            commonParameterTypes.add(TypeSignatureParameter.typeParameter(compatibility.getCommonSuperType().getTypeSignature()));
+            commonParameterTypes.add(TypeParameter.typeParameter(compatibility.getCommonSuperType().getTypeSignature()));
         }
         String typeBase = fromType.getBaseName();
         return TypeCompatibility.compatible(lookupType.apply(new TypeSignature(typeBase, commonParameterTypes.build())), coercible);
@@ -330,26 +331,26 @@ public final class TypeCoercion
         return switch (sourceTypeName) {
             case UnknownType.NAME -> switch (resultTypeBase) {
                 case StandardTypes.BOOLEAN,
-                        StandardTypes.BIGINT,
-                        StandardTypes.INTEGER,
-                        StandardTypes.DOUBLE,
-                        StandardTypes.REAL,
-                        StandardTypes.VARBINARY,
-                        StandardTypes.DATE,
-                        StandardTypes.TIME,
-                        StandardTypes.TIME_WITH_TIME_ZONE,
-                        StandardTypes.TIMESTAMP,
-                        StandardTypes.TIMESTAMP_WITH_TIME_ZONE,
-                        StandardTypes.HYPER_LOG_LOG,
-                        StandardTypes.SET_DIGEST,
-                        StandardTypes.P4_HYPER_LOG_LOG,
-                        StandardTypes.JSON,
-                        StandardTypes.INTERVAL_YEAR_TO_MONTH,
-                        StandardTypes.INTERVAL_DAY_TO_SECOND,
-                        JoniRegexpType.NAME,
-                        JsonPathType.NAME,
-                        ColorType.NAME,
-                        CodePointsType.NAME -> Optional.of(lookupType.apply(new TypeSignature(resultTypeBase)));
+                     StandardTypes.BIGINT,
+                     StandardTypes.INTEGER,
+                     StandardTypes.DOUBLE,
+                     StandardTypes.REAL,
+                     StandardTypes.VARBINARY,
+                     StandardTypes.DATE,
+                     StandardTypes.TIME,
+                     StandardTypes.TIME_WITH_TIME_ZONE,
+                     StandardTypes.TIMESTAMP,
+                     StandardTypes.TIMESTAMP_WITH_TIME_ZONE,
+                     StandardTypes.HYPER_LOG_LOG,
+                     StandardTypes.SET_DIGEST,
+                     StandardTypes.P4_HYPER_LOG_LOG,
+                     StandardTypes.JSON,
+                     StandardTypes.INTERVAL_YEAR_TO_MONTH,
+                     StandardTypes.INTERVAL_DAY_TO_SECOND,
+                     JoniRegexpType.NAME,
+                     JsonPathType.NAME,
+                     ColorType.NAME,
+                     CodePointsType.NAME -> Optional.of(lookupType.apply(new TypeSignature(resultTypeBase)));
                 case StandardTypes.VARCHAR -> Optional.of(createVarcharType(0));
                 case StandardTypes.CHAR -> Optional.of(createCharType(0));
                 case StandardTypes.DECIMAL -> Optional.of(createDecimalType(1, 0));
@@ -362,6 +363,7 @@ public final class TypeCoercion
                 case StandardTypes.REAL -> Optional.of(REAL);
                 case StandardTypes.DOUBLE -> Optional.of(DOUBLE);
                 case StandardTypes.DECIMAL -> Optional.of(createDecimalType(3, 0));
+                case StandardTypes.NUMBER -> Optional.of(NumberType.NUMBER);
                 default -> Optional.empty();
             };
             case StandardTypes.SMALLINT -> switch (resultTypeBase) {
@@ -370,6 +372,7 @@ public final class TypeCoercion
                 case StandardTypes.REAL -> Optional.of(REAL);
                 case StandardTypes.DOUBLE -> Optional.of(DOUBLE);
                 case StandardTypes.DECIMAL -> Optional.of(createDecimalType(5, 0));
+                case StandardTypes.NUMBER -> Optional.of(NumberType.NUMBER);
                 default -> Optional.empty();
             };
             case StandardTypes.INTEGER -> switch (resultTypeBase) {
@@ -377,17 +380,20 @@ public final class TypeCoercion
                 case StandardTypes.REAL -> Optional.of(REAL);
                 case StandardTypes.DOUBLE -> Optional.of(DOUBLE);
                 case StandardTypes.DECIMAL -> Optional.of(createDecimalType(10, 0));
+                case StandardTypes.NUMBER -> Optional.of(NumberType.NUMBER);
                 default -> Optional.empty();
             };
             case StandardTypes.BIGINT -> switch (resultTypeBase) {
                 case StandardTypes.REAL -> Optional.of(REAL);
                 case StandardTypes.DOUBLE -> Optional.of(DOUBLE);
                 case StandardTypes.DECIMAL -> Optional.of(createDecimalType(19, 0));
+                case StandardTypes.NUMBER -> Optional.of(NumberType.NUMBER);
                 default -> Optional.empty();
             };
             case StandardTypes.DECIMAL -> switch (resultTypeBase) {
                 case StandardTypes.REAL -> Optional.of(REAL);
                 case StandardTypes.DOUBLE -> Optional.of(DOUBLE);
+                case StandardTypes.NUMBER -> Optional.of(NumberType.NUMBER);
                 default -> Optional.empty();
             };
             case StandardTypes.REAL -> switch (resultTypeBase) {
@@ -422,11 +428,10 @@ public final class TypeCoercion
                 default -> Optional.empty();
             };
             case StandardTypes.CHAR -> switch (resultTypeBase) {
-                case StandardTypes.VARCHAR ->
-                    // CHAR could be coercible to VARCHAR, but they cannot be both coercible to each other.
-                    // VARCHAR to CHAR coercion provides natural semantics when comparing VARCHAR literals to CHAR columns.
-                    // WITH CHAR to VARCHAR coercion one would need to pad literals with spaces: char_column_len_5 = 'abc  ', so we would not run unmodified TPC-DS queries.
-                        Optional.empty();
+                // CHAR could be coercible to VARCHAR, but they cannot be both coercible to each other.
+                // VARCHAR to CHAR coercion provides natural semantics when comparing VARCHAR literals to CHAR columns.
+                // WITH CHAR to VARCHAR coercion one would need to pad literals with spaces: char_column_len_5 = 'abc  ', so we would not run unmodified TPC-DS queries.
+                case StandardTypes.VARCHAR -> Optional.empty();
                 case JoniRegexpType.NAME -> Optional.of(JONI_REGEXP);
                 case Re2JRegexpType.NAME -> Optional.of(lookupType.apply(RE2J_REGEXP_SIGNATURE));
                 case JsonPathType.NAME -> Optional.of(JSON_PATH);

@@ -47,7 +47,7 @@ import java.util.Map;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.json.JsonEmptySequenceNode.EMPTY_SEQUENCE;
 import static io.trino.metadata.FunctionManager.createTestingFunctionManager;
-import static io.trino.metadata.TestMetadataManager.createTestMetadataManager;
+import static io.trino.metadata.TestingMetadataManager.createTestingMetadataManager;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.CharType.createCharType;
@@ -87,7 +87,7 @@ import static io.trino.sql.planner.PathNodes.lessThanOrEqual;
 import static io.trino.sql.planner.PathNodes.literal;
 import static io.trino.sql.planner.PathNodes.memberAccessor;
 import static io.trino.sql.planner.PathNodes.minus;
-import static io.trino.sql.planner.PathNodes.modulus;
+import static io.trino.sql.planner.PathNodes.modulo;
 import static io.trino.sql.planner.PathNodes.multiply;
 import static io.trino.sql.planner.PathNodes.negation;
 import static io.trino.sql.planner.PathNodes.notEqual;
@@ -296,9 +296,9 @@ public class TestJsonPathEvaluator
         // type mismatch
         assertThatThrownBy(() -> evaluate(
                 IntNode.valueOf(-5),
-                path(true, modulus(jsonVariable("json_number_parameter"), literal(BOOLEAN, true)))))
+                path(true, modulo(jsonVariable("json_number_parameter"), literal(BOOLEAN, true)))))
                 .isInstanceOf(PathEvaluationException.class)
-                .hasMessage("path evaluation failed: invalid operand types to MODULUS operator (integer, boolean)");
+                .hasMessage("path evaluation failed: invalid operand types to MODULO operator (integer, boolean)");
 
         // left operand is not singleton
         assertThatThrownBy(() -> evaluate(
@@ -1479,7 +1479,7 @@ public class TestJsonPathEvaluator
                 input,
                 PARAMETERS.values().toArray(),
                 new JsonPathEvaluator.Invoker(testSessionBuilder().build().toConnectorSession(), createTestingFunctionManager()),
-                new CachingResolver(createTestMetadataManager()));
+                new CachingResolver(createTestingMetadataManager()));
     }
 
     private static PathPredicateEvaluationVisitor createPredicateVisitor(JsonNode input, boolean lax)
@@ -1488,6 +1488,6 @@ public class TestJsonPathEvaluator
                 lax,
                 createPathVisitor(input, lax),
                 new JsonPathEvaluator.Invoker(testSessionBuilder().build().toConnectorSession(), createTestingFunctionManager()),
-                new CachingResolver(createTestMetadataManager()));
+                new CachingResolver(createTestingMetadataManager()));
     }
 }

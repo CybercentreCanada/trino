@@ -199,7 +199,7 @@ public class TestIcebergMetastoreAccessOperations
     }
 
     @Test
-    public void testSelectFromMaterializedView()
+    public void testSelectFromStaleMaterializedView()
     {
         assertUpdate("CREATE TABLE test_select_mview_table (id VARCHAR, age INT)");
         assertUpdate("CREATE MATERIALIZED VIEW test_select_mview_view AS SELECT id, age FROM test_select_mview_table");
@@ -207,6 +207,33 @@ public class TestIcebergMetastoreAccessOperations
         assertMetastoreInvocations("SELECT * FROM test_select_mview_view",
                 ImmutableMultiset.<MetastoreMethod>builder()
                         .addCopies(GET_TABLE, 2)
+                        .build());
+    }
+
+    @Test
+    public void testSelectFromFreshMaterializedView()
+    {
+        assertUpdate("CREATE TABLE test_select_fresh_mview_table (id VARCHAR, age INT)");
+        assertUpdate("CREATE MATERIALIZED VIEW test_select_fresh_mview_view AS SELECT id, age FROM test_select_fresh_mview_table");
+        assertUpdate("REFRESH MATERIALIZED VIEW test_select_fresh_mview_view", 0);
+
+        assertMetastoreInvocations("SELECT * FROM test_select_fresh_mview_view",
+                ImmutableMultiset.<MetastoreMethod>builder()
+                        .addCopies(GET_TABLE, 1)
+                        .build());
+    }
+
+    @Test
+    public void testSelectFromMaterializedViewWithinGracePeriod()
+    {
+        assertUpdate("CREATE TABLE test_select_gp_mview_table (id VARCHAR, age INT)");
+        assertUpdate("CREATE MATERIALIZED VIEW test_select_gp_mview_view GRACE PERIOD INTERVAL '1' DAY AS SELECT id, age FROM test_select_gp_mview_table");
+        assertUpdate("REFRESH MATERIALIZED VIEW test_select_gp_mview_view", 0);
+        assertUpdate("INSERT INTO test_select_gp_mview_table VALUES ('1', 10)", 1);
+
+        assertMetastoreInvocations("SELECT * FROM test_select_gp_mview_view",
+                ImmutableMultiset.<MetastoreMethod>builder()
+                        .addCopies(GET_TABLE, 1)
                         .build());
     }
 
@@ -223,14 +250,42 @@ public class TestIcebergMetastoreAccessOperations
     }
 
     @Test
-    public void testRefreshMaterializedView()
+    public void testRefreshStaleMaterializedView()
     {
         assertUpdate("CREATE TABLE test_refresh_mview_table (id VARCHAR, age INT)");
         assertUpdate("CREATE MATERIALIZED VIEW test_refresh_mview_view AS SELECT id, age FROM test_refresh_mview_table");
 
         assertMetastoreInvocations("REFRESH MATERIALIZED VIEW test_refresh_mview_view",
                 ImmutableMultiset.<MetastoreMethod>builder()
+                        .addCopies(GET_TABLE, 3)
+                        .addCopies(REPLACE_TABLE, 1)
+                        .build());
+    }
+
+    @Test
+    public void testRefreshFreshMaterializedView()
+    {
+        assertUpdate("CREATE TABLE test_refresh_fresh_mview_table (id VARCHAR, age INT)");
+        assertUpdate("CREATE MATERIALIZED VIEW test_refresh_fresh_mview_view AS SELECT id, age FROM test_refresh_fresh_mview_table");
+        assertUpdate("REFRESH MATERIALIZED VIEW test_refresh_fresh_mview_view", 0);
+
+        assertMetastoreInvocations("REFRESH MATERIALIZED VIEW test_refresh_fresh_mview_view",
+                ImmutableMultiset.<MetastoreMethod>builder()
                         .addCopies(GET_TABLE, 2)
+                        .build());
+    }
+
+    @Test
+    public void testRefreshMaterializedViewWithinGracePeriod()
+    {
+        assertUpdate("CREATE TABLE test_refresh_gp_mview_table (id VARCHAR, age INT)");
+        assertUpdate("CREATE MATERIALIZED VIEW test_refresh_gp_mview_view AS SELECT id, age FROM test_refresh_gp_mview_table");
+        assertUpdate("REFRESH MATERIALIZED VIEW test_refresh_gp_mview_view", 0);
+        assertUpdate("INSERT INTO test_refresh_gp_mview_table VALUES ('1', 10)", 1);
+
+        assertMetastoreInvocations("REFRESH MATERIALIZED VIEW test_refresh_gp_mview_view",
+                ImmutableMultiset.<MetastoreMethod>builder()
+                        .addCopies(GET_TABLE, 3)
                         .addCopies(REPLACE_TABLE, 1)
                         .build());
     }
@@ -356,7 +411,8 @@ public class TestIcebergMetastoreAccessOperations
                         .addCopies(GET_TABLE, 1)
                         .build());
 
-        assertQueryFails("SELECT * FROM \"test_select_snapshots$materialized_view_storage\"",
+        assertQueryFails(
+                "SELECT * FROM \"test_select_snapshots$materialized_view_storage\"",
                 "Table 'tpch.test_select_snapshots\\$materialized_view_storage' not found");
 
         // This test should get updated if a new system table is added.
@@ -536,6 +592,69 @@ public class TestIcebergMetastoreAccessOperations
                 ImmutableMultiset.<MetastoreMethod>builder()
                         .add(GET_DATABASE)
                         .add(GET_TABLES)
+                        .build());
+    }
+
+    @Test
+    public void testInsert()
+    {
+        assertUpdate("CREATE TABLE test_insert (data integer, part integer)");
+
+        assertMetastoreInvocations("INSERT INTO test_insert VALUES (1, 10), (2, 10), (11, 20), (12, 20), (23, 30)",
+                ImmutableMultiset.<MetastoreMethod>builder()
+                        .addCopies(GET_TABLE, 4)
+                        .add(REPLACE_TABLE)
+                        .build());
+    }
+
+    @Test
+    public void testDelete()
+    {
+        assertUpdate("CREATE TABLE test_delete AS SELECT * FROM tpch.tiny.region", 5);
+
+        assertMetastoreInvocations("DELETE FROM test_delete WHERE regionkey < 2",
+                ImmutableMultiset.<MetastoreMethod>builder()
+                        .addCopies(GET_TABLE, 4)
+                        .add(REPLACE_TABLE)
+                        .build());
+    }
+
+    @Test
+    public void testUpdate()
+    {
+        assertUpdate("CREATE TABLE test_update (data integer, part integer)");
+        assertUpdate("INSERT INTO test_update VALUES (1, 10), (2, 10), (11, 20), (12, 20), (23, 30)", 5);
+
+        assertMetastoreInvocations("UPDATE test_update SET data = data + 1",
+                ImmutableMultiset.<MetastoreMethod>builder()
+                        .addCopies(GET_TABLE, 4)
+                        .add(REPLACE_TABLE)
+                        .build());
+    }
+
+    @Test
+    public void testMerge()
+    {
+        assertUpdate("CREATE TABLE test_merge (data integer)");
+
+        assertMetastoreInvocations("MERGE INTO test_merge USING (VALUES 42) t(dummy) ON false WHEN NOT MATCHED THEN INSERT VALUES (1)",
+                ImmutableMultiset.<MetastoreMethod>builder()
+                        .addCopies(GET_TABLE, 4)
+                        .add(REPLACE_TABLE)
+                        .build());
+    }
+
+    @Test
+    public void testOptimize()
+    {
+        assertUpdate("CREATE TABLE test_optimize (data integer, part integer)");
+        assertUpdate("INSERT INTO test_optimize VALUES (1, 10)", 1);
+        assertUpdate("INSERT INTO test_optimize VALUES (2, 20)", 1);
+
+        assertMetastoreInvocations("ALTER TABLE test_optimize EXECUTE optimize",
+                ImmutableMultiset.<MetastoreMethod>builder()
+                        .addCopies(GET_TABLE, 4)
+                        .add(REPLACE_TABLE)
                         .build());
     }
 

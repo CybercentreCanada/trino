@@ -86,7 +86,11 @@ public class OracleClientModule
                     oracleConfig.getConnectionPoolMinSize(),
                     oracleConfig.getConnectionPoolMaxSize(),
                     oracleConfig.getInactiveConnectionTimeout(),
+<<<<<<< HEAD
                     oracleConfig.getConnectionWaitTimeout(),
+=======
+                    oracleConfig.getConnectionPoolWaitDuration(),
+>>>>>>> tags/481
                     openTelemetry);
         }
 

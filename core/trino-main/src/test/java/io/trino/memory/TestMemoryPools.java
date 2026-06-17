@@ -83,7 +83,8 @@ class TestMemoryPools
 
     private RevocableMemoryDriver createRevocableMemoryDriver(MemoryPool userPool, DataSize reservedPerPage, long numberOfPages)
     {
-        QueryContext queryContext = new QueryContext(new QueryId("query"),
+        QueryContext queryContext = new QueryContext(
+                new QueryId("query"),
                 TEN_MEGABYTES,
                 userPool,
                 new TestingGcMonitor(),
@@ -100,7 +101,7 @@ class TestMemoryPools
                 new PlanNodeId("revokable_operator"),
                 TableScanOperator.class.getSimpleName());
 
-        OutputFactory outputFactory = new PageConsumerOutputFactory(types -> (page -> {}));
+        OutputFactory outputFactory = new PageConsumerOutputFactory(_ -> (_ -> {}));
         Operator outputOperator = outputFactory.createOutputOperator(2, new PlanNodeId("output"), ImmutableList.of(), Function.identity(), createTestingPagesSerdeFactory(LZ4)).createOperator(driverContext);
         RevocableMemoryOperator revocableMemoryOperator = new RevocableMemoryOperator(revokableOperatorContext, reservedPerPage, numberOfPages);
 
@@ -345,24 +346,17 @@ class TestMemoryPools
 
         // allocate for some task for q1
         testPool.reserveRevocable(q1task1, 10);
-        assertThat(testPool.getQueryRevocableMemoryReservations().keySet()).hasSize(1);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query1)).isEqualTo(10L);
         assertThat(testPool.getTaskRevocableMemoryReservations().keySet()).hasSize(1);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task1)).isEqualTo(10L);
 
         // different task same for q1
         testPool.reserveRevocable(q1task2, 7);
-        assertThat(testPool.getQueryRevocableMemoryReservations().keySet()).hasSize(1);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query1)).isEqualTo(17L);
         assertThat(testPool.getTaskRevocableMemoryReservations().keySet()).hasSize(2);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task1)).isEqualTo(10L);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task2)).isEqualTo(7L);
 
         // task for a different query
         testPool.reserveRevocable(q2task1, 9);
-        assertThat(testPool.getQueryRevocableMemoryReservations().keySet()).hasSize(2);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query1)).isEqualTo(17L);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query2)).isEqualTo(9L);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task1)).isEqualTo(10L);
         assertThat(testPool.getTaskRevocableMemoryReservations().keySet()).hasSize(3);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task2)).isEqualTo(7L);
@@ -370,8 +364,6 @@ class TestMemoryPools
 
         // increase memory for one of the tasks
         testPool.reserveRevocable(q1task1, 3);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query1)).isEqualTo(20L);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query2)).isEqualTo(9L);
         assertThat(testPool.getTaskRevocableMemoryReservations().keySet()).hasSize(3);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task1)).isEqualTo(13L);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task2)).isEqualTo(7L);
@@ -379,9 +371,6 @@ class TestMemoryPools
 
         // decrease memory for one of the tasks
         testPool.freeRevocable(q1task1, 5);
-        assertThat(testPool.getQueryRevocableMemoryReservations().keySet()).hasSize(2);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query1)).isEqualTo(15L);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query2)).isEqualTo(9L);
         assertThat(testPool.getTaskRevocableMemoryReservations().keySet()).hasSize(3);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task1)).isEqualTo(8L);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task2)).isEqualTo(7L);
@@ -390,9 +379,6 @@ class TestMemoryPools
         // try to reserve more than allocated by task
         assertThatThrownBy(() -> testPool.freeRevocable(q1task1, 9))
                 .hasMessage("tried to free more revocable memory than is reserved by task");
-        assertThat(testPool.getQueryRevocableMemoryReservations().keySet()).hasSize(2);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query1)).isEqualTo(15L);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query2)).isEqualTo(9L);
         assertThat(testPool.getTaskRevocableMemoryReservations().keySet()).hasSize(3);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task1)).isEqualTo(8L);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task2)).isEqualTo(7L);
@@ -400,9 +386,6 @@ class TestMemoryPools
 
         // zero memory for one of the tasks
         testPool.freeRevocable(q1task1, 8);
-        assertThat(testPool.getQueryRevocableMemoryReservations().keySet()).hasSize(2);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query1)).isEqualTo(7L);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query2)).isEqualTo(9L);
         assertThat(testPool.getTaskRevocableMemoryReservations().keySet()).hasSize(2);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task1)).isEqualTo(0L);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task2)).isEqualTo(7L);
@@ -410,9 +393,6 @@ class TestMemoryPools
 
         // zero memory for all query the tasks
         testPool.freeRevocable(q1task2, 7);
-        assertThat(testPool.getQueryRevocableMemoryReservations().keySet()).hasSize(1);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query1)).isEqualTo(0L);
-        assertThat(testPool.getQueryRevocableMemoryReservation(query2)).isEqualTo(9L);
         assertThat(testPool.getTaskRevocableMemoryReservations().keySet()).hasSize(1);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task1)).isEqualTo(0L);
         assertThat(testPool.getTaskRevocableMemoryReservation(q1task2)).isEqualTo(0L);

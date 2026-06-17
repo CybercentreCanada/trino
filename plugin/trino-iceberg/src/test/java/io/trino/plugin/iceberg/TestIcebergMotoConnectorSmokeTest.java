@@ -67,14 +67,13 @@ public class TestIcebergMotoConnectorSmokeTest
                         .put("hive.metastore.glue.aws-access-key", MOTO_ACCESS_KEY)
                         .put("hive.metastore.glue.aws-secret-key", MOTO_SECRET_KEY)
                         .put("hive.metastore.glue.default-warehouse-dir", "s3://%s/".formatted(bucketName))
-                        .put("fs.native-s3.enabled", "true")
+                        .put("fs.s3.enabled", "true")
                         .put("s3.region", MOTO_REGION)
                         .put("s3.endpoint", moto.getEndpoint().toString())
                         .put("s3.aws-access-key", MOTO_ACCESS_KEY)
                         .put("s3.aws-secret-key", MOTO_SECRET_KEY)
                         .put("s3.path-style-access", "true")
                         .put("iceberg.register-table-procedure.enabled", "true")
-                        .put("iceberg.allowed-extra-properties", "write.metadata.delete-after-commit.enabled,write.metadata.previous-versions-max")
                         .buildOrThrow())
                 .setSchemaInitializer(SchemaInitializer.builder()
                         .withSchemaName(schemaName)
@@ -102,7 +101,7 @@ public class TestIcebergMotoConnectorSmokeTest
     }
 
     @Override
-    protected void dropTableFromMetastore(String tableName)
+    protected void dropTableFromCatalog(String tableName)
     {
         glueClient.deleteTable(x -> x.databaseName(schemaName).name(tableName));
     }

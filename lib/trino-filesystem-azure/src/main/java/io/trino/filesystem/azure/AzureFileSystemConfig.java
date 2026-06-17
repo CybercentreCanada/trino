@@ -17,12 +17,21 @@ import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.units.DataSize;
 import io.airlift.units.DataSize.Unit;
+<<<<<<< HEAD
+=======
+import io.airlift.units.Duration;
+>>>>>>> tags/481
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+<<<<<<< HEAD
+=======
+import java.util.concurrent.TimeUnit;
+
+>>>>>>> tags/481
 import static java.lang.Math.max;
 
 public class AzureFileSystemConfig
@@ -45,6 +54,11 @@ public class AzureFileSystemConfig
      * Matches {@link reactor.netty.resources.ConnectionProvider#DEFAULT_POOL_MAX_CONNECTIONS}
      */
     private int maxHttpConnections = 2 * max(Runtime.getRuntime().availableProcessors(), 8);
+<<<<<<< HEAD
+=======
+    private Duration connectionPoolMaxIdleTime = new Duration(5, TimeUnit.MINUTES);
+    private Duration httpRequestTimeout = new Duration(10, TimeUnit.MINUTES);
+>>>>>>> tags/481
     private String applicationId = "Trino";
     private boolean multipartWriteEnabled;
 
@@ -154,6 +168,37 @@ public class AzureFileSystemConfig
         return this;
     }
 
+<<<<<<< HEAD
+=======
+    @NotNull
+    public Duration getConnectionPoolMaxIdleTime()
+    {
+        return connectionPoolMaxIdleTime;
+    }
+
+    @Config("azure.connection-pool-max-idle-time")
+    @ConfigDescription("Maximum idle time for pooled HTTP connections")
+    public AzureFileSystemConfig setConnectionPoolMaxIdleTime(Duration connectionPoolMaxIdleTime)
+    {
+        this.connectionPoolMaxIdleTime = connectionPoolMaxIdleTime;
+        return this;
+    }
+
+    @NotNull
+    public Duration getHttpRequestTimeout()
+    {
+        return httpRequestTimeout;
+    }
+
+    @Config("azure.http-request-timeout")
+    @ConfigDescription("Maximum time for an HTTP request to complete")
+    public AzureFileSystemConfig setHttpRequestTimeout(Duration httpRequestTimeout)
+    {
+        this.httpRequestTimeout = httpRequestTimeout;
+        return this;
+    }
+
+>>>>>>> tags/481
     @Size(max = 50)
     @NotNull
     public String getApplicationId()

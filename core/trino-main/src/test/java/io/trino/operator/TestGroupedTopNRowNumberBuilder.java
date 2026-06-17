@@ -39,7 +39,7 @@ public class TestGroupedTopNRowNumberBuilder
     {
         GroupedTopNBuilder groupedTopNBuilder = new GroupedTopNRowNumberBuilder(
                 ImmutableList.of(BIGINT),
-                (left, leftPosition, right, rightPosition) -> {
+                (_, _, _, _) -> {
                     throw new UnsupportedOperationException();
                 },
                 5,
@@ -237,10 +237,10 @@ public class TestGroupedTopNRowNumberBuilder
     {
         return GroupByHash.createGroupByHash(
                 partitionTypes,
-                GroupByHash.selectGroupByHashMode(false, partitionTypes),
+                GroupByHash.shouldCacheHashValue(false, partitionTypes),
                 1,
                 false,
-                new FlatHashStrategyCompiler(new TypeOperators()),
+                new FlatHashStrategyCompiler(new TypeOperators(), new NullSafeHashCompiler(new TypeOperators())),
                 updateMemory);
     }
 }

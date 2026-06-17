@@ -18,11 +18,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
-import io.trino.client.NodeVersion;
 import io.trino.execution.QueryInfo;
 import io.trino.execution.QueryStats;
 import io.trino.operator.BlockedReason;
 import io.trino.operator.RetryPolicy;
+import io.trino.spi.NodeVersion;
 import io.trino.spi.QueryId;
 import io.trino.spi.StandardErrorCode;
 import io.trino.spi.eventlistener.StageGcStatistics;
@@ -135,6 +135,7 @@ public class TestBasicQueryInfo
                                         107)),
                                 DynamicFiltersStats.EMPTY,
                                 ImmutableMap.of(),
+                                ImmutableMap.of(),
                                 ImmutableList.of(),
                                 ImmutableList.of()),
                         Optional.empty(),
@@ -156,6 +157,7 @@ public class TestBasicQueryInfo
                         StandardErrorCode.ABANDONED_QUERY.toErrorCode(),
                         ImmutableList.of(),
                         ImmutableSet.of(),
+                        Optional.empty(),
                         Optional.empty(),
                         ImmutableList.of(),
                         ImmutableList.of(),

@@ -14,8 +14,6 @@
 package io.trino.type;
 
 import com.google.common.math.DoubleMath;
-import com.google.common.primitives.Shorts;
-import com.google.common.primitives.SignedBytes;
 import io.airlift.slice.Slice;
 import io.trino.operator.scalar.MathFunctions;
 import io.trino.spi.TrinoException;
@@ -24,7 +22,9 @@ import io.trino.spi.function.LiteralParameters;
 import io.trino.spi.function.ScalarOperator;
 import io.trino.spi.function.SqlType;
 import io.trino.spi.type.StandardTypes;
+import io.trino.spi.type.TrinoNumber;
 
+import java.math.BigDecimal;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 
@@ -35,15 +35,17 @@ import static io.trino.spi.StandardErrorCode.NUMERIC_VALUE_OUT_OF_RANGE;
 import static io.trino.spi.function.OperatorType.ADD;
 import static io.trino.spi.function.OperatorType.CAST;
 import static io.trino.spi.function.OperatorType.DIVIDE;
-import static io.trino.spi.function.OperatorType.MODULUS;
+import static io.trino.spi.function.OperatorType.MODULO;
 import static io.trino.spi.function.OperatorType.MULTIPLY;
 import static io.trino.spi.function.OperatorType.NEGATION;
 import static io.trino.spi.function.OperatorType.SATURATED_FLOOR_CAST;
 import static io.trino.spi.function.OperatorType.SUBTRACT;
 import static io.trino.type.Reals.toReal;
 import static java.lang.Float.floatToRawIntBits;
-import static java.lang.Math.toIntExact;
 import static java.lang.String.format;
+import static java.lang.runtime.ExactConversionsSupport.isLongToByteExact;
+import static java.lang.runtime.ExactConversionsSupport.isLongToIntExact;
+import static java.lang.runtime.ExactConversionsSupport.isLongToShortExact;
 import static java.math.RoundingMode.FLOOR;
 import static java.math.RoundingMode.HALF_UP;
 import static java.util.Locale.ENGLISH;
@@ -89,9 +91,9 @@ public final class DoubleOperators
         return left / right;
     }
 
-    @ScalarOperator(MODULUS)
+    @ScalarOperator(MODULO)
     @SqlType(StandardTypes.DOUBLE)
-    public static double modulus(@SqlType(StandardTypes.DOUBLE) double left, @SqlType(StandardTypes.DOUBLE) double right)
+    public static double modulo(@SqlType(StandardTypes.DOUBLE) double left, @SqlType(StandardTypes.DOUBLE) double right)
     {
         return left % right;
     }
@@ -117,12 +119,11 @@ public final class DoubleOperators
         if (Double.isNaN(value)) {
             throw new TrinoException(INVALID_CAST_ARGUMENT, "Cannot cast double NaN to integer");
         }
-        try {
-            return toIntExact((long) MathFunctions.round(value));
+        long rounded = (long) MathFunctions.round(value);
+        if (!isLongToIntExact(rounded)) {
+            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for integer: " + value);
         }
-        catch (ArithmeticException e) {
-            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for integer: " + value, e);
-        }
+        return (int) rounded;
     }
 
     @ScalarOperator(CAST)
@@ -132,12 +133,11 @@ public final class DoubleOperators
         if (Double.isNaN(value)) {
             throw new TrinoException(INVALID_CAST_ARGUMENT, "Cannot cast double NaN to smallint");
         }
-        try {
-            return Shorts.checkedCast((long) MathFunctions.round(value));
+        long rounded = (long) MathFunctions.round(value);
+        if (!isLongToShortExact(rounded)) {
+            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for smallint: " + value);
         }
-        catch (IllegalArgumentException e) {
-            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for smallint: " + value, e);
-        }
+        return (short) rounded;
     }
 
     @ScalarOperator(CAST)
@@ -147,23 +147,25 @@ public final class DoubleOperators
         if (Double.isNaN(value)) {
             throw new TrinoException(INVALID_CAST_ARGUMENT, "Cannot cast double NaN to tinyint");
         }
-        try {
-            return SignedBytes.checkedCast((long) MathFunctions.round(value));
+        long rounded = (long) MathFunctions.round(value);
+        if (!isLongToByteExact(rounded)) {
+            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for tinyint: " + value);
         }
-        catch (IllegalArgumentException e) {
-            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for tinyint: " + value, e);
-        }
+        return (byte) rounded;
     }
 
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.BIGINT)
     public static long castToLong(@SqlType(StandardTypes.DOUBLE) double value)
     {
+        if (Double.isNaN(value)) {
+            throw new TrinoException(INVALID_CAST_ARGUMENT, "Cannot cast double NaN to bigint");
+        }
         try {
             return DoubleMath.roundToLong(value, HALF_UP);
         }
         catch (ArithmeticException e) {
-            throw new TrinoException(INVALID_CAST_ARGUMENT, format("Unable to cast %s to bigint", value), e);
+            throw new TrinoException(NUMERIC_VALUE_OUT_OF_RANGE, "Out of range for bigint: " + value, e);
         }
     }
 
@@ -172,6 +174,19 @@ public final class DoubleOperators
     public static long castToReal(@SqlType(StandardTypes.DOUBLE) double value)
     {
         return floatToRawIntBits((float) value);
+    }
+
+    @ScalarOperator(CAST)
+    @SqlType(StandardTypes.NUMBER)
+    public static TrinoNumber castToNumber(@SqlType(StandardTypes.DOUBLE) double value)
+    {
+        if (Double.isNaN(value)) {
+            return TrinoNumber.from(new TrinoNumber.NotANumber());
+        }
+        if (Double.isInfinite(value)) {
+            return TrinoNumber.from(new TrinoNumber.Infinity(value < 0.0));
+        }
+        return TrinoNumber.from(BigDecimal.valueOf(value));
     }
 
     @ScalarOperator(CAST)

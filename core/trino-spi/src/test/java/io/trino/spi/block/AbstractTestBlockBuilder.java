@@ -22,9 +22,9 @@ import java.util.List;
 import static java.util.Collections.nCopies;
 import static org.assertj.core.api.Assertions.assertThat;
 
-public abstract class AbstractTestBlockBuilder<T>
+abstract class AbstractTestBlockBuilder<T>
 {
-    private static final int[] OFFSETS = new int[] {0, 2};
+    private static final int[] OFFSETS = {0, 2};
 
     protected abstract BlockBuilder createBlockBuilder();
 

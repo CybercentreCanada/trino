@@ -51,6 +51,7 @@ import io.trino.spi.connector.ConnectorPageSource;
 import io.trino.spi.connector.ConnectorPageSourceProvider;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplit;
+import io.trino.spi.connector.ConnectorTableCredentials;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
@@ -60,7 +61,9 @@ import io.trino.spi.connector.SourcePage;
 import io.trino.spi.predicate.Domain;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.predicate.Utils;
-import io.trino.spi.type.StandardTypes;
+import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.MapType;
+import io.trino.spi.type.RowType;
 import io.trino.spi.type.TypeManager;
 import org.apache.parquet.schema.MessageType;
 import org.apache.parquet.schema.Type;
@@ -150,6 +153,7 @@ public class DeltaLakePageSourceProvider
             ConnectorSession session,
             ConnectorSplit connectorSplit,
             ConnectorTableHandle connectorTable,
+            Optional<ConnectorTableCredentials> tableCredentials,
             List<ColumnHandle> columns,
             DynamicFilter dynamicFilter)
     {
@@ -164,7 +168,7 @@ public class DeltaLakePageSourceProvider
                 .filter(column -> (column.columnType() == REGULAR) || column.baseColumnName().equals(ROW_ID_COLUMN_NAME))
                 .collect(toImmutableList());
 
-        Map<String, Optional<String>> partitionKeys = split.getPartitionKeys();
+        Map<String, Optional<String>> partitionKeys = split.partitionKeys();
         ColumnMappingMode columnMappingMode = getColumnMappingMode(table.getMetadataEntry(), table.getProtocolEntry());
         Optional<List<String>> partitionValues = Optional.empty();
         if (deltaLakeColumns.stream().anyMatch(column -> column.baseColumnName().equals(ROW_ID_COLUMN_NAME))) {
@@ -191,7 +195,7 @@ public class DeltaLakePageSourceProvider
         // is available now, without having to access parquet file footer for row-group stats.
         TupleDomain<DeltaLakeColumnHandle> filteredSplitPredicate = TupleDomain.intersect(ImmutableList.of(
                 table.getNonPartitionConstraint(),
-                split.getStatisticsPredicate(),
+                split.statisticsPredicate(),
                 dynamicFilter.getCurrentPredicate().transformKeys(DeltaLakeColumnHandle.class::cast)));
         if (filteredSplitPredicate.isNone()) {
             return new EmptyPageSource();
@@ -199,34 +203,34 @@ public class DeltaLakePageSourceProvider
         Map<DeltaLakeColumnHandle, Domain> partitionColumnDomains = filteredSplitPredicate.getDomains().orElseThrow().entrySet().stream()
                 .filter(entry -> entry.getKey().columnType() == DeltaLakeColumnType.PARTITION_KEY)
                 .collect(toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
-        if (!partitionMatchesPredicate(split.getPartitionKeys(), partitionColumnDomains)) {
+        if (!partitionMatchesPredicate(split.partitionKeys(), partitionColumnDomains)) {
             return new EmptyPageSource();
         }
         // Skip reading the file if none of the actual file columns are being read
         if (filteredSplitPredicate.isAll() &&
-                split.getStart() == 0 && split.getLength() == split.getFileSize() &&
-                split.getFileRowCount().isPresent() &&
-                split.getDeletionVector().isEmpty() &&
+                split.start() == 0 && split.length() == split.fileSize() &&
+                split.fileRowCount().isPresent() &&
+                split.deletionVector().isEmpty() &&
                 (regularColumns.isEmpty() || onlyRowIdColumn(regularColumns))) {
             return projectColumns(
                     deltaLakeColumns,
                     ImmutableSet.of(),
                     partitionKeys,
                     partitionValues,
-                    generatePages(split.getFileRowCount().get(), onlyRowIdColumn(regularColumns)),
-                    split.getPath(),
-                    split.getFileSize(),
-                    split.getFileModifiedTime());
+                    generatePages(split.fileRowCount().get(), onlyRowIdColumn(regularColumns)),
+                    split.path(),
+                    split.fileSize(),
+                    split.fileModifiedTime());
         }
 
-        Location location = Location.of(split.getPath());
+        Location location = Location.of(split.path());
         TrinoFileSystem fileSystem = fileSystemFactory.create(session, table);
-        TrinoInputFile inputFile = fileSystem.newInputFile(location, split.getFileSize());
+        TrinoInputFile inputFile = fileSystem.newInputFile(location, split.fileSize());
         ParquetReaderOptions options = ParquetReaderOptions.builder(parquetReaderOptions)
                 .withMaxReadBlockSize(getParquetMaxReadBlockSize(session))
                 .withMaxReadBlockRowCount(getParquetMaxReadBlockRowCount(session))
                 .withSmallFileThreshold(getParquetSmallFileThreshold(session))
-                .withUseColumnIndex(split.getDeletionVector().isEmpty() && isParquetUseColumnIndex(session))
+                .withUseColumnIndex(!table.isMerge() && split.deletionVector().isEmpty() && isParquetUseColumnIndex(session))
                 .withIgnoreStatistics(isParquetIgnoreStatistics(session))
                 .withVectorizedDecodingEnabled(isParquetVectorizedDecodingEnabled(session))
                 .build();
@@ -244,7 +248,7 @@ public class DeltaLakePageSourceProvider
                     hiveColumnHandlesBuilder::add,
                     () -> missingColumnNamesBuilder.add(column.baseColumnName()));
         }
-        if (split.getDeletionVector().isPresent() && !regularColumns.contains(rowPositionColumnHandle())) {
+        if (split.deletionVector().isPresent() && !regularColumns.contains(rowPositionColumnHandle())) {
             hiveColumnHandlesBuilder.add(PARQUET_ROW_INDEX_COLUMN);
         }
         List<HiveColumnHandle> hiveColumnHandles = hiveColumnHandlesBuilder.build();
@@ -254,8 +258,8 @@ public class DeltaLakePageSourceProvider
 
         ConnectorPageSource delegate = ParquetPageSourceFactory.createPageSource(
                 inputFile,
-                split.getStart(),
-                split.getLength(),
+                split.start(),
+                split.length(),
                 hiveColumnHandles,
                 ImmutableList.of(parquetPredicate),
                 true,
@@ -265,15 +269,15 @@ public class DeltaLakePageSourceProvider
                 Optional.empty(),
                 Optional.empty(),
                 domainCompactionThreshold,
-                OptionalLong.of(split.getFileSize()));
+                OptionalLong.of(split.fileSize()));
 
-        if (split.getDeletionVector().isPresent()) {
+        if (split.deletionVector().isPresent()) {
             var pageFilterSupplier = Suppliers.memoize(() -> {
                 List<DeltaLakeColumnHandle> requiredColumns = ImmutableList.<DeltaLakeColumnHandle>builderWithExpectedSize(regularColumns.size() + 1)
                         .addAll(regularColumns)
                         .add(rowPositionColumnHandle())
                         .build();
-                PositionDeleteFilter deleteFilter = readDeletes(fileSystem, Location.of(table.location()), split.getDeletionVector().get());
+                PositionDeleteFilter deleteFilter = readDeletes(fileSystem, Location.of(table.location()), split.deletionVector().get());
                 return deleteFilter.createPredicate(requiredColumns);
             });
 
@@ -288,9 +292,9 @@ public class DeltaLakePageSourceProvider
                 partitionKeys,
                 partitionValues,
                 delegate,
-                split.getPath(),
-                split.getFileSize(),
-                split.getFileModifiedTime());
+                split.path(),
+                split.fileSize(),
+                split.fileModifiedTime());
     }
 
     public static ConnectorPageSource projectColumns(
@@ -363,7 +367,7 @@ public class DeltaLakePageSourceProvider
     private Map<Integer, String> loadParquetIdAndNameMapping(TrinoInputFile inputFile, ParquetReaderOptions options)
     {
         try (ParquetDataSource dataSource = new TrinoParquetDataSource(inputFile, options, fileFormatDataSourceStats)) {
-            ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, options.getMaxFooterReadSize(), Optional.empty());
+            ParquetMetadata parquetMetadata = MetadataReader.readFooter(dataSource, options, Optional.empty(), Optional.empty());
             FileMetadata fileMetaData = parquetMetadata.getFileMetaData();
             MessageType fileSchema = fileMetaData.getSchema();
 
@@ -384,9 +388,9 @@ public class DeltaLakePageSourceProvider
 
         ImmutableMap.Builder<HiveColumnHandle, Domain> predicate = ImmutableMap.builder();
         effectivePredicate.getDomains().get().forEach((columnHandle, domain) -> {
-            String baseType = columnHandle.baseType().getTypeSignature().getBase();
+            io.trino.spi.type.Type baseType = columnHandle.baseType();
             // skip looking up predicates for complex types as Parquet only stores stats for primitives
-            if (!baseType.equals(StandardTypes.MAP) && !baseType.equals(StandardTypes.ARRAY) && !baseType.equals(StandardTypes.ROW)) {
+            if (!(baseType instanceof MapType) && !(baseType instanceof ArrayType) && !(baseType instanceof RowType)) {
                 Optional<HiveColumnHandle> hiveColumnHandle = toHiveColumnHandle(columnHandle, columnMapping, fieldIdToName);
                 hiveColumnHandle.ifPresent(column -> predicate.put(column, domain));
             }
@@ -396,16 +400,16 @@ public class DeltaLakePageSourceProvider
 
     public static Optional<HiveColumnHandle> toHiveColumnHandle(DeltaLakeColumnHandle deltaLakeColumnHandle, ColumnMappingMode columnMapping, Map<Integer, String> fieldIdToName)
     {
-        switch (columnMapping) {
-            case ID:
+        return switch (columnMapping) {
+            case ID -> {
                 Integer fieldId = deltaLakeColumnHandle.baseFieldId().orElseThrow(() -> new IllegalArgumentException("Field ID must exist"));
                 if (!fieldIdToName.containsKey(fieldId)) {
-                    return Optional.empty();
+                    yield Optional.empty();
                 }
                 String fieldName = fieldIdToName.get(fieldId);
                 Optional<HiveColumnProjectionInfo> hiveColumnProjectionInfo = deltaLakeColumnHandle.projectionInfo()
                         .map(DeltaLakeColumnProjectionInfo::toHiveColumnProjectionInfo);
-                return Optional.of(new HiveColumnHandle(
+                yield Optional.of(new HiveColumnHandle(
                         fieldName,
                         0,
                         toHiveType(deltaLakeColumnHandle.basePhysicalType()),
@@ -413,14 +417,13 @@ public class DeltaLakePageSourceProvider
                         hiveColumnProjectionInfo,
                         deltaLakeColumnHandle.columnType().toHiveColumnType(),
                         Optional.empty()));
-            case NAME:
-            case NONE:
+            }
+            case NAME, NONE -> {
                 checkArgument(fieldIdToName.isEmpty(), "Mapping between field id and name must be empty: %s", fieldIdToName);
-                return Optional.of(deltaLakeColumnHandle.toHiveColumnHandle());
-            case UNKNOWN:
-            default:
-                throw new IllegalArgumentException("Unsupported column mapping: " + columnMapping);
-        }
+                yield Optional.of(deltaLakeColumnHandle.toHiveColumnHandle());
+            }
+            case UNKNOWN -> throw new IllegalArgumentException("Unsupported column mapping: " + columnMapping);
+        };
     }
 
     private static boolean onlyRowIdColumn(List<DeltaLakeColumnHandle> columns)

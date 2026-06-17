@@ -62,7 +62,7 @@ public class TestHiveS3AndGlueMetastoreTest
                 .addHiveProperty("hive.metastore.glue.default-warehouse-dir", schemaPath())
                 .addHiveProperty("hive.security", "allow-all")
                 .addHiveProperty("hive.non-managed-table-writes-enabled", "true")
-                .addHiveProperty("fs.native-s3.enabled", "true")
+                .addHiveProperty("fs.s3.enabled", "true")
                 .build();
         queryRunner.execute("CREATE SCHEMA " + schemaName + " WITH (location = '" + schemaPath() + "')");
         queryRunner.execute("CREATE SCHEMA IF NOT EXISTS functions");
@@ -95,8 +95,7 @@ public class TestHiveS3AndGlueMetastoreTest
     @Override
     protected void validateDataFiles(String partitionColumn, String tableName, String location)
     {
-        getActiveFiles(tableName).forEach(dataFile ->
-        {
+        getActiveFiles(tableName).forEach(dataFile -> {
             String locationDirectory = location.endsWith("/") ? location : location + "/";
             String partitionPart = partitionColumn.isEmpty() ? "" : partitionColumn + "=[a-z0-9]+/";
             assertThat(dataFile).matches("^" + Pattern.quote(locationDirectory) + partitionPart + "[a-zA-Z0-9_-]+$");

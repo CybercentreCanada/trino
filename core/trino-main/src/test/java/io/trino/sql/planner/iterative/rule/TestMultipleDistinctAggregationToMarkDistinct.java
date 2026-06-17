@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 import static io.trino.SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY;
-import static io.trino.metadata.TestMetadataManager.createTestMetadataManager;
+import static io.trino.metadata.TestingMetadataManager.createTestingMetadataManager;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.IntegerType.INTEGER;
@@ -47,7 +47,7 @@ public class TestMultipleDistinctAggregationToMarkDistinct
 {
     private static final int NODES_COUNT = 4;
     private static final TaskCountEstimator TASK_COUNT_ESTIMATOR = new TaskCountEstimator(() -> NODES_COUNT);
-    private static final Metadata METADATA = createTestMetadataManager();
+    private static final Metadata METADATA = createTestingMetadataManager();
 
     @Test
     public void testNoDistinct()
@@ -89,8 +89,7 @@ public class TestMultipleDistinctAggregationToMarkDistinct
                         .globalGrouping()
                         .addAggregation(p.symbol("output1", BIGINT), PlanBuilder.aggregation("count", true, ImmutableList.of(new Reference(BIGINT, "input"))), ImmutableList.of(BIGINT))
                         .addAggregation(p.symbol("output2", BIGINT), PlanBuilder.aggregation("sum", true, ImmutableList.of(new Reference(BIGINT, "input"))), ImmutableList.of(BIGINT))
-                        .source(
-                                p.values(p.symbol("input", BIGINT)))))
+                        .source(p.values(p.symbol("input", BIGINT)))))
                 .doesNotFire();
     }
 
@@ -103,10 +102,12 @@ public class TestMultipleDistinctAggregationToMarkDistinct
                         .globalGrouping()
                         .addAggregation(
                                 p.symbol("output1"),
-                                PlanBuilder.aggregation("count", true, ImmutableList.of(new Reference(BIGINT, "input1")), new Symbol(UNKNOWN, "filter1")), ImmutableList.of(BIGINT))
+                                PlanBuilder.aggregation("count", true, ImmutableList.of(new Reference(BIGINT, "input1")), new Symbol(UNKNOWN, "filter1")),
+                                ImmutableList.of(BIGINT))
                         .addAggregation(
                                 p.symbol("output2"),
-                                PlanBuilder.aggregation("count", true, ImmutableList.of(new Reference(BIGINT, "input2")), new Symbol(UNKNOWN, "filter2")), ImmutableList.of(BIGINT))
+                                PlanBuilder.aggregation("count", true, ImmutableList.of(new Reference(BIGINT, "input2")), new Symbol(UNKNOWN, "filter2")),
+                                ImmutableList.of(BIGINT))
                         .source(
                                 p.project(
                                         Assignments.builder()
@@ -149,8 +150,7 @@ public class TestMultipleDistinctAggregationToMarkDistinct
                         .globalGrouping()
                         .addAggregation(p.symbol("output1", BIGINT), PlanBuilder.aggregation("count", true, ImmutableList.of(new Reference(BIGINT, "input1"))), ImmutableList.of(BIGINT))
                         .addAggregation(p.symbol("output2", BIGINT), PlanBuilder.aggregation("count", true, ImmutableList.of(new Reference(BIGINT, "input2"))), ImmutableList.of(BIGINT))
-                        .source(
-                                p.values(p.symbol("input1", BIGINT), p.symbol("input2", BIGINT)))))
+                        .source(p.values(p.symbol("input1", BIGINT), p.symbol("input2", BIGINT)))))
                 .matches(aggregation(
                         globalAggregation(),
                         ImmutableMap.of(

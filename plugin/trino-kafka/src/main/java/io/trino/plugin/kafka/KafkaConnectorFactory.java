@@ -25,8 +25,8 @@ import io.trino.spi.connector.Connector;
 import io.trino.spi.connector.ConnectorContext;
 import io.trino.spi.connector.ConnectorFactory;
 
-import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 import static io.trino.plugin.base.Versions.checkStrictSpiVersionMatch;
 import static java.util.Objects.requireNonNull;
@@ -34,11 +34,11 @@ import static java.util.Objects.requireNonNull;
 public class KafkaConnectorFactory
         implements ConnectorFactory
 {
-    private final List<Module> extensions;
+    private final Supplier<Module> extensions;
 
-    public KafkaConnectorFactory(List<Module> extensions)
+    public KafkaConnectorFactory(Supplier<Module> extensions)
     {
-        this.extensions = ImmutableList.copyOf(extensions);
+        this.extensions = requireNonNull(extensions, "extensions is null");
     }
 
     @Override
@@ -59,18 +59,19 @@ public class KafkaConnectorFactory
                 ImmutableList.<Module>builder()
                         .add(new JsonModule())
                         .add(new TypeDeserializerModule())
-                        .add(new KafkaConnectorModule(context.getTypeManager()))
+                        .add(new KafkaConnectorModule())
                         .add(new KafkaClientsModule())
                         .add(new KafkaSecurityModule())
                         .add(new ConnectorContextModule(catalogName, context))
                         .add(binder -> {
                             binder.bind(ClassLoader.class).toInstance(KafkaConnectorFactory.class.getClassLoader());
                         })
-                        .addAll(extensions)
+                        .add(extensions.get())
                         .build());
 
         Injector injector = app
                 .doNotInitializeLogging()
+                .disableSystemProperties()
                 .setRequiredConfigurationProperties(config)
                 .initialize();
 

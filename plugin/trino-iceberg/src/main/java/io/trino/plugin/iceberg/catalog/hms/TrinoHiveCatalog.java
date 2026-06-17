@@ -27,6 +27,7 @@ import io.trino.metastore.Column;
 import io.trino.metastore.Database;
 import io.trino.metastore.HivePrincipal;
 import io.trino.metastore.PrincipalPrivileges;
+import io.trino.metastore.Table;
 import io.trino.metastore.TableInfo;
 import io.trino.metastore.cache.CachingHiveMetastore;
 import io.trino.plugin.hive.HiveSchemaProperties;
@@ -308,7 +309,8 @@ public class TrinoHiveCatalog
     public Transaction newCreateOrReplaceTableTransaction(
             ConnectorSession session,
             SchemaTableName schemaTableName,
-            Schema schema, PartitionSpec partitionSpec,
+            Schema schema,
+            PartitionSpec partitionSpec,
             SortOrder sortOrder,
             String location,
             Map<String, String> properties)
@@ -330,7 +332,7 @@ public class TrinoHiveCatalog
     {
         Optional<String> owner = isUsingSystemSecurity ? Optional.empty() : Optional.of(session.getUser());
 
-        io.trino.metastore.Table.Builder builder = io.trino.metastore.Table.builder()
+        Table.Builder builder = Table.builder()
                 .setDatabaseName(schemaTableName.getSchemaName())
                 .setTableName(schemaTableName.getTableName())
                 .setOwner(owner)
@@ -420,7 +422,7 @@ public class TrinoHiveCatalog
         BaseTable table = loadTable(session, schemaTableName);
         TableMetadata metadata = table.operations().current();
 
-        io.trino.metastore.Table metastoreTable = metastore.getTable(schemaTableName.getSchemaName(), schemaTableName.getTableName())
+        Table metastoreTable = metastore.getTable(schemaTableName.getSchemaName(), schemaTableName.getTableName())
                 .orElseThrow(() -> new TableNotFoundException(schemaTableName));
         metastore.dropTable(
                 schemaTableName.getSchemaName(),
@@ -443,14 +445,14 @@ public class TrinoHiveCatalog
     @Override
     public void dropCorruptedTable(ConnectorSession session, SchemaTableName schemaTableName)
     {
-        io.trino.metastore.Table table = dropTableFromMetastore(schemaTableName);
+        Table table = dropTableFromMetastore(schemaTableName);
         deleteTableDirectory(fileSystemFactory.create(session), schemaTableName, table.getStorage().getLocation());
         invalidateTableCache(schemaTableName);
     }
 
-    private io.trino.metastore.Table dropTableFromMetastore(SchemaTableName schemaTableName)
+    private Table dropTableFromMetastore(SchemaTableName schemaTableName)
     {
-        io.trino.metastore.Table table = metastore.getTable(schemaTableName.getSchemaName(), schemaTableName.getTableName())
+        Table table = metastore.getTable(schemaTableName.getSchemaName(), schemaTableName.getTableName())
                 .orElseThrow(() -> new TableNotFoundException(schemaTableName));
         if (!isIcebergTable(table)) {
             throw new UnknownTableTypeException(schemaTableName);
@@ -564,7 +566,7 @@ public class TrinoHiveCatalog
             boolean replace,
             boolean ignoreExisting)
     {
-        Optional<io.trino.metastore.Table> existing = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
+        Optional<Table> existing = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
 
         if (existing.isPresent()) {
             if (!isTrinoMaterializedView(existing.get().getTableType(), existing.get().getParameters())) {
@@ -583,7 +585,7 @@ public class TrinoHiveCatalog
 
             Map<String, String> viewProperties = createMaterializedViewProperties(session, storageMetadataLocation);
             Column dummyColumn = new Column("dummy", HIVE_STRING, Optional.empty(), ImmutableMap.of());
-            io.trino.metastore.Table.Builder tableBuilder = io.trino.metastore.Table.builder()
+            Table.Builder tableBuilder = Table.builder()
                     .setDatabaseName(viewName.getSchemaName())
                     .setTableName(viewName.getTableName())
                     .setOwner(isUsingSystemSecurity ? Optional.empty() : Optional.of(session.getUser()))
@@ -596,7 +598,7 @@ public class TrinoHiveCatalog
                     .setViewOriginalText(Optional.of(
                             encodeMaterializedViewData(fromConnectorMaterializedViewDefinition(definition))))
                     .setViewExpandedText(Optional.of("/* " + ICEBERG_MATERIALIZED_VIEW_COMMENT + " */"));
-            io.trino.metastore.Table table = tableBuilder.build();
+            Table table = tableBuilder.build();
             PrincipalPrivileges principalPrivileges = isUsingSystemSecurity ? NO_PRIVILEGES : buildInitialPrivilegeSet(session.getUser());
 
             try {
@@ -632,7 +634,7 @@ public class TrinoHiveCatalog
             SchemaTableName viewName,
             ConnectorMaterializedViewDefinition definition,
             Map<String, Object> materializedViewProperties,
-            Optional<io.trino.metastore.Table> existing)
+            Optional<Table> existing)
     {
         SchemaTableName storageTable = createMaterializedViewStorageTable(session, viewName, definition, materializedViewProperties);
 
@@ -640,7 +642,7 @@ public class TrinoHiveCatalog
         Map<String, String> viewProperties = createMaterializedViewProperties(session, storageTable);
         Column dummyColumn = new Column("dummy", HIVE_STRING, Optional.empty(), Map.of());
 
-        io.trino.metastore.Table.Builder tableBuilder = io.trino.metastore.Table.builder()
+        Table.Builder tableBuilder = Table.builder()
                 .setDatabaseName(viewName.getSchemaName())
                 .setTableName(viewName.getTableName())
                 .setOwner(isUsingSystemSecurity ? Optional.empty() : Optional.of(session.getUser()))
@@ -653,7 +655,7 @@ public class TrinoHiveCatalog
                 .setViewOriginalText(Optional.of(
                         encodeMaterializedViewData(fromConnectorMaterializedViewDefinition(definition))))
                 .setViewExpandedText(Optional.of("/* " + ICEBERG_MATERIALIZED_VIEW_COMMENT + " */"));
-        io.trino.metastore.Table table = tableBuilder.build();
+        Table table = tableBuilder.build();
         PrincipalPrivileges principalPrivileges = isUsingSystemSecurity ? NO_PRIVILEGES : buildInitialPrivilegeSet(session.getUser());
         if (existing.isPresent()) {
             // drop the current storage table
@@ -674,7 +676,7 @@ public class TrinoHiveCatalog
     @Override
     public void updateMaterializedViewColumnComment(ConnectorSession session, SchemaTableName viewName, String columnName, Optional<String> comment)
     {
-        io.trino.metastore.Table existing = metastore.getTable(viewName.getSchemaName(), viewName.getTableName())
+        Table existing = metastore.getTable(viewName.getSchemaName(), viewName.getTableName())
                 .orElseThrow(() -> new ViewNotFoundException(viewName));
 
         if (!isTrinoMaterializedView(existing.getTableType(), existing.getParameters())) {
@@ -694,6 +696,7 @@ public class TrinoHiveCatalog
                                 : currentViewColumn)
                         .collect(toImmutableList()),
                 definition.getGracePeriod(),
+                definition.getWhenStaleBehavior(),
                 definition.getComment(),
                 definition.getOwner(),
                 definition.getPath());
@@ -701,9 +704,9 @@ public class TrinoHiveCatalog
         replaceMaterializedView(session, viewName, existing, newDefinition);
     }
 
-    private void replaceMaterializedView(ConnectorSession session, SchemaTableName viewName, io.trino.metastore.Table view, ConnectorMaterializedViewDefinition newDefinition)
+    private void replaceMaterializedView(ConnectorSession session, SchemaTableName viewName, Table view, ConnectorMaterializedViewDefinition newDefinition)
     {
-        io.trino.metastore.Table.Builder viewBuilder = io.trino.metastore.Table.builder(view)
+        Table.Builder viewBuilder = Table.builder(view)
                 .setViewOriginalText(Optional.of(
                         encodeMaterializedViewData(fromConnectorMaterializedViewDefinition(newDefinition))));
 
@@ -715,7 +718,7 @@ public class TrinoHiveCatalog
     @Override
     public void dropMaterializedView(ConnectorSession session, SchemaTableName viewName)
     {
-        io.trino.metastore.Table view = metastore.getTable(viewName.getSchemaName(), viewName.getTableName())
+        Table view = metastore.getTable(viewName.getSchemaName(), viewName.getTableName())
                 .orElseThrow(() -> new MaterializedViewNotFoundException(viewName));
 
         if (!isTrinoMaterializedView(view.getTableType(), view.getParameters())) {
@@ -726,7 +729,7 @@ public class TrinoHiveCatalog
         metastore.dropTable(viewName.getSchemaName(), viewName.getTableName(), true);
     }
 
-    private void dropMaterializedViewStorage(ConnectorSession session, io.trino.metastore.Table view)
+    private void dropMaterializedViewStorage(ConnectorSession session, Table view)
     {
         SchemaTableName viewName = view.getSchemaTableName();
         String storageTableName = view.getParameters().get(STORAGE_TABLE);
@@ -742,7 +745,7 @@ public class TrinoHiveCatalog
         }
         else {
             String storageMetadataLocation = view.getParameters().get(METADATA_LOCATION_PROP);
-            checkState(storageMetadataLocation != null, "Storage location missing in definition of materialized view " + viewName);
+            checkState(storageMetadataLocation != null, "Storage location missing in definition of materialized view %s", viewName);
             try {
                 dropMaterializedViewStorage(session, fileSystemFactory.create(session), storageMetadataLocation);
             }
@@ -755,12 +758,12 @@ public class TrinoHiveCatalog
     @Override
     protected Optional<ConnectorMaterializedViewDefinition> doGetMaterializedView(ConnectorSession session, SchemaTableName viewName)
     {
-        Optional<io.trino.metastore.Table> tableOptional = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
+        Optional<Table> tableOptional = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
         if (tableOptional.isEmpty()) {
             return Optional.empty();
         }
 
-        io.trino.metastore.Table materializedView = tableOptional.get();
+        Table materializedView = tableOptional.get();
         if (!isTrinoMaterializedView(materializedView.getTableType(), materializedView.getParameters())) {
             return Optional.empty();
         }
@@ -793,12 +796,12 @@ public class TrinoHiveCatalog
     @Override
     public Optional<BaseTable> getMaterializedViewStorageTable(ConnectorSession session, SchemaTableName viewName)
     {
-        Optional<io.trino.metastore.Table> tableOptional = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
+        Optional<Table> tableOptional = metastore.getTable(viewName.getSchemaName(), viewName.getTableName());
         if (tableOptional.isEmpty()) {
             return Optional.empty();
         }
 
-        io.trino.metastore.Table materializedView = tableOptional.get();
+        Table materializedView = tableOptional.get();
         verify(isTrinoMaterializedView(materializedView.getTableType(), materializedView.getParameters()),
                 "getMaterializedViewStorageTable received a table, not a materialized view");
 
@@ -825,11 +828,11 @@ public class TrinoHiveCatalog
         }
     }
 
-    private TableMetadata getMaterializedViewTableMetadata(ConnectorSession session, SchemaTableName storageTableName, io.trino.metastore.Table materializedView)
+    private TableMetadata getMaterializedViewTableMetadata(ConnectorSession session, SchemaTableName storageTableName, Table materializedView)
     {
         return uncheckedCacheGet(tableMetadataCache, storageTableName, () -> {
             String storageMetadataLocation = materializedView.getParameters().get(METADATA_LOCATION_PROP);
-            checkState(storageMetadataLocation != null, "Storage location missing in definition of materialized view " + materializedView.getTableName());
+            checkState(storageMetadataLocation != null, "Storage location missing in definition of materialized view %s", materializedView.getTableName());
             TrinoFileSystem fileSystem = fileSystemFactory.create(session);
             return TableMetadataParser.read(fileIoFactory.create(fileSystem, isUseFileSizeFromMetadata(session)), storageMetadataLocation);
         });
@@ -869,7 +872,7 @@ public class TrinoHiveCatalog
                 tableName.getSchemaName(),
                 tableName.getTableName().substring(0, metadataMarkerIndex));
 
-        Optional<io.trino.metastore.Table> table = metastore.getTable(tableNameBase.getSchemaName(), tableNameBase.getTableName());
+        Optional<Table> table = metastore.getTable(tableNameBase.getSchemaName(), tableNameBase.getTableName());
 
         if (table.isEmpty() || isSomeKindOfAView(table.get())) {
             return Optional.empty();

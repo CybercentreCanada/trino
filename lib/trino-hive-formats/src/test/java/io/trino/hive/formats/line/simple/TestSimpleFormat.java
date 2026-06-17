@@ -247,7 +247,7 @@ public class TestSimpleFormat
         // too few values
         assertValue(rowType, "1", Arrays.asList(1L, null, null));
         assertValue(rowType, "1\2a", Arrays.asList(1L, "a", null));
-        //exact number of values
+        // exact number of values
         assertValue(rowType, "1\2a\2NaN", Arrays.asList(1L, "a", Double.NaN));
         // too many values
         assertValue(rowType, "1\2a\2NaN\2ign\2ored", Arrays.asList(1L, "a", Double.NaN));
@@ -305,7 +305,8 @@ public class TestSimpleFormat
 
         assertValue(mapType, "", ImmutableMap.of());
 
-        assertValue(mapType,
+        assertValue(
+                mapType,
                 toMapLine(ImmutableList.<Entry<String, String>>builder()
                         .add(Map.entry("a", "1"))
                         .add(Map.entry("b", "2"))
@@ -318,7 +319,8 @@ public class TestSimpleFormat
                         .buildOrThrow());
 
         // We do not test byte for byte here because the map comes out in the wrong order
-        assertValue(mapType,
+        assertValue(
+                mapType,
                 toMapLine(ImmutableList.<Entry<String, String>>builder()
                         .add(Map.entry("c", "3"))
                         .add(Map.entry("b", "2"))
@@ -333,7 +335,8 @@ public class TestSimpleFormat
                 false);
 
         // Duplicate fields are supported, and the last value is used
-        assertValue(mapType,
+        assertValue(
+                mapType,
                 toMapLine(ImmutableList.<Entry<String, String>>builder()
                         .add(Map.entry("a", "1"))
                         .add(Map.entry("b", "7"))
@@ -1353,7 +1356,7 @@ public class TestSimpleFormat
             return hasComplexMapKey(arrayType.getElementType());
         }
         else if (type instanceof RowType rowType) {
-            return rowType.getTypeParameters().stream().allMatch(TestSimpleFormat::hasComplexMapKey);
+            return rowType.getFieldTypes().stream().allMatch(TestSimpleFormat::hasComplexMapKey);
         }
         return true;
     }
@@ -1493,15 +1496,15 @@ public class TestSimpleFormat
     {
         ImmutableMap.Builder<String, String> schema = ImmutableMap.builder();
         schema.put(LIST_COLUMNS, columns.stream()
-                .sorted(Comparator.comparing(Column::ordinal))
+                .sorted(Comparator.comparingInt(Column::ordinal))
                 .map(Column::name)
                 .collect(joining(",")));
         schema.put(LIST_COLUMN_TYPES, columns.stream()
-                        .sorted(Comparator.comparing(Column::ordinal))
-                        .map(Column::type)
-                        .map(FormatTestUtils::getJavaObjectInspector)
-                        .map(ObjectInspector::getTypeName)
-                        .collect(joining(",")));
+                .sorted(Comparator.comparingInt(Column::ordinal))
+                .map(Column::type)
+                .map(FormatTestUtils::getJavaObjectInspector)
+                .map(ObjectInspector::getTypeName)
+                .collect(joining(",")));
         schema.putAll(textEncodingOptions.toSchema());
         return schema.buildOrThrow();
     }

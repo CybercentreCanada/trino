@@ -53,7 +53,7 @@ import java.util.regex.Pattern;
 import static com.google.common.base.Verify.verify;
 import static com.google.common.io.MoreFiles.deleteRecursively;
 import static com.google.common.io.RecursiveDeleteOption.ALLOW_INSECURE;
-import static io.trino.plugin.hive.HiveTestUtils.HDFS_FILE_SYSTEM_FACTORY;
+import static io.trino.hdfs.HdfsTestUtils.HDFS_FILE_SYSTEM_FACTORY;
 import static io.trino.plugin.hive.metastore.file.TestingFileHiveMetastore.createTestingFileHiveMetastore;
 import static io.trino.plugin.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
 import static io.trino.plugin.iceberg.IcebergTestUtils.getFileSystemFactory;
@@ -95,7 +95,7 @@ public class TestIcebergRegisterTableProcedure
         queryRunner.createCatalog("tpch", "tpch");
 
         dataDir = queryRunner.getCoordinator().getBaseDataDir().resolve("iceberg_data");
-        queryRunner.installPlugin(new TestingIcebergPlugin(dataDir, Optional.of(new TestingIcebergFileMetastoreCatalogModule(metastore))));
+        queryRunner.installPlugin(new TestingIcebergPlugin(dataDir, () -> Optional.of(new TestingIcebergFileMetastoreCatalogModule(metastore))));
         queryRunner.createCatalog(ICEBERG_CATALOG, "iceberg", ImmutableMap.of("fs.hadoop.enabled", "true", "iceberg.register-table-procedure.enabled", "true"));
         queryRunner.execute("CREATE SCHEMA iceberg.tpch");
         return queryRunner;
@@ -446,14 +446,18 @@ public class TestIcebergRegisterTableProcedure
 
         assertQueryFails(format("CALL iceberg.system.register_table (CURRENT_SCHEMA, '%s')", tableName),
                 ".*'TABLE_LOCATION' is missing.*");
-        assertQueryFails("CALL iceberg.system.register_table (CURRENT_SCHEMA)",
+        assertQueryFails(
+                "CALL iceberg.system.register_table (CURRENT_SCHEMA)",
                 ".*'TABLE_NAME' is missing.*");
-        assertQueryFails("CALL iceberg.system.register_table ()",
+        assertQueryFails(
+                "CALL iceberg.system.register_table ()",
                 ".*'SCHEMA_NAME' is missing.*");
 
-        assertQueryFails("CALL iceberg.system.register_table (null, null, null)",
+        assertQueryFails(
+                "CALL iceberg.system.register_table (null, null, null)",
                 ".*schema_name cannot be null or empty.*");
-        assertQueryFails("CALL iceberg.system.register_table (CURRENT_SCHEMA, null, null)",
+        assertQueryFails(
+                "CALL iceberg.system.register_table (CURRENT_SCHEMA, null, null)",
                 ".*table_name cannot be null or empty.*");
         assertQueryFails("CALL iceberg.system.register_table (CURRENT_SCHEMA, '" + tableName + "', null)",
                 ".*table_location cannot be null or empty.*");

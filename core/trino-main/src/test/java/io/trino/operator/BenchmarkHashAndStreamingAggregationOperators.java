@@ -118,26 +118,22 @@ public class BenchmarkHashAndStreamingAggregationOperators
             List<Integer> hashChannels;
             int sumChannel;
             switch (groupByTypes) {
-                case "bigint":
+                case "bigint" -> {
                     hashTypes = ImmutableList.of(BIGINT);
                     hashChannels = ImmutableList.of(0);
                     sumChannel = 1;
-                    break;
-
-                case "varchar":
+                }
+                case "varchar" -> {
                     hashTypes = ImmutableList.of(VARCHAR);
                     hashChannels = ImmutableList.of(0);
                     sumChannel = 1;
-                    break;
-
-                case "mixed":
+                }
+                case "mixed" -> {
                     hashTypes = ImmutableList.of(BIGINT, VARCHAR, DOUBLE);
                     hashChannels = ImmutableList.of(0, 1, 2);
                     sumChannel = 3;
-                    break;
-
-                default:
-                    throw new IllegalStateException();
+                }
+                default -> throw new IllegalStateException();
             }
 
             RowPagesBuilder pagesBuilder = RowPagesBuilder.rowPagesBuilder(
@@ -155,41 +151,23 @@ public class BenchmarkHashAndStreamingAggregationOperators
                     long groupKey = i * groupsPerPage + j;
 
                     switch (groupByTypes) {
-                        case "bigint":
-                            repeatToBigintBlock(groupKey, rowsPerGroup, bigintBlockBuilder);
-                            break;
-
-                        case "varchar":
-                            repeatToStringBlock(Long.toString(groupKey), rowsPerGroup, varcharBlockBuilder);
-                            break;
-
-                        case "mixed":
+                        case "bigint" -> repeatToBigintBlock(groupKey, rowsPerGroup, bigintBlockBuilder);
+                        case "varchar" -> repeatToStringBlock(Long.toString(groupKey), rowsPerGroup, varcharBlockBuilder);
+                        case "mixed" -> {
                             repeatToBigintBlock(groupKey, rowsPerGroup, bigintBlockBuilder);
                             repeatToStringBlock(Long.toString(groupKey), rowsPerGroup, varcharBlockBuilder);
                             repeatToDoubleBlock(groupKey, rowsPerGroup, doubleBlockBuilder);
-                            break;
-
-                        default:
-                            throw new IllegalStateException();
+                        }
+                        default -> throw new IllegalStateException();
                     }
                 }
 
                 List<Block> blocks;
                 switch (groupByTypes) {
-                    case "bigint":
-                        blocks = ImmutableList.of(bigintBlockBuilder.build());
-                        break;
-
-                    case "varchar":
-                        blocks = ImmutableList.of(varcharBlockBuilder.build());
-                        break;
-
-                    case "mixed":
-                        blocks = ImmutableList.of(bigintBlockBuilder.build(), varcharBlockBuilder.build(), doubleBlockBuilder.build());
-                        break;
-
-                    default:
-                        throw new IllegalStateException();
+                    case "bigint" -> blocks = ImmutableList.of(bigintBlockBuilder.build());
+                    case "varchar" -> blocks = ImmutableList.of(varcharBlockBuilder.build());
+                    case "mixed" -> blocks = ImmutableList.of(bigintBlockBuilder.build(), varcharBlockBuilder.build(), doubleBlockBuilder.build());
+                    default -> throw new IllegalStateException();
                 }
 
                 pagesBuilder.addBlocksPage(
@@ -238,8 +216,9 @@ public class BenchmarkHashAndStreamingAggregationOperators
                 List<Integer> hashChannels,
                 int sumChannel)
         {
-            SpillerFactory spillerFactory = (types, localSpillContext, aggregatedMemoryContext) -> null;
+            SpillerFactory spillerFactory = (_, _, _) -> null;
 
+            NullSafeHashCompiler hashCompiler = new NullSafeHashCompiler(TYPE_OPERATORS);
             return new HashAggregationOperatorFactory(
                     0,
                     new PlanNodeId("test"),
@@ -251,14 +230,14 @@ public class BenchmarkHashAndStreamingAggregationOperators
                     ImmutableList.of(
                             COUNT.createAggregatorFactory(SINGLE, ImmutableList.of(0), OptionalInt.empty()),
                             LONG_SUM.createAggregatorFactory(SINGLE, ImmutableList.of(sumChannel), OptionalInt.empty())),
-                    Optional.empty(),
+                    OptionalInt.empty(),
                     100_000,
                     Optional.of(DataSize.of(16, MEGABYTE)),
                     false,
                     succinctBytes(8),
                     succinctBytes(Integer.MAX_VALUE),
                     spillerFactory,
-                    new FlatHashStrategyCompiler(TYPE_OPERATORS),
+                    new FlatHashStrategyCompiler(TYPE_OPERATORS, hashCompiler),
                     Optional.empty());
         }
 
@@ -365,7 +344,7 @@ public class BenchmarkHashAndStreamingAggregationOperators
         context.cleanup();
     }
 
-    public static void main(String[] args)
+    static void main()
             throws RunnerException
     {
         Benchmarks.benchmark(BenchmarkHashAndStreamingAggregationOperators.class).run();

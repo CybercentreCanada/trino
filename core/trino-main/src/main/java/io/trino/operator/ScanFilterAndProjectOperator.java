@@ -32,6 +32,7 @@ import io.trino.spi.Page;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorPageSource;
 import io.trino.spi.connector.ConnectorSession;
+import io.trino.spi.connector.ConnectorTableCredentials;
 import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.connector.EmptyPageSource;
 import io.trino.spi.connector.SourcePage;
@@ -55,6 +56,7 @@ import java.util.function.LongConsumer;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.MoreFutures.toListenableFuture;
+import static io.trino.SystemSessionProperties.isSourcePagesValidationEnabled;
 import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static io.trino.operator.WorkProcessor.TransformationState.finished;
 import static io.trino.operator.WorkProcessor.TransformationState.ofResult;
@@ -65,6 +67,7 @@ import static java.util.concurrent.TimeUnit.NANOSECONDS;
 public class ScanFilterAndProjectOperator
         implements WorkProcessorSourceOperator
 {
+    private final PageSourceProvider pageSourceProvider;
     private final WorkProcessor<Page> pages;
     private final PageProcessorMetrics pageProcessorMetrics = new PageProcessorMetrics();
 
@@ -87,12 +90,14 @@ public class ScanFilterAndProjectOperator
             PageSourceProvider pageSourceProvider,
             PageProcessor pageProcessor,
             TableHandle table,
-            Iterable<ColumnHandle> columns,
+            Optional<ConnectorTableCredentials> tableCredentials,
+            List<ColumnHandle> columns,
             DynamicFilter dynamicFilter,
-            Iterable<Type> types,
+            List<Type> types,
             DataSize minOutputPageSize,
             int minOutputPageRowCount)
     {
+        this.pageSourceProvider = requireNonNull(pageSourceProvider, "pageSourceProvider is null");
         pages = split.flatTransform(
                 new SplitToPages(
                         session,
@@ -100,6 +105,7 @@ public class ScanFilterAndProjectOperator
                         pageSourceProvider,
                         pageProcessor,
                         table,
+                        tableCredentials,
                         columns,
                         dynamicFilter,
                         types,
@@ -184,6 +190,7 @@ public class ScanFilterAndProjectOperator
         final PageSourceProvider pageSourceProvider;
         final PageProcessor pageProcessor;
         final TableHandle table;
+        final Optional<ConnectorTableCredentials> tableCredentials;
         final List<ColumnHandle> columns;
         final DynamicFilter dynamicFilter;
         final List<Type> types;
@@ -200,9 +207,10 @@ public class ScanFilterAndProjectOperator
                 PageSourceProvider pageSourceProvider,
                 PageProcessor pageProcessor,
                 TableHandle table,
-                Iterable<ColumnHandle> columns,
+                Optional<ConnectorTableCredentials> tableCredentials,
+                List<ColumnHandle> columns,
                 DynamicFilter dynamicFilter,
-                Iterable<Type> types,
+                List<Type> types,
                 AggregatedMemoryContext aggregatedMemoryContext,
                 DataSize minOutputPageSize,
                 int minOutputPageRowCount)
@@ -212,6 +220,7 @@ public class ScanFilterAndProjectOperator
             this.pageSourceProvider = requireNonNull(pageSourceProvider, "pageSourceProvider is null");
             this.pageProcessor = requireNonNull(pageProcessor, "pageProcessor is null");
             this.table = requireNonNull(table, "table is null");
+            this.tableCredentials = requireNonNull(tableCredentials, "tableCredentials is null");
             this.columns = ImmutableList.copyOf(requireNonNull(columns, "columns is null"));
             this.dynamicFilter = requireNonNull(dynamicFilter, "dynamicFilter is null");
             this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
@@ -242,7 +251,7 @@ public class ScanFilterAndProjectOperator
                 source = new EmptyPageSource();
             }
             else {
-                source = pageSourceProvider.createPageSource(session, split, table, columns, dynamicFilter);
+                source = pageSourceProvider.createPageSource(session, split, table, tableCredentials, columns, dynamicFilter);
             }
 
             pageSource = source;
@@ -322,7 +331,7 @@ public class ScanFilterAndProjectOperator
             }
 
             SourcePage page = pageSource.getNextSourcePage();
-            pageSourceMemoryContext.setBytes(pageSource.getMemoryUsage());
+            pageSourceMemoryContext.setBytes(pageSource.getMemoryUsage() + pageSourceProvider.getMemoryUsage());
 
             // update operator stats
             processedPositions += page == null ? 0 : page.getPositionCount();
@@ -344,7 +353,7 @@ public class ScanFilterAndProjectOperator
 
     private static <T> ListenableFuture<Void> asVoid(ListenableFuture<T> future)
     {
-        return Futures.transform(future, v -> null, directExecutor());
+        return Futures.transform(future, _ -> null, directExecutor());
     }
 
     public static class ScanFilterAndProjectOperatorFactory
@@ -356,6 +365,7 @@ public class ScanFilterAndProjectOperator
         private final PlanNodeId sourceId;
         private final PageSourceProvider pageSourceProvider;
         private final TableHandle table;
+        private final Optional<ConnectorTableCredentials> tableCredentials;
         private final List<ColumnHandle> columns;
         private final DynamicFilter dynamicFilter;
         private final List<Type> types;
@@ -370,7 +380,8 @@ public class ScanFilterAndProjectOperator
                 PageSourceProviderFactory pageSourceProvider,
                 Function<DynamicFilter, PageProcessor> pageProcessor,
                 TableHandle table,
-                Iterable<ColumnHandle> columns,
+                Optional<ConnectorTableCredentials> tableCredentials,
+                List<ColumnHandle> columns,
                 DynamicFilter dynamicFilter,
                 List<Type> types,
                 DataSize minOutputPageSize,
@@ -381,6 +392,7 @@ public class ScanFilterAndProjectOperator
             this.pageProcessor = requireNonNull(pageProcessor, "pageProcessor is null");
             this.sourceId = requireNonNull(sourceId, "sourceId is null");
             this.table = requireNonNull(table, "table is null");
+            this.tableCredentials = requireNonNull(tableCredentials, "tableCredentials is null");
             this.columns = ImmutableList.copyOf(requireNonNull(columns, "columns is null"));
             this.dynamicFilter = dynamicFilter;
             this.types = requireNonNull(types, "types is null");
@@ -418,7 +430,16 @@ public class ScanFilterAndProjectOperator
         {
             checkState(!closed, "Factory is already closed");
             OperatorContext operatorContext = driverContext.addOperatorContext(operatorId, planNodeId, Optional.of(sourceId), getOperatorType());
-            return new WorkProcessorSourceOperatorAdapter(operatorContext, this);
+
+            WorkProcessorSourceOperatorAdapter operator = new WorkProcessorSourceOperatorAdapter(operatorContext, this);
+
+            if (isSourcePagesValidationEnabled(operatorContext.getSession())) {
+                return new OutputValidatingSourceOperator(
+                        operator,
+                        types,
+                        () -> "ScanFilterAndProjectOperator(%s); taskId=%s; operatorId=%s".formatted(table, operatorContext.getDriverContext().getTaskId(), operatorContext.getOperatorId()));
+            }
+            return operator;
         }
 
         @Override
@@ -436,6 +457,7 @@ public class ScanFilterAndProjectOperator
                     pageSourceProvider,
                     pageProcessor.apply(dynamicFilter),
                     table,
+                    tableCredentials,
                     columns,
                     dynamicFilter,
                     types,

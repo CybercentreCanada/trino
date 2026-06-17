@@ -122,7 +122,8 @@ public class TestHistogram
 
         assertAggregation(
                 FUNCTION_RESOLUTION,
-                "histogram", fromTypes(DOUBLE),
+                "histogram",
+                fromTypes(DOUBLE),
                 ImmutableMap.of(0.1, 1L, 0.3, 1L, 0.2, 1L),
                 createDoublesBlock(0.1, 0.3, 0.2));
 
@@ -301,7 +302,7 @@ public class TestHistogram
 
             for (int i = 0; i < itemCount; i++) {
                 String str = String.valueOf(i % 10);
-                String item = IntStream.range(0, itemCount).mapToObj(x -> str).collect(Collectors.joining());
+                String item = IntStream.range(0, itemCount).mapToObj(_ -> str).collect(Collectors.joining());
                 boolean distinctValue = random.nextDouble() < distinctFraction;
                 if (distinctValue) {
                     // produce a unique value for the histogram
@@ -311,7 +312,7 @@ public class TestHistogram
                 else {
                     valueList.add(item);
                 }
-                expectedValues.compute(item, (k, v) -> v == null ? 1L : ++v);
+                expectedValues.compute(item, (_, v) -> v == null ? 1L : ++v);
             }
 
             Block block = createStringsBlock(valueList);

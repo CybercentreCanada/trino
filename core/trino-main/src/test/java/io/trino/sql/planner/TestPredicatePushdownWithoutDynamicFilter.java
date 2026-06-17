@@ -43,6 +43,7 @@ import static io.trino.sql.planner.assertions.PlanMatchPattern.node;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.project;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.semiJoin;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.tableScan;
+import static io.trino.sql.planner.assertions.SemiJoinDynamicFilterProducer.noDynamicFilter;
 import static io.trino.sql.planner.plan.JoinType.INNER;
 import static io.trino.sql.planner.plan.JoinType.LEFT;
 
@@ -128,8 +129,7 @@ public class TestPredicatePushdownWithoutDynamicFilter
                 anyTree(
                         join(INNER, builder -> builder
                                 .equiCriteria("o_custkey", "c_custkey")
-                                .left(
-                                        tableScan("orders", ImmutableMap.of("o_orderdate", "orderdate", "o_custkey", "custkey")))
+                                .left(tableScan("orders", ImmutableMap.of("o_orderdate", "orderdate", "o_custkey", "custkey")))
                                 .right(
                                         anyTree(
                                                 filter(
@@ -151,8 +151,7 @@ public class TestPredicatePushdownWithoutDynamicFilter
                                         join(LEFT, // TODO (https://github.com/trinodb/trino/issues/2392) this should be INNER also when dynamic filtering is off
                                                 leftJoinBuilder -> leftJoinBuilder
                                                         .equiCriteria("l_orderkey", "o_orderkey")
-                                                        .left(
-                                                                tableScan("lineitem", ImmutableMap.of("l_orderkey", "orderkey")))
+                                                        .left(tableScan("lineitem", ImmutableMap.of("l_orderkey", "orderkey")))
                                                         .right(
                                                                 anyTree(
                                                                         tableScan("orders", ImmutableMap.of("o_orderkey", "orderkey", "o_custkey", "custkey"))))))
@@ -169,7 +168,10 @@ public class TestPredicatePushdownWithoutDynamicFilter
         assertPlan("SELECT * FROM lineitem WHERE orderkey IN (SELECT orderkey FROM orders WHERE orderkey = random(5))",
                 noSemiJoinRewrite(),
                 anyTree(
-                        semiJoin("LINE_ORDER_KEY", "ORDERS_ORDER_KEY", "SEMI_JOIN_RESULT", false,
+                        semiJoin("LINE_ORDER_KEY",
+                                "ORDERS_ORDER_KEY",
+                                "SEMI_JOIN_RESULT",
+                                noDynamicFilter(),
                                 tableScan("lineitem", ImmutableMap.of(
                                         "LINE_ORDER_KEY", "orderkey")),
                                 node(ExchangeNode.class,

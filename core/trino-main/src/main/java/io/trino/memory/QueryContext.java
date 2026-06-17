@@ -26,7 +26,9 @@ import io.trino.memory.context.MemoryReservationHandler;
 import io.trino.memory.context.MemoryTrackingContext;
 import io.trino.operator.TaskContext;
 import io.trino.spi.QueryId;
+import io.trino.spi.connector.ConnectorTableCredentials;
 import io.trino.spiller.SpillSpaceTracker;
+import io.trino.sql.planner.plan.PlanNodeId;
 
 import java.util.Comparator;
 import java.util.List;
@@ -91,8 +93,7 @@ public class QueryContext
             DataSize maxSpill,
             SpillSpaceTracker spillSpaceTracker)
     {
-        this(
-                queryId,
+        this(queryId,
                 maxUserMemory,
                 memoryPool,
                 GUARANTEED_MEMORY,
@@ -174,7 +175,7 @@ public class QueryContext
         return NOT_BLOCKED;
     }
 
-    //TODO Add tagging support for revocable memory reservations if needed
+    // TODO Add tagging support for revocable memory reservations if needed
     private synchronized ListenableFuture<Void> updateRevocableMemory(TaskId taskId, long delta)
     {
         if (delta >= 0) {
@@ -189,7 +190,7 @@ public class QueryContext
         return NOT_BLOCKED;
     }
 
-    //TODO move spill tracking to the new memory tracking framework
+    // TODO move spill tracking to the new memory tracking framework
     public synchronized ListenableFuture<Void> reserveSpill(long bytes)
     {
         checkArgument(bytes >= 0, "bytes is negative");
@@ -237,6 +238,7 @@ public class QueryContext
 
     public TaskContext addTaskContext(
             TaskStateMachine taskStateMachine,
+            Map<PlanNodeId, ConnectorTableCredentials> tableCredentials,
             Session session,
             Runnable notifyStatusChanged,
             boolean perOperatorCpuTimerEnabled,
@@ -252,13 +254,14 @@ public class QueryContext
                         guaranteedMemory),
                 newRootAggregatedMemoryContext(
                         new QueryMemoryReservationHandler(
-                                (tag, delta) -> updateRevocableMemory(taskId, delta),
-                                (tag, delta) -> tryReserveMemoryNotSupported()),
+                                (_, delta) -> updateRevocableMemory(taskId, delta),
+                                (_, _) -> tryReserveMemoryNotSupported()),
                         0L));
 
         TaskContext taskContext = createTaskContext(
                 this,
                 taskStateMachine,
+                tableCredentials,
                 gcMonitor,
                 notificationExecutor,
                 yieldExecutor,

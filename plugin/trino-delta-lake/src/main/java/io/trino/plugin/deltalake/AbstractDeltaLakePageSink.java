@@ -64,7 +64,6 @@ import static io.trino.plugin.deltalake.DeltaLakeSessionProperties.getParquetWri
 import static io.trino.plugin.deltalake.DeltaLakeSessionProperties.getParquetWriterPageValueCount;
 import static io.trino.plugin.deltalake.DeltaLakeTypes.toParquetType;
 import static io.trino.plugin.hive.HiveCompressionCodecs.toCompressionCodec;
-import static java.lang.Math.min;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.UUID.randomUUID;
@@ -74,8 +73,6 @@ public abstract class AbstractDeltaLakePageSink
         implements ConnectorPageSink
 {
     private static final Logger LOG = Logger.get(AbstractDeltaLakePageSink.class);
-
-    private static final int MAX_PAGE_POSITIONS = 4096;
 
     private final TypeOperators typeOperators;
     private final List<DeltaLakeColumnHandle> dataColumnHandles;
@@ -158,24 +155,21 @@ public abstract class AbstractDeltaLakePageSink
         for (int inputIndex = 0; inputIndex < inputColumns.size(); inputIndex++) {
             DeltaLakeColumnHandle column = inputColumns.get(inputIndex);
             switch (column.columnType()) {
-                case PARTITION_KEY:
+                case PARTITION_KEY -> {
                     int partitionPosition = toOriginalPartitionPositions.get(column.columnName());
                     partitionColumnInputIndex[partitionPosition] = inputIndex;
                     originalPartitionColumnNames[partitionPosition] = column.columnName();
                     partitionColumnTypes[partitionPosition] = column.baseType();
-                    break;
-                case REGULAR:
+                }
+                case REGULAR -> {
                     verify(column.isBaseColumn(), "Unexpected dereference: %s", column);
                     dataColumnHandles.add(column);
                     dataColumnsInputIndex.add(inputIndex);
                     dataColumnNames.add(column.basePhysicalColumnName());
                     dataColumnTypes.add(column.basePhysicalType());
-                    break;
-                case SYNTHESIZED:
-                    processSynthesizedColumn(column);
-                    break;
-                default:
-                    throw new IllegalStateException("Unexpected column type: " + column.columnType());
+                }
+                case SYNTHESIZED -> processSynthesizedColumn(column);
+                default -> throw new IllegalStateException("Unexpected column type: " + column.columnType());
             }
         }
 
@@ -268,13 +262,7 @@ public abstract class AbstractDeltaLakePageSink
     @Override
     public CompletableFuture<?> appendPage(Page page)
     {
-        int writeOffset = 0;
-        while (writeOffset < page.getPositionCount()) {
-            Page chunk = page.getRegion(writeOffset, min(page.getPositionCount() - writeOffset, MAX_PAGE_POSITIONS));
-            writeOffset += chunk.getPositionCount();
-            writePage(chunk);
-        }
-
+        writePage(page);
         return NOT_BLOCKED;
     }
 

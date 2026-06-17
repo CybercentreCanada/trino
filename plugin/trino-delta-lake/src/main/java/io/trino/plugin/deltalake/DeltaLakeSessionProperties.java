@@ -74,7 +74,7 @@ public final class DeltaLakeSessionProperties
     public static final String EXTENDED_STATISTICS_COLLECT_ON_WRITE = "extended_statistics_collect_on_write";
     private static final String PROJECTION_PUSHDOWN_ENABLED = "projection_pushdown_enabled";
     private static final String QUERY_PARTITION_FILTER_REQUIRED = "query_partition_filter_required";
-    private static final String CHECKPOINT_FILTERING_ENABLED = "checkpoint_filtering_enabled";
+    private static final String LOAD_METADATA_FROM_CHECKSUM_FILE = "load_metadata_from_checksum_file";
     private static final String STORE_TABLE_METADATA = "store_table_metadata";
 
     private final List<PropertyMetadata<?>> sessionProperties;
@@ -183,7 +183,7 @@ public final class DeltaLakeSessionProperties
                         "Internal Delta Lake connector property",
                         HiveTimestampPrecision.class,
                         MILLISECONDS,
-                        value -> { throw new IllegalStateException("The property cannot be set"); },
+                        _ -> { throw new IllegalStateException("The property cannot be set"); },
                         true),
                 durationProperty(
                         DYNAMIC_FILTERING_WAIT_TIMEOUT,
@@ -228,9 +228,9 @@ public final class DeltaLakeSessionProperties
                         deltaLakeConfig.isQueryPartitionFilterRequired(),
                         false),
                 booleanProperty(
-                        CHECKPOINT_FILTERING_ENABLED,
-                        "Use filter in checkpoint reader",
-                        deltaLakeConfig.isCheckpointFilteringEnabled(),
+                        LOAD_METADATA_FROM_CHECKSUM_FILE,
+                        "Read table metadata and protocol from the Delta version checksum file when available, falling back to the transaction log",
+                        deltaLakeConfig.isLoadMetadataFromChecksumFile(),
                         false),
                 booleanProperty(
                         STORE_TABLE_METADATA,
@@ -350,9 +350,9 @@ public final class DeltaLakeSessionProperties
         return session.getProperty(QUERY_PARTITION_FILTER_REQUIRED, Boolean.class);
     }
 
-    public static boolean isCheckpointFilteringEnabled(ConnectorSession session)
+    public static boolean isLoadMetadataFromChecksumFile(ConnectorSession session)
     {
-        return session.getProperty(CHECKPOINT_FILTERING_ENABLED, Boolean.class);
+        return session.getProperty(LOAD_METADATA_FROM_CHECKSUM_FILE, Boolean.class);
     }
 
     public static boolean isStoreTableMetadataInMetastoreEnabled(ConnectorSession session)

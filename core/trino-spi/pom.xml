@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>478</version>
+        <version>481</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -18,7 +18,6 @@
         <trino.check.skip-revapi>${air.check.skip-basic}</trino.check.skip-revapi>
     </properties>
 
-    <!-- the SPI should have only minimal dependencies -->
     <dependencies>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
@@ -62,12 +61,6 @@
         <dependency>
             <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-context</artifactId>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.openjdk.jol</groupId>
-            <artifactId>jol-core</artifactId>
             <scope>runtime</scope>
         </dependency>
 
@@ -123,6 +116,18 @@
         <dependency>
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.iceberg</groupId>
+            <artifactId>iceberg-core</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -218,40 +223,6 @@
                                 <!-- Any exclusions below can be deleted after each release -->
                                 <item>
                                     <ignore>true</ignore>
-                                    <code>java.method.noLongerDefault</code>
-                                    <old>method void io.trino.spi.connector.Connector::shutdown()</old>
-                                    <new>method void io.trino.spi.connector.Connector::shutdown()</new>
-                                    <justification>Require connector to implement shutdown to prevent leaks</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
-                                    <code>java.method.nowAbstract</code>
-                                    <old>method void io.trino.spi.connector.Connector::shutdown()</old>
-                                    <new>method void io.trino.spi.connector.Connector::shutdown()</new>
-                                    <justification>Require connector to implement shutdown to prevent leaks</justification>
-                                </item>
-                                <item>
-                                    <code>java.annotation.removed</code>
-                                    <old>method java.lang.String io.trino.spi.QueryId::toString()</old>
-                                    <new>method java.lang.String io.trino.spi.QueryId::toString()</new>
-                                    <annotation>@com.fasterxml.jackson.annotation.JsonValue</annotation>
-                                    <justification>QueryId converted to a record</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
-                                    <code>java.class.kindChanged</code>
-                                    <old>class io.trino.spi.QueryId</old>
-                                    <new>class io.trino.spi.QueryId</new>
-                                    <justification>QueryId converted to a record</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
-                                    <code>java.method.removed</code>
-                                    <old>method void io.trino.spi.resourcegroups.SelectionCriteria::&lt;init&gt;(boolean, java.lang.String, java.util.Set&lt;java.lang.String&gt;, java.util.Optional&lt;java.lang.String&gt;, java.util.Set&lt;java.lang.String&gt;, io.trino.spi.session.ResourceEstimates, java.util.Optional&lt;java.lang.String&gt;)</old>
-                                    <justification>Remove a deprecated constructor</justification>
-                                </item>
-                                <item>
-                                    <ignore>true</ignore>
                                     <code>java.method.varargOverloadsOnlyDifferInVarargParameter</code>
                                     <old>method io.opentelemetry.api.common.AttributesBuilder io.opentelemetry.api.common.AttributesBuilder::put(java.lang.String, boolean[])</old>
                                     <new>method io.opentelemetry.api.common.AttributesBuilder io.opentelemetry.api.common.AttributesBuilder::put(java.lang.String, boolean[])</new>
@@ -294,43 +265,20 @@
                                 </item>
                                 <item>
                                     <ignore>true</ignore>
-                                    <code>java.method.visibilityIncreased</code>
-                                    <old>method boolean[] io.trino.spi.block.RowBlock::getRawRowIsNull()</old>
-                                    <new>method boolean[] io.trino.spi.block.RowBlock::getRawRowIsNull()</new>
-                                    <oldVisibility>package</oldVisibility>
-                                    <newVisibility>public</newVisibility>
-                                    <justification>Allow direct access to isNull mask on RowBlock for performance critical sections</justification>
-                                </item>
-                                <item>
-                                    <code>java.method.returnTypeChanged</code>
-                                    <old>method void io.trino.spi.connector.ConnectorMetadata::executeTableExecute(io.trino.spi.connector.ConnectorSession, io.trino.spi.connector.ConnectorTableExecuteHandle)</old>
-                                    <new>method java.util.Map&lt;java.lang.String, java.lang.Long&gt; io.trino.spi.connector.ConnectorMetadata::executeTableExecute(io.trino.spi.connector.ConnectorSession, io.trino.spi.connector.ConnectorTableExecuteHandle)</new>
-                                </item>
-                                <item>
-                                    <code>java.method.removed</code>
-                                    <old>method int io.trino.spi.PageSorter::decodePageIndex(long)</old>
-                                </item>
-                                <item>
-                                    <code>java.method.removed</code>
-                                    <old>method int io.trino.spi.PageSorter::decodePositionIndex(long)</old>
-                                </item>
-                                <item>
-                                    <code>java.method.returnTypeChanged</code>
-                                    <old>method long[] io.trino.spi.PageSorter::sort(java.util.List&lt;io.trino.spi.type.Type&gt;, java.util.List&lt;io.trino.spi.Page&gt;, java.util.List&lt;java.lang.Integer&gt;, java.util.List&lt;io.trino.spi.connector.SortOrder&gt;, int)</old>
-                                    <new>method java.util.Iterator&lt;io.trino.spi.Page&gt; io.trino.spi.PageSorter::sort(java.util.List&lt;io.trino.spi.type.Type&gt;, java.util.List&lt;io.trino.spi.Page&gt;, java.util.List&lt;java.lang.Integer&gt;, java.util.List&lt;io.trino.spi.connector.SortOrder&gt;, int)</new>
-                                </item>
-                                <item>
-                                    <code>java.method.removed</code>
-                                    <old>method double io.trino.spi.metrics.Distribution&lt;T&gt;::getPercentile(double)</old>
-                                </item>
-                                <item>
-                                    <code>java.method.addedToInterface</code>
-                                    <new>method double[] io.trino.spi.metrics.Distribution&lt;T&gt;::getPercentiles(double[])</new>
-                                </item>
-                                <item>
                                     <code>java.method.numberOfParametersChanged</code>
-                                    <old>method void io.trino.spi.eventlistener.QueryStatistics::&lt;init&gt;(java.time.Duration, java.time.Duration, java.time.Duration, java.time.Duration, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, long, long, long, long, long, long, long, long, long, long, long, long, long, long, double, double, java.util.List&lt;io.trino.spi.eventlistener.StageGcStatistics&gt;, int, boolean, java.util.List&lt;io.trino.spi.eventlistener.StageCpuDistribution&gt;, java.util.List&lt;io.trino.spi.eventlistener.StageOutputBufferUtilization&gt;, java.util.List&lt;io.trino.spi.eventlistener.StageOutputBufferMetrics&gt;, java.util.List&lt;io.trino.spi.eventlistener.StageTaskStatistics&gt;, java.util.List&lt;io.trino.spi.eventlistener.DynamicFilterDomainStatistics&gt;, java.util.function.Supplier&lt;java.util.List&lt;java.lang.String&gt;&gt;, java.util.List&lt;io.trino.spi.eventlistener.QueryPlanOptimizerStatistics&gt;, java.util.Optional&lt;java.lang.String&gt;)</old>
-                                    <new>method void io.trino.spi.eventlistener.QueryStatistics::&lt;init&gt;(java.time.Duration, java.time.Duration, java.time.Duration, java.time.Duration, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, java.util.Optional&lt;java.time.Duration&gt;, long, long, long, long, long, long, long, long, long, long, long, long, long, long, double, double, java.util.List&lt;io.trino.spi.eventlistener.StageGcStatistics&gt;, int, boolean, java.util.List&lt;io.trino.spi.eventlistener.StageCpuDistribution&gt;, java.util.List&lt;io.trino.spi.eventlistener.StageOutputBufferUtilization&gt;, java.util.List&lt;io.trino.spi.eventlistener.StageOutputBufferMetrics&gt;, java.util.List&lt;io.trino.spi.eventlistener.StageTaskStatistics&gt;, java.util.List&lt;io.trino.spi.eventlistener.DynamicFilterDomainStatistics&gt;, java.util.function.Supplier&lt;java.util.List&lt;java.lang.String&gt;&gt;, java.util.List&lt;io.trino.spi.eventlistener.QueryPlanOptimizerStatistics&gt;, java.util.Map&lt;java.lang.String, io.trino.spi.metrics.Metrics&gt;, java.util.Optional&lt;java.lang.String&gt;)</new>
+                                    <old>method java.util.Optional&lt;io.trino.spi.connector.ConnectorOutputMetadata&gt; io.trino.spi.connector.ConnectorMetadata::finishRefreshMaterializedView(io.trino.spi.connector.ConnectorSession, io.trino.spi.connector.ConnectorTableHandle, io.trino.spi.connector.ConnectorInsertTableHandle, java.util.Collection&lt;io.airlift.slice.Slice&gt;, java.util.Collection&lt;io.trino.spi.statistics.ComputedStatistics&gt;, java.util.List&lt;io.trino.spi.connector.ConnectorTableHandle&gt;, boolean, boolean)</old>
+                                    <new>method java.util.Optional&lt;io.trino.spi.connector.ConnectorOutputMetadata&gt; io.trino.spi.connector.ConnectorMetadata::finishRefreshMaterializedView(io.trino.spi.connector.ConnectorSession, io.trino.spi.connector.ConnectorTableHandle, io.trino.spi.connector.ConnectorInsertTableHandle, java.util.Collection&lt;io.airlift.slice.Slice&gt;, java.util.Collection&lt;io.trino.spi.statistics.ComputedStatistics&gt;, java.util.List&lt;io.trino.spi.connector.ConnectorTableHandle&gt;, boolean, boolean, boolean)</new>
+                                    <justification>Add hasNonDeterministicFunctions parameter to detect stale materialized views</justification>
+                                </item>
+                                <item>
+                                    <code>java.field.removed</code>
+                                    <old>field io.trino.spi.function.OperatorType.MODULUS</old>
+                                    <justification>Renamed to MODULO</justification>
+                                </item>
+                                <item>
+                                    <code>java.method.returnTypeChanged</code>
+                                    <old>method void io.trino.spi.connector.ConnectorMetadata::finishTableExecute(io.trino.spi.connector.ConnectorSession, io.trino.spi.connector.ConnectorTableExecuteHandle, java.util.Collection&lt;io.airlift.slice.Slice&gt;, java.util.List&lt;java.lang.Object&gt;)</old>
+                                    <new>method java.util.Map&lt;java.lang.String, java.lang.Long&gt; io.trino.spi.connector.ConnectorMetadata::finishTableExecute(io.trino.spi.connector.ConnectorSession, io.trino.spi.connector.ConnectorTableExecuteHandle, java.util.Collection&lt;io.airlift.slice.Slice&gt;, java.util.List&lt;java.lang.Object&gt;)</new>
                                 </item>
                             </differences>
                         </revapi.differences>
@@ -350,6 +298,17 @@
                         </goals>
                     </execution>
                 </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.basepom.maven</groupId>
+                <artifactId>duplicate-finder-maven-plugin</artifactId>
+                <configuration>
+                    <ignoredResourcePatterns combine.children="append">
+                        <!-- ignore the Iceberg build metadata file -->
+                        <ignoredResourcePattern>^iceberg-build\.properties$</ignoredResourcePattern>
+                    </ignoredResourcePatterns>
+                </configuration>
             </plugin>
         </plugins>
     </build>

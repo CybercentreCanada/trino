@@ -26,7 +26,6 @@ import io.trino.plugin.iceberg.catalog.hms.TrinoHiveCatalog;
 import io.trino.plugin.tpch.TpchPlugin;
 import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.connector.SchemaTableName;
-import io.trino.spi.type.TestingTypeManager;
 import io.trino.testing.AbstractTestQueryFramework;
 import io.trino.testing.DistributedQueryRunner;
 import io.trino.testing.MaterializedResult;
@@ -53,6 +52,7 @@ import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
 import static io.trino.plugin.iceberg.IcebergTestUtils.getFileSystemFactory;
 import static io.trino.plugin.iceberg.IcebergTestUtils.getHiveMetastore;
 import static io.trino.testing.TestingSession.testSessionBuilder;
+import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestIcebergOrcMetricsCollection
@@ -96,7 +96,7 @@ public class TestIcebergOrcMetricsCollection
                 new TrinoViewHiveMetastore(cachingHiveMetastore, false, "trino-version", "test"),
                 fileSystemFactory,
                 FILE_IO_FACTORY,
-                new TestingTypeManager(),
+                TESTING_TYPE_MANAGER,
                 tableOperationsProvider,
                 false,
                 false,
@@ -116,7 +116,10 @@ public class TestIcebergOrcMetricsCollection
     public void testMetrics()
     {
         assertUpdate("create table no_metrics (c1 varchar, c2 varchar)");
-        Table table = IcebergUtil.loadIcebergTable(trinoCatalog, tableOperationsProvider, IcebergTestUtils.SESSION,
+        Table table = IcebergUtil.loadIcebergTable(
+                trinoCatalog,
+                tableOperationsProvider,
+                IcebergTestUtils.SESSION,
                 new SchemaTableName("test_schema", "no_metrics"));
         // skip metrics for all columns
         table.updateProperties().set("write.metadata.metrics.default", "none").commit();
@@ -133,7 +136,10 @@ public class TestIcebergOrcMetricsCollection
 
         // keep c1 metrics
         assertUpdate("create table c1_metrics (c1 varchar, c2 varchar)");
-        table = IcebergUtil.loadIcebergTable(trinoCatalog, tableOperationsProvider, IcebergTestUtils.SESSION,
+        table = IcebergUtil.loadIcebergTable(
+                trinoCatalog,
+                tableOperationsProvider,
+                IcebergTestUtils.SESSION,
                 new SchemaTableName("test_schema", "c1_metrics"));
         table.updateProperties()
                 .set("write.metadata.metrics.default", "none")
@@ -151,7 +157,10 @@ public class TestIcebergOrcMetricsCollection
 
         // set c1 metrics mode to count
         assertUpdate("create table c1_metrics_count (c1 varchar, c2 varchar)");
-        table = IcebergUtil.loadIcebergTable(trinoCatalog, tableOperationsProvider, IcebergTestUtils.SESSION,
+        table = IcebergUtil.loadIcebergTable(
+                trinoCatalog,
+                tableOperationsProvider,
+                IcebergTestUtils.SESSION,
                 new SchemaTableName("test_schema", "c1_metrics_count"));
         table.updateProperties()
                 .set("write.metadata.metrics.default", "none")
@@ -169,7 +178,10 @@ public class TestIcebergOrcMetricsCollection
 
         // set c1 metrics mode to truncate(10)
         assertUpdate("create table c1_metrics_truncate (c1 varchar, c2 varchar)");
-        table = IcebergUtil.loadIcebergTable(trinoCatalog, tableOperationsProvider, IcebergTestUtils.SESSION,
+        table = IcebergUtil.loadIcebergTable(
+                trinoCatalog,
+                tableOperationsProvider,
+                IcebergTestUtils.SESSION,
                 new SchemaTableName("test_schema", "c1_metrics_truncate"));
         table.updateProperties()
                 .set("write.metadata.metrics.default", "none")
@@ -182,12 +194,15 @@ public class TestIcebergOrcMetricsCollection
         assertThat(datafile.getRecordCount()).isEqualTo(1);
         assertThat(datafile.getValueCounts()).hasSize(1);
         assertThat(datafile.getNullValueCounts()).hasSize(1);
-        datafile.getUpperBounds().forEach((k, v) -> assertThat(v.length()).isEqualTo(10));
-        datafile.getLowerBounds().forEach((k, v) -> assertThat(v.length()).isEqualTo(10));
+        datafile.getUpperBounds().forEach((_, v) -> assertThat(v.length()).isEqualTo(10));
+        datafile.getLowerBounds().forEach((_, v) -> assertThat(v.length()).isEqualTo(10));
 
         // keep both c1 and c2 metrics
         assertUpdate("create table c_metrics (c1 varchar, c2 varchar)");
-        table = IcebergUtil.loadIcebergTable(trinoCatalog, tableOperationsProvider, IcebergTestUtils.SESSION,
+        table = IcebergUtil.loadIcebergTable(
+                trinoCatalog,
+                tableOperationsProvider,
+                IcebergTestUtils.SESSION,
                 new SchemaTableName("test_schema", "c_metrics"));
         table.updateProperties()
                 .set("write.metadata.metrics.column.c1", "full")
@@ -204,7 +219,10 @@ public class TestIcebergOrcMetricsCollection
 
         // keep all metrics
         assertUpdate("create table metrics (c1 varchar, c2 varchar)");
-        table = IcebergUtil.loadIcebergTable(trinoCatalog, tableOperationsProvider, IcebergTestUtils.SESSION,
+        table = IcebergUtil.loadIcebergTable(
+                trinoCatalog,
+                tableOperationsProvider,
+                IcebergTestUtils.SESSION,
                 new SchemaTableName("test_schema", "metrics"));
         table.updateProperties()
                 .set("write.metadata.metrics.default", "full")

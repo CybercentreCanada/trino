@@ -49,7 +49,6 @@ import static io.trino.sql.ir.Comparison.Operator.LESS_THAN_OR_EQUAL;
 import static io.trino.sql.ir.IrExpressions.not;
 import static io.trino.sql.ir.IrUtils.or;
 import static io.trino.sql.ir.Logical.and;
-import static io.trino.sql.ir.optimizer.IrExpressionOptimizer.newOptimizer;
 import static io.trino.type.DateTimes.PICOSECONDS_PER_MICROSECOND;
 import static io.trino.type.DateTimes.scaleFactor;
 import static java.lang.Math.multiplyExact;
@@ -86,7 +85,8 @@ public class UnwrapYearInComparison
         return (expression, context) -> unwrapYear(context.getSession(), plannerContext, expression);
     }
 
-    private static Expression unwrapYear(Session session,
+    private static Expression unwrapYear(
+            Session session,
             PlannerContext plannerContext,
             Expression expression)
     {
@@ -102,7 +102,7 @@ public class UnwrapYearInComparison
 
         public Visitor(PlannerContext plannerContext, Session session)
         {
-            this.optimizer = newOptimizer(plannerContext);
+            this.optimizer = plannerContext.getExpressionOptimizer();
             this.metadata = plannerContext.getMetadata();
             this.session = requireNonNull(session, "session is null");
         }

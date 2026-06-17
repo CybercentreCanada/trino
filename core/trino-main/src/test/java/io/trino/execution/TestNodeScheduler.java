@@ -22,7 +22,8 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import io.trino.Session;
 import io.trino.SystemSessionProperties;
-import io.trino.client.NodeVersion;
+import io.trino.execution.scheduler.ConsistentHashingAddressProvider;
+import io.trino.execution.scheduler.ConsistentHashingAddressProviderConfig;
 import io.trino.execution.scheduler.NetworkLocation;
 import io.trino.execution.scheduler.NetworkTopology;
 import io.trino.execution.scheduler.NodeScheduler;
@@ -38,11 +39,13 @@ import io.trino.node.InternalNode;
 import io.trino.node.InternalNodeManager;
 import io.trino.node.TestingInternalNodeManager;
 import io.trino.spi.HostAddress;
+import io.trino.spi.NodeVersion;
 import io.trino.spi.SplitWeight;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.sql.planner.plan.PlanNodeId;
 import io.trino.testing.TestingSession;
 import io.trino.util.FinalizerService;
+import org.assertj.guava.api.Assertions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -114,7 +117,7 @@ public class TestNodeScheduler
                 .setMaxAdjustedPendingSplitsWeightPerTask(100)
                 .setIncludeCoordinator(false);
 
-        nodeScheduler = new NodeScheduler(new UniformNodeSelectorFactory(CURRENT_NODE, nodeManager, nodeSchedulerConfig, nodeTaskMap));
+        nodeScheduler = new NodeScheduler(new UniformNodeSelectorFactory(CURRENT_NODE, nodeManager, nodeSchedulerConfig, nodeTaskMap, new ConsistentHashingAddressProvider(nodeManager, new ConsistentHashingAddressProviderConfig())));
         // contents of taskMap indicate the node-task map for the current stage
         taskMap = new HashMap<>();
         nodeSelector = nodeScheduler.createNodeSelector(session);
@@ -189,7 +192,8 @@ public class TestNodeScheduler
                 nodeManager,
                 nodeSchedulerConfig,
                 nodeTaskMap,
-                getNetworkTopologyConfig());
+                getNetworkTopologyConfig(),
+                new ConsistentHashingAddressProvider(nodeManager, new ConsistentHashingAddressProviderConfig()));
         NodeScheduler nodeScheduler = new NodeScheduler(nodeSelectorFactory);
         NodeSelector nodeSelector = nodeScheduler.createNodeSelector(session);
 
@@ -257,14 +261,9 @@ public class TestNodeScheduler
         for (Split split : unassigned) {
             String rack = topology.locate(split.getAddresses().get(0)).getSegments().get(0);
             switch (rack) {
-                case "rack1":
-                    rack1++;
-                    break;
-                case "rack2":
-                    rack2++;
-                    break;
-                default:
-                    throw new AssertionError("Unexpected rack: " + rack);
+                case "rack1" -> rack1++;
+                case "rack2" -> rack2++;
+                default -> throw new AssertionError("Unexpected rack: " + rack);
             }
         }
         assertThat(rack1).isEqualTo(2);
@@ -444,7 +443,8 @@ public class TestNodeScheduler
         InternalNode chosenNode = Iterables.get(nodeManager.getNodes(ACTIVE), 0);
 
         TaskId taskId1 = new TaskId(new StageId("test", 1), 1, 0);
-        RemoteTask remoteTask1 = remoteTaskFactory.createTableScanTask(taskId1,
+        RemoteTask remoteTask1 = remoteTaskFactory.createTableScanTask(
+                taskId1,
                 chosenNode,
                 ImmutableList.of(
                         new Split(TEST_CATALOG_HANDLE, new TestSplitRemote()),
@@ -515,7 +515,7 @@ public class TestNodeScheduler
         splits.add(new Split(TEST_CATALOG_HANDLE, new TestSplitLocal()));
         // 1 split with node2 as local node
         splits.add(new Split(TEST_CATALOG_HANDLE, new TestSplitRemote(HostAddress.fromString("10.0.0.1:12"))));
-        //splits now contains 41 splits : 21 with node1 as local node and 20 with node2 as local node
+        // splits now contains 41 splits : 21 with node1 as local node and 20 with node2 as local node
         Multimap<InternalNode, Split> assignments3 = nodeSelector.computeAssignments(splits, ImmutableList.copyOf(taskMap.values())).getAssignments();
         // Check that only 40 splits are being assigned as there is a single task
         assertThat(assignments3.size()).isEqualTo(40);
@@ -612,7 +612,8 @@ public class TestNodeScheduler
                 nodeManager,
                 nodeSchedulerConfig,
                 nodeTaskMap,
-                getNetworkTopologyConfig());
+                getNetworkTopologyConfig(),
+                new ConsistentHashingAddressProvider(nodeManager, new ConsistentHashingAddressProviderConfig()));
         NodeScheduler nodeScheduler = new NodeScheduler(nodeSelectorFactory);
         NodeSelector nodeSelector = nodeScheduler.createNodeSelector(session);
 
@@ -620,7 +621,7 @@ public class TestNodeScheduler
         assertThatThrownBy(() -> computeSingleAssignment(nodeSelector, rigidSplit)).hasMessageContaining("No nodes available");
 
         Split flexibleSplit = new Split(TEST_CATALOG_HANDLE, new TestSplitRemote(HostAddress.fromString("host99.rack1:11")));
-        org.assertj.guava.api.Assertions.assertThat(computeSingleAssignment(nodeSelector, flexibleSplit)).containsValues(flexibleSplit);
+        Assertions.assertThat(computeSingleAssignment(nodeSelector, flexibleSplit)).containsValues(flexibleSplit);
     }
 
     private Multimap<InternalNode, Split> computeSingleAssignment(NodeSelector nodeSelector, Split split)
@@ -726,7 +727,8 @@ public class TestNodeScheduler
 
         TestSplitRemote()
         {
-            this(HostAddress.fromString(format("10.%s.%s.%s:%s",
+            this(HostAddress.fromString(format(
+                    "10.%s.%s.%s:%s",
                     ThreadLocalRandom.current().nextInt(0, 255),
                     ThreadLocalRandom.current().nextInt(0, 255),
                     ThreadLocalRandom.current().nextInt(0, 255),

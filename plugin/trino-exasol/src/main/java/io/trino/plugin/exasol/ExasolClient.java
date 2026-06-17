@@ -31,6 +31,7 @@ import io.trino.plugin.jdbc.JdbcTypeHandle;
 import io.trino.plugin.jdbc.LongReadFunction;
 import io.trino.plugin.jdbc.LongWriteFunction;
 import io.trino.plugin.jdbc.QueryBuilder;
+import io.trino.plugin.jdbc.RemoteTableName;
 import io.trino.plugin.jdbc.SliceReadFunction;
 import io.trino.plugin.jdbc.SliceWriteFunction;
 import io.trino.plugin.jdbc.WriteFunction;
@@ -56,6 +57,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 import static io.trino.plugin.jdbc.StandardColumnMappings.bigintColumnMapping;
 import static io.trino.plugin.jdbc.StandardColumnMappings.booleanColumnMapping;
@@ -96,12 +98,12 @@ public class ExasolClient
     }
 
     @Override
-    protected boolean filterSchema(String schemaName)
+    protected boolean filterRemoteSchema(String schemaName)
     {
         if (INTERNAL_SCHEMAS.contains(schemaName.toUpperCase(ENGLISH))) {
             return false;
         }
-        return super.filterSchema(schemaName);
+        return super.filterRemoteSchema(schemaName);
     }
 
     @Override
@@ -159,7 +161,13 @@ public class ExasolClient
     }
 
     @Override
-    public void rollbackCreateTable(ConnectorSession session, JdbcOutputTableHandle handle)
+    public void rollbackDestinationTableCreation(ConnectorSession session, RemoteTableName remoteTableName)
+    {
+        throw new TrinoException(NOT_SUPPORTED, "This connector does not support creating tables");
+    }
+
+    @Override
+    public void rollbackTemporaryTableCreation(ConnectorSession session, JdbcOutputTableHandle handle)
     {
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support creating tables");
     }
@@ -218,35 +226,31 @@ public class ExasolClient
         if (isHashType(typeHandle)) {
             return Optional.of(hashTypeColumnMapping());
         }
-        switch (typeHandle.jdbcType()) {
-            case Types.BOOLEAN:
-                return Optional.of(booleanColumnMapping());
-            case Types.SMALLINT:
-                return Optional.of(smallintColumnMapping());
-            case Types.INTEGER:
-                return Optional.of(integerColumnMapping());
-            case Types.BIGINT:
-                return Optional.of(bigintColumnMapping());
-            case Types.DOUBLE:
-                return Optional.of(doubleColumnMapping());
-            case Types.DECIMAL:
+        return switch (typeHandle.jdbcType()) {
+            case Types.BOOLEAN -> Optional.of(booleanColumnMapping());
+            case Types.SMALLINT -> Optional.of(smallintColumnMapping());
+            case Types.INTEGER -> Optional.of(integerColumnMapping());
+            case Types.BIGINT -> Optional.of(bigintColumnMapping());
+            case Types.DOUBLE -> Optional.of(doubleColumnMapping());
+            case Types.DECIMAL -> {
                 int decimalDigits = typeHandle.requiredDecimalDigits();
                 int columnSize = typeHandle.requiredColumnSize();
-                return Optional.of(decimalColumnMapping(createDecimalType(columnSize, decimalDigits)));
-            case Types.CHAR:
-                return Optional.of(defaultCharColumnMapping(typeHandle.requiredColumnSize(), true));
-            case Types.VARCHAR:
+                yield Optional.of(decimalColumnMapping(createDecimalType(columnSize, decimalDigits)));
+            }
+            case Types.CHAR -> Optional.of(defaultCharColumnMapping(typeHandle.requiredColumnSize(), true));
+            case Types.VARCHAR -> {
                 // String data is sorted by its binary representation.
                 // https://docs.exasol.com/db/latest/sql/select.htm#UsageNotes
-                return Optional.of(defaultVarcharColumnMapping(typeHandle.requiredColumnSize(), true));
-            case Types.DATE:
-                return Optional.of(dateColumnMapping());
-        }
-
-        if (getUnsupportedTypeHandling(session) == CONVERT_TO_VARCHAR) {
-            return mapToUnboundedVarchar(typeHandle);
-        }
-        return Optional.empty();
+                yield Optional.of(defaultVarcharColumnMapping(typeHandle.requiredColumnSize(), true));
+            }
+            case Types.DATE -> Optional.of(dateColumnMapping());
+            default -> {
+                if (getUnsupportedTypeHandling(session) == CONVERT_TO_VARCHAR) {
+                    yield mapToUnboundedVarchar(typeHandle);
+                }
+                yield Optional.empty();
+            }
+        };
     }
 
     private boolean isHashType(JdbcTypeHandle typeHandle)
@@ -314,7 +318,7 @@ public class ExasolClient
     }
 
     @Override
-    public JdbcOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata)
+    public JdbcOutputTableHandle beginCreateTable(ConnectorSession session, ConnectorTableMetadata tableMetadata, Consumer<Runnable> rollbackActionCollector)
     {
         throw new TrinoException(NOT_SUPPORTED, "This connector does not support creating tables with data");
     }

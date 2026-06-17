@@ -26,6 +26,7 @@ import io.trino.spi.metrics.Metrics;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -50,8 +51,8 @@ public class SpoolingExchangeOutputBuffer
     private final Supplier<LocalMemoryContext> memoryContextSupplier;
 
     private final AtomicLong peakMemoryUsage = new AtomicLong();
-    private final AtomicLong totalPagesAdded = new AtomicLong();
-    private final AtomicLong totalRowsAdded = new AtomicLong();
+    private final LongAdder totalPagesAdded = new LongAdder();
+    private final LongAdder totalRowsAdded = new LongAdder();
 
     private final SpoolingOutputStats outputStats;
 
@@ -73,6 +74,12 @@ public class SpoolingExchangeOutputBuffer
     }
 
     @Override
+    public boolean usesExternalStorage()
+    {
+        return true;
+    }
+
+    @Override
     public OutputBufferInfo getInfo()
     {
         BufferState state = stateMachine.getState();
@@ -83,9 +90,9 @@ public class SpoolingExchangeOutputBuffer
                 false,
                 state.canAddPages(),
                 memoryContext == null ? 0 : memoryContext.getBytes(),
-                totalPagesAdded.get(),
-                totalRowsAdded.get(),
-                totalPagesAdded.get(),
+                totalPagesAdded.sum(),
+                totalRowsAdded.sum(),
+                totalPagesAdded.sum(),
                 Optional.empty(),
                 Optional.empty(),
                 outputStats.getFinalSnapshot(),
@@ -199,8 +206,8 @@ public class SpoolingExchangeOutputBuffer
             addedPositions += getSerializedPagePositionCount(page);
             sink.add(partition, page);
         }
-        totalPagesAdded.addAndGet(pages.size());
-        totalRowsAdded.addAndGet(addedPositions);
+        totalPagesAdded.add(pages.size());
+        totalRowsAdded.add(addedPositions);
         outputStats.updateRowCount(addedPositions);
         outputStats.updatePartitionDataSize(partition, dataSizeInBytes);
         updateMemoryUsage(sink.getMemoryUsage());
@@ -220,7 +227,7 @@ public class SpoolingExchangeOutputBuffer
             // abort might've released the sink in a meantime
             return;
         }
-        sink.finish().whenComplete((value, failure) -> {
+        sink.finish().whenComplete((_, failure) -> {
             if (failure != null) {
                 stateMachine.fail(failure);
             }
@@ -256,7 +263,7 @@ public class SpoolingExchangeOutputBuffer
         if (sink == null) {
             return;
         }
-        sink.abort().whenComplete((value, failure) -> {
+        sink.abort().whenComplete((_, failure) -> {
             if (failure != null) {
                 log.warn(failure, "Error aborting exchange sink");
             }

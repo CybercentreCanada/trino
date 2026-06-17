@@ -201,10 +201,10 @@ public abstract class AbstractVariableWidthType
         @ScalarOperator(READ_VALUE)
         private static void writeFlatFromStack(
                 Slice value,
-                byte[] fixedSizeSlice,
-                int fixedSizeOffset,
-                byte[] variableSizeSlice,
-                int variableSizeOffset)
+                @FlatFixed byte[] fixedSizeSlice,
+                @FlatFixedOffset int fixedSizeOffset,
+                @FlatVariableWidth byte[] variableSizeSlice,
+                @FlatVariableOffset int variableSizeOffset)
         {
             int length = value.length();
             writeFlatVariableLength(length, fixedSizeSlice, fixedSizeOffset);
@@ -225,10 +225,10 @@ public abstract class AbstractVariableWidthType
         private static void writeFlatFromBlock(
                 @BlockPosition VariableWidthBlock block,
                 @BlockIndex int position,
-                byte[] fixedSizeSlice,
-                int fixedSizeOffset,
-                byte[] variableSizeSlice,
-                int variableSizeOffset)
+                @FlatFixed byte[] fixedSizeSlice,
+                @FlatFixedOffset int fixedSizeOffset,
+                @FlatVariableWidth byte[] variableSizeSlice,
+                @FlatVariableOffset int variableSizeOffset)
         {
             Slice rawSlice = block.getRawSlice();
             int rawSliceOffset = block.getRawSliceOffset(position);
@@ -363,7 +363,7 @@ public abstract class AbstractVariableWidthType
                 leftBytes = leftVariableSizeSlice;
                 leftOffset = leftVariableSizeOffset;
             }
-            return rightRawSlice.equals(rightRawSliceOffset, rightLength, wrappedBuffer(leftBytes, leftOffset, leftLength), 0, leftLength);
+            return rightRawSlice.equals(rightRawSliceOffset, rightLength, leftBytes, leftOffset, leftLength);
         }
 
         @ScalarOperator(XX_HASH_64)
@@ -396,7 +396,7 @@ public abstract class AbstractVariableWidthType
                 bytes = variableSizeSlice;
                 offset = variableSizeOffset;
             }
-            return XxHash64.hash(wrappedBuffer(bytes, offset, length));
+            return XxHash64.hash(bytes, offset, length);
         }
     }
 

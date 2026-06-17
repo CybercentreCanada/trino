@@ -33,6 +33,7 @@ import io.trino.spi.connector.ConnectorPageSource;
 import io.trino.spi.connector.ConnectorPageSourceProvider;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplit;
+import io.trino.spi.connector.ConnectorTableCredentials;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
@@ -107,6 +108,7 @@ public class HivePageSourceProvider
             ConnectorSession session,
             ConnectorSplit split,
             ConnectorTableHandle tableHandle,
+            Optional<ConnectorTableCredentials> tableCredentials,
             List<ColumnHandle> columns,
             DynamicFilter dynamicFilter)
     {
@@ -221,7 +223,8 @@ public class HivePageSourceProvider
                     transaction);
 
             if (pageSource.isPresent()) {
-                return Optional.of(createHivePageSource(columnMappings,
+                return Optional.of(createHivePageSource(
+                        columnMappings,
                         bucketAdaptation,
                         bucketValidator,
                         typeManager,
@@ -484,7 +487,7 @@ public class HivePageSourceProvider
                     }
 
                     checkArgument(
-                            projectionsForColumn.computeIfAbsent(column.getBaseHiveColumnIndex(), columnIndex -> new HashSet<>()).add(column.getHiveColumnProjectionInfo()),
+                            projectionsForColumn.computeIfAbsent(column.getBaseHiveColumnIndex(), _ -> new HashSet<>()).add(column.getHiveColumnProjectionInfo()),
                             "duplicate column in columns list");
 
                     // Add regular mapping if projection is valid for partition schema, otherwise add an empty mapping
@@ -500,7 +503,7 @@ public class HivePageSourceProvider
                 else if (isRowIdColumnHandle(column)) {
                     baseColumnHiveIndices.add(column.getBaseHiveColumnIndex());
                     checkArgument(
-                            projectionsForColumn.computeIfAbsent(column.getBaseHiveColumnIndex(), index -> new HashSet<>()).add(column.getHiveColumnProjectionInfo()),
+                            projectionsForColumn.computeIfAbsent(column.getBaseHiveColumnIndex(), _ -> new HashSet<>()).add(column.getHiveColumnProjectionInfo()),
                             "duplicate column in columns list");
 
                     if (baseTypeCoercionFrom.isEmpty()
@@ -594,7 +597,7 @@ public class HivePageSourceProvider
         PREFILLED,
         INTERIM,
         SYNTHESIZED,
-        EMPTY
+        EMPTY,
     }
 
     private static Optional<BucketAdaptation> createBucketAdaptation(Optional<BucketConversion> bucketConversion, OptionalInt bucketNumber, List<ColumnMapping> columnMappings)

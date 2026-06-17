@@ -67,6 +67,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkState;
@@ -103,7 +104,7 @@ public final class GraphvizPrinter
         INDEX_SOURCE,
         UNNEST,
         ANALYZE_FINISH,
-        DYNAMIC_FILTER_SOURCE
+        DYNAMIC_FILTER_SOURCE,
     }
 
     private static final Map<NodeType, String> NODE_COLORS = immutableEnumMap(ImmutableMap.<NodeType, String>builder()
@@ -271,11 +272,15 @@ public final class GraphvizPrinter
         @Override
         public Void visitWindow(WindowNode node, Void context)
         {
-            printNode(node, "Window", format("partition by = %s|order by = %s",
-                    Joiner.on(", ").join(node.getPartitionBy()),
-                    node.getOrderingScheme()
-                            .map(orderingScheme -> Joiner.on(", ").join(orderingScheme.orderBy()))
-                            .orElse("")),
+            printNode(
+                    node,
+                    "Window",
+                    format(
+                            "partition by = %s|order by = %s",
+                            Joiner.on(", ").join(node.getPartitionBy()),
+                            node.getOrderingScheme()
+                                    .map(orderingScheme -> Joiner.on(", ").join(orderingScheme.orderBy()))
+                                    .orElse("")),
                     NODE_COLORS.get(NodeType.WINDOW));
             return node.getSource().accept(this, context);
         }
@@ -283,11 +288,15 @@ public final class GraphvizPrinter
         @Override
         public Void visitPatternRecognition(PatternRecognitionNode node, Void context)
         {
-            printNode(node, "PatternRecognition", format("partition by = %s|order by = %s",
-                    Joiner.on(", ").join(node.getPartitionBy()),
-                    node.getOrderingScheme()
-                            .map(orderingScheme -> Joiner.on(", ").join(orderingScheme.orderBy()))
-                            .orElse("")),
+            printNode(
+                    node,
+                    "PatternRecognition",
+                    format(
+                            "partition by = %s|order by = %s",
+                            Joiner.on(", ").join(node.getPartitionBy()),
+                            node.getOrderingScheme()
+                                    .map(orderingScheme -> Joiner.on(", ").join(orderingScheme.orderBy()))
+                                    .orElse("")),
                     NODE_COLORS.get(NodeType.WINDOW));
             return node.getSource().accept(this, context);
         }
@@ -295,7 +304,8 @@ public final class GraphvizPrinter
         @Override
         public Void visitRowNumber(RowNumberNode node, Void context)
         {
-            printNode(node,
+            printNode(
+                    node,
                     "RowNumber",
                     format("partition by = %s", Joiner.on(", ").join(node.getPartitionBy())),
                     NODE_COLORS.get(NodeType.WINDOW));
@@ -305,7 +315,8 @@ public final class GraphvizPrinter
         @Override
         public Void visitTopNRanking(TopNRankingNode node, Void context)
         {
-            printNode(node,
+            printNode(
+                    node,
                     "TopNRanking",
                     format("type=%s|partition by = %s|order by = %s|n = %s",
                             node.getRankingType(),
@@ -357,7 +368,7 @@ public final class GraphvizPrinter
         public Void visitAggregation(AggregationNode node, Void context)
         {
             StringBuilder builder = new StringBuilder();
-            for (Map.Entry<Symbol, Aggregation> entry : node.getAggregations().entrySet()) {
+            for (Entry<Symbol, Aggregation> entry : node.getAggregations().entrySet()) {
                 builder.append(format("%s := %s\\n", entry.getKey(), formatAggregation(new NoOpAnonymizer(), entry.getValue())));
             }
             printNode(node, format("Aggregate[%s]", node.getStep()), builder.toString(), NODE_COLORS.get(NodeType.AGGREGATE));
@@ -390,7 +401,7 @@ public final class GraphvizPrinter
         public Void visitProject(ProjectNode node, Void context)
         {
             StringBuilder builder = new StringBuilder();
-            for (Map.Entry<Symbol, Expression> entry : node.getAssignments().entrySet()) {
+            for (Entry<Symbol, Expression> entry : node.getAssignments().entrySet()) {
                 if ((entry.getValue() instanceof Reference) &&
                         ((Reference) entry.getValue()).name().equals(entry.getKey().name())) {
                     // skip identity assignments
@@ -575,7 +586,8 @@ public final class GraphvizPrinter
         {
             List<Expression> joinExpressions = new ArrayList<>();
             for (IndexJoinNode.EquiJoinClause clause : node.getCriteria()) {
-                joinExpressions.add(new Comparison(Comparison.Operator.EQUAL,
+                joinExpressions.add(new Comparison(
+                        Comparison.Operator.EQUAL,
                         clause.getProbe().toSymbolReference(),
                         clause.getIndex().toSymbolReference()));
             }

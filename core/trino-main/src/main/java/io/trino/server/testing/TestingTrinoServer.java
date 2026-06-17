@@ -50,19 +50,18 @@ import io.trino.cost.StatsCalculator;
 import io.trino.dispatcher.DispatchManager;
 import io.trino.eventlistener.EventListenerConfig;
 import io.trino.eventlistener.EventListenerManager;
+import io.trino.exchange.ExchangeManagerConfig;
 import io.trino.exchange.ExchangeManagerRegistry;
 import io.trino.execution.FailureInjector;
 import io.trino.execution.FailureInjector.InjectedFailureType;
 import io.trino.execution.QueryInfo;
 import io.trino.execution.QueryManager;
-import io.trino.execution.SqlQueryManager;
 import io.trino.execution.SqlTaskManager;
 import io.trino.execution.StateMachine.StateChangeListener;
 import io.trino.execution.resourcegroups.InternalResourceGroupManager;
 import io.trino.memory.ClusterMemoryManager;
 import io.trino.memory.LocalMemoryManager;
 import io.trino.metadata.CatalogManager;
-import io.trino.metadata.FunctionBundle;
 import io.trino.metadata.GlobalFunctionCatalog;
 import io.trino.metadata.SessionPropertyManager;
 import io.trino.metadata.TablePropertyManager;
@@ -89,12 +88,14 @@ import io.trino.server.protocol.spooling.SpoolingManagerRegistry;
 import io.trino.server.security.CertificateAuthenticatorManager;
 import io.trino.server.security.ServerSecurityModule;
 import io.trino.spi.ErrorType;
+import io.trino.spi.NodeVersion;
 import io.trino.spi.Plugin;
 import io.trino.spi.QueryId;
 import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.connector.Connector;
 import io.trino.spi.connector.ConnectorName;
 import io.trino.spi.eventlistener.EventListener;
+import io.trino.spi.function.FunctionBundle;
 import io.trino.spi.security.GroupProvider;
 import io.trino.spi.security.SystemAccessControl;
 import io.trino.spi.session.PropertyMetadata;
@@ -135,7 +136,6 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.function.Consumer;
 
-import static com.google.common.base.MoreObjects.firstNonNull;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.io.MoreFiles.deleteRecursively;
@@ -149,6 +149,8 @@ import static java.lang.Integer.parseInt;
 import static java.nio.file.Files.createTempDirectory;
 import static java.nio.file.Files.isDirectory;
 import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
+import static java.util.UUID.randomUUID;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 public class TestingTrinoServer
@@ -178,6 +180,7 @@ public class TestingTrinoServer
         return new Builder();
     }
 
+    private final String instanceId;
     private final Injector injector;
     private final Path baseDataDir;
     private final boolean preserveData;
@@ -205,7 +208,7 @@ public class TestingTrinoServer
     private final LocalMemoryManager localMemoryManager;
     private final InternalNodeManager nodeManager;
     private final DispatchManager dispatchManager;
-    private final SqlQueryManager queryManager;
+    private final QueryManager queryManager;
     private final SqlTaskManager taskManager;
     private final NodeStateManager nodeStateManager;
     private final ShutdownAction shutdownAction;
@@ -256,13 +259,14 @@ public class TestingTrinoServer
             Consumer<TestingTrinoServer> additionalConfiguration,
             CatalogMangerKind catalogMangerKind)
     {
+        this.instanceId = randomUUID().toString();
         this.coordinator = coordinator;
 
         this.baseDataDir = baseDataDir.orElseGet(TestingTrinoServer::tempDirectory);
         this.preserveData = baseDataDir.isPresent();
 
         properties = new HashMap<>(properties);
-        int httpPort = parseInt(firstNonNull(properties.remove("http-server.http.port"), "0"));
+        int httpPort = parseInt(requireNonNullElse(properties.remove("http-server.http.port"), "0"));
 
         ImmutableMap.Builder<String, String> serverProperties = ImmutableMap.<String, String>builder()
                 .putAll(properties)
@@ -296,7 +300,7 @@ public class TestingTrinoServer
 
         ImmutableList.Builder<Module> modules = ImmutableList.<Module>builder()
                 .add(new TestingNodeModule(environment))
-                .add(new TestingHttpServerModule(httpPort))
+                .add(new TestingHttpServerModule("testing-trino-" + instanceId, httpPort))
                 .add(new JsonModule())
                 .add(new JaxrsModule())
                 .add(new MBeanModule())
@@ -314,7 +318,9 @@ public class TestingTrinoServer
                     newSetBinder(binder, Filter.class)
                             .addBinding()
                             .to(TracingServletFilter.class);
+                    binder.bind(NodeVersion.class).toInstance(new NodeVersion(VERSION));
                     binder.bind(EventListenerConfig.class).in(Scopes.SINGLETON);
+                    binder.bind(ExchangeManagerConfig.class).in(Scopes.SINGLETON);
                     binder.bind(AccessControlConfig.class).in(Scopes.SINGLETON);
                     binder.bind(TestingAccessControlManager.class).in(Scopes.SINGLETON);
                     binder.bind(TestingGroupProvider.class).in(Scopes.SINGLETON);
@@ -348,10 +354,6 @@ public class TestingTrinoServer
                         newOptionalBinder(binder, SessionSupplier.class).setBinding().to(TestingSessionSupplier.class).in(Scopes.SINGLETON);
                     }
                 });
-
-        if (coordinator) {
-            modules.add(new TestingSessionTimeModule());
-        }
 
         modules.add(additionalModule);
 
@@ -397,7 +399,7 @@ public class TestingTrinoServer
         sessionPropertyManager = injector.getInstance(SessionPropertyManager.class);
         if (coordinator) {
             dispatchManager = injector.getInstance(DispatchManager.class);
-            queryManager = (SqlQueryManager) injector.getInstance(QueryManager.class);
+            queryManager = injector.getInstance(QueryManager.class);
             queryExplainer = injector.getInstance(QueryExplainerFactory.class)
                     .createQueryExplainer(injector.getInstance(AnalyzerFactory.class));
             resourceGroupManager = Optional.of((InternalResourceGroupManager<?>) injector.getInstance(InternalResourceGroupManager.class));
@@ -680,13 +682,7 @@ public class TestingTrinoServer
         return coordinator;
     }
 
-    public void registerServer(InternalNode server)
-    {
-        checkState(coordinator, "Current server is not a coordinator");
-        nodeManager.refreshNodes(true);
-    }
-
-    public void unregisterServer(InternalNode worker)
+    public void refreshNodes()
     {
         checkState(coordinator, "Current server is not a coordinator");
         nodeManager.refreshNodes(true);

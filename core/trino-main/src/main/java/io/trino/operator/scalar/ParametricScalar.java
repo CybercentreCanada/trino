@@ -75,6 +75,9 @@ public class ParametricScalar
         if (!details.isDeterministic()) {
             functionMetadata.nondeterministic();
         }
+        if (details.neverFails()) {
+            functionMetadata.neverFails();
+        }
         if (deprecated) {
             functionMetadata.deprecated();
         }
@@ -103,7 +106,8 @@ public class ParametricScalar
         return builder.build();
     }
 
-    private static void declareDependencies(FunctionDependencyDeclarationBuilder builder,
+    private static void declareDependencies(
+            FunctionDependencyDeclarationBuilder builder,
             Collection<ParametricScalarImplementation> implementations)
     {
         for (ParametricScalarImplementation implementation : implementations) {

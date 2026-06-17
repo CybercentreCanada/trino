@@ -33,6 +33,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.function.BiConsumer;
 
+import static com.google.common.base.Strings.nullToEmpty;
 import static com.google.common.base.Throwables.getCausalChain;
 import static io.airlift.testing.Closeables.closeAllSuppress;
 import static io.trino.testing.containers.TestContainers.startOrReuse;
@@ -55,7 +56,7 @@ public final class TestingSqlServer
             .withBackoff(1, 5, ChronoUnit.SECONDS)
             .withMaxRetries(5)
             .handleIf(throwable -> getCausalChain(throwable).stream()
-                    .anyMatch(SQLException.class::isInstance) || throwable.getMessage().contains("Container exited with code"))
+                    .anyMatch(TestingSqlServer::isRetryableContainerStartupFailure))
             .onRetry(event -> log.warn(
                     "Query failed on attempt %s, will retry. Exception: %s",
                     event.getAttemptCount(),
@@ -63,7 +64,8 @@ public final class TestingSqlServer
             .build();
 
     private static final DockerImageName IMAGE_NAME = DockerImageName.parse("mcr.microsoft.com/mssql/server");
-    public static final String LATEST_VERSION = "2019-CU28-ubuntu-20.04";
+    public static final String DEFAULT_VERSION = "2019-CU28-ubuntu-20.04";
+    public static final String LATEST_VERSION = "2025-CU3-ubuntu-24.04";
 
     private final MSSQLServerContainer container;
     private final String databaseName;
@@ -71,7 +73,7 @@ public final class TestingSqlServer
 
     public TestingSqlServer()
     {
-        this(LATEST_VERSION, DEFAULT_DATABASE_SETUP);
+        this(DEFAULT_VERSION);
     }
 
     public TestingSqlServer(String version)
@@ -156,6 +158,16 @@ public final class TestingSqlServer
                 throw e;
             }
         }
+    }
+
+    private static boolean isRetryableContainerStartupFailure(Throwable throwable)
+    {
+        if (throwable instanceof SQLException) {
+            return true;
+        }
+
+        String message = nullToEmpty(throwable.getMessage());
+        return message.contains("Container exited with code") || message.contains("Can't get Docker image");
     }
 
     private static void setUpDatabase(SqlExecutor executor, String databaseName, BiConsumer<SqlExecutor, String> databaseSetUp)

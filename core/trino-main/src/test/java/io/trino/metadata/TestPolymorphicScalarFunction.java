@@ -45,7 +45,7 @@ import static io.trino.spi.function.OperatorType.IDENTICAL;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.Decimals.MAX_SHORT_PRECISION;
-import static io.trino.spi.type.TypeSignatureParameter.typeVariable;
+import static io.trino.spi.type.TypeParameter.typeVariable;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.spi.type.VarcharType.createVarcharType;
 import static java.util.Arrays.asList;
@@ -95,9 +95,11 @@ public class TestPolymorphicScalarFunction
                 .choice(choice -> choice
                         .argumentProperties(BLOCK_POSITION, BLOCK_POSITION)
                         .implementation(methodsGroup -> methodsGroup
-                                .methodWithExplicitJavaTypes("blockPositionLongLong",
+                                .methodWithExplicitJavaTypes(
+                                        "blockPositionLongLong",
                                         asList(Optional.of(Int128.class), Optional.of(Int128.class)))
-                                .methodWithExplicitJavaTypes("blockPositionShortShort",
+                                .methodWithExplicitJavaTypes(
+                                        "blockPositionShortShort",
                                         asList(Optional.of(long.class), Optional.of(long.class)))))
                 .build();
 
@@ -157,7 +159,7 @@ public class TestPolymorphicScalarFunction
                         .implementation(methodsGroup -> methodsGroup.methods("varcharToVarcharCreateSliceWithExtraParameterLength"))
                         .implementation(methodsGroup -> methodsGroup
                                 .methods("varcharToBigintReturnExtraParameter")
-                                .withExtraParameters(context -> ImmutableList.of(42))))
+                                .withExtraParameters(_ -> ImmutableList.of(42))))
                 .build();
 
         ChoicesSpecializedSqlScalarFunction specializedFunction = (ChoicesSpecializedSqlScalarFunction) function.specialize(
@@ -202,7 +204,7 @@ public class TestPolymorphicScalarFunction
         Signature signature = Signature.builder()
                 .typeVariableConstraint(TypeVariableConstraint.builder("V")
                         .comparableRequired()
-                        .variadicBound("ROW")
+                        .rowType()
                         .build())
                 .returnType(new TypeSignature("V"))
                 .argumentType(new TypeSignature("V"))
@@ -271,7 +273,7 @@ public class TestPolymorphicScalarFunction
                 .deterministic(true)
                 .choice(choice -> choice
                         .implementation(methodsGroup -> methodsGroup
-                                .withExtraParameters(context -> ImmutableList.of(42))))
+                                .withExtraParameters(_ -> ImmutableList.of(42))))
                 .build())
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageMatching("methods must be selected first");

@@ -25,9 +25,7 @@ import io.trino.spi.function.InvocationConvention;
 import io.trino.spi.type.CharType;
 import io.trino.spi.type.DateType;
 import io.trino.spi.type.DecimalType;
-import io.trino.spi.type.DoubleType;
 import io.trino.spi.type.LongTimestampWithTimeZone;
-import io.trino.spi.type.RealType;
 import io.trino.spi.type.TimeWithTimeZoneType;
 import io.trino.spi.type.TimeZoneKey;
 import io.trino.spi.type.TimestampType;
@@ -68,6 +66,7 @@ import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.RealType.REAL;
 import static io.trino.spi.type.Timestamps.PICOSECONDS_PER_NANOSECOND;
 import static io.trino.spi.type.TypeUtils.isFloatingPointNaN;
+import static io.trino.spi.type.TypeUtils.typeHasNaN;
 import static io.trino.sql.ir.Booleans.FALSE;
 import static io.trino.sql.ir.Comparison.Operator.EQUAL;
 import static io.trino.sql.ir.Comparison.Operator.GREATER_THAN;
@@ -78,7 +77,6 @@ import static io.trino.sql.ir.Comparison.Operator.NOT_EQUAL;
 import static io.trino.sql.ir.IrExpressions.not;
 import static io.trino.sql.ir.IrUtils.and;
 import static io.trino.sql.ir.IrUtils.or;
-import static io.trino.sql.ir.optimizer.IrExpressionOptimizer.newOptimizer;
 import static java.lang.Float.intBitsToFloat;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
@@ -132,7 +130,8 @@ public class UnwrapCastInComparison
         return (expression, context) -> unwrapCasts(context.getSession(), plannerContext, expression);
     }
 
-    public static Expression unwrapCasts(Session session,
+    public static Expression unwrapCasts(
+            Session session,
             PlannerContext plannerContext,
             Expression expression)
     {
@@ -152,7 +151,7 @@ public class UnwrapCastInComparison
             this.plannerContext = requireNonNull(plannerContext, "plannerContext is null");
             this.session = requireNonNull(session, "session is null");
             this.functionInvoker = new InterpretedFunctionInvoker(plannerContext.getFunctionManager());
-            this.optimizer = newOptimizer(plannerContext);
+            this.optimizer = plannerContext.getExpressionOptimizer();
         }
 
         @Override
@@ -204,22 +203,19 @@ public class UnwrapCastInComparison
             // It must be done before source type range bounds are compared to target value.
             if (isFloatingPointNaN(targetType, rightValue)) {
                 switch (operator) {
-                    case EQUAL:
-                    case GREATER_THAN:
-                    case GREATER_THAN_OR_EQUAL:
-                    case LESS_THAN:
-                    case LESS_THAN_OR_EQUAL:
+                    case EQUAL, GREATER_THAN, GREATER_THAN_OR_EQUAL, LESS_THAN, LESS_THAN_OR_EQUAL -> {
                         return falseIfNotNull(cast.expression());
-                    case NOT_EQUAL:
+                    }
+                    case NOT_EQUAL -> {
                         return trueIfNotNull(cast.expression());
-                    case IDENTICAL:
+                    }
+                    case IDENTICAL -> {
                         if (!typeHasNaN(sourceType)) {
                             return FALSE;
                         }
                         // NaN on the right of comparison will be cast to source type later
-                        break;
-                    default:
-                        throw new UnsupportedOperationException("Not yet implemented: " + operator);
+                    }
+                    default -> throw new UnsupportedOperationException("Not yet implemented: " + operator);
                 }
             }
 
@@ -255,8 +251,7 @@ public class UnwrapCastInComparison
                             case GREATER_THAN_OR_EQUAL -> new Comparison(EQUAL, cast.expression(), new Constant(sourceType, max));
                             case LESS_THAN_OR_EQUAL -> trueIfNotNull(cast.expression());
                             case LESS_THAN -> new Comparison(NOT_EQUAL, cast.expression(), new Constant(sourceType, max));
-                            case EQUAL, NOT_EQUAL, IDENTICAL ->
-                                    new Comparison(operator, cast.expression(), new Constant(sourceType, max));
+                            case EQUAL, NOT_EQUAL, IDENTICAL -> new Comparison(operator, cast.expression(), new Constant(sourceType, max));
                         };
                     }
 
@@ -280,8 +275,7 @@ public class UnwrapCastInComparison
                             case LESS_THAN_OR_EQUAL -> new Comparison(EQUAL, cast.expression(), new Constant(sourceType, min));
                             case GREATER_THAN_OR_EQUAL -> trueIfNotNull(cast.expression());
                             case GREATER_THAN -> new Comparison(NOT_EQUAL, cast.expression(), new Constant(sourceType, min));
-                            case EQUAL, NOT_EQUAL, IDENTICAL ->
-                                    new Comparison(operator, cast.expression(), new Constant(sourceType, min));
+                            case EQUAL, NOT_EQUAL, IDENTICAL -> new Comparison(operator, cast.expression(), new Constant(sourceType, min));
                         };
                     }
                 }
@@ -327,10 +321,9 @@ public class UnwrapCastInComparison
                             }
                             yield new Comparison(LESS_THAN_OR_EQUAL, cast.expression(), new Constant(sourceType, literalInSourceType));
                         }
-                        case GREATER_THAN, GREATER_THAN_OR_EQUAL ->
-                            // We expect implicit coercions to be order-preserving, so the result of converting back from target -> source cannot produce a value
-                            // larger than the next value in the source type
-                                new Comparison(GREATER_THAN, cast.expression(), new Constant(sourceType, literalInSourceType));
+                        // We expect implicit coercions to be order-preserving, so the result of converting back from target -> source cannot produce a value
+                        // larger than the next value in the source type
+                        case GREATER_THAN, GREATER_THAN_OR_EQUAL -> new Comparison(GREATER_THAN, cast.expression(), new Constant(sourceType, literalInSourceType));
                     };
                 }
 
@@ -340,10 +333,9 @@ public class UnwrapCastInComparison
                         case EQUAL -> falseIfNotNull(cast.expression());
                         case NOT_EQUAL -> trueIfNotNull(cast.expression());
                         case IDENTICAL -> FALSE;
-                        case LESS_THAN, LESS_THAN_OR_EQUAL ->
-                            // We expect implicit coercions to be order-preserving, so the result of converting back from target -> source cannot produce a value
-                            // smaller than the next value in the source type
-                                new Comparison(LESS_THAN, cast.expression(), new Constant(sourceType, literalInSourceType));
+                        // We expect implicit coercions to be order-preserving, so the result of converting back from target -> source cannot produce a value
+                        // smaller than the next value in the source type
+                        case LESS_THAN, LESS_THAN_OR_EQUAL -> new Comparison(LESS_THAN, cast.expression(), new Constant(sourceType, literalInSourceType));
                         case GREATER_THAN, GREATER_THAN_OR_EQUAL -> sourceRange.isPresent() && compare(sourceType, sourceRange.get().getMax(), literalInSourceType) == 0 ?
                                 new Comparison(EQUAL, cast.expression(), new Constant(sourceType, literalInSourceType)) :
                                 new Comparison(GREATER_THAN_OR_EQUAL, cast.expression(), new Constant(sourceType, literalInSourceType));
@@ -478,11 +470,6 @@ public class UnwrapCastInComparison
         private Object coerce(Object value, ResolvedFunction coercion)
         {
             return functionInvoker.invoke(coercion, session.toConnectorSession(), value);
-        }
-
-        private boolean typeHasNaN(Type type)
-        {
-            return type instanceof DoubleType || type instanceof RealType;
         }
 
         private int compare(Type type, Object first, Object second)

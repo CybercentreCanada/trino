@@ -16,16 +16,19 @@ package io.trino.metadata;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import io.trino.FeaturesConfig;
-import io.trino.client.NodeVersion;
 import io.trino.operator.scalar.ChoicesSpecializedSqlScalarFunction;
 import io.trino.operator.scalar.SpecializedSqlScalarFunction;
+import io.trino.spi.NodeVersion;
 import io.trino.spi.function.BoundSignature;
+import io.trino.spi.function.FunctionBundle;
 import io.trino.spi.function.FunctionMetadata;
+import io.trino.spi.function.FunctionProvider;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.function.ScalarFunction;
 import io.trino.spi.function.Signature;
 import io.trino.spi.function.SqlType;
 import io.trino.spi.function.TypeVariableConstraint;
+import io.trino.spi.function.table.ConnectorTableFunctionHandle;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.StandardTypes;
 import io.trino.spi.type.Type;
@@ -54,6 +57,7 @@ import static io.trino.spi.type.DecimalType.createDecimalType;
 import static io.trino.spi.type.HyperLogLogType.HYPER_LOG_LOG;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypeSignatures;
 import static io.trino.sql.analyzer.TypeSignatureTranslator.parseTypeSignature;
+import static io.trino.testing.InterfaceTestUtils.assertAllMethodsOverridden;
 import static java.util.Collections.nCopies;
 import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -61,6 +65,15 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class TestGlobalFunctionCatalog
 {
+    @Test
+    void testEverythingImplemented()
+            throws Exception
+    {
+        assertAllMethodsOverridden(FunctionProvider.class, GlobalFunctionCatalog.class, Set.of(
+                // Default implementation of getTableFunctionProcessorProviderFactory is OK
+                FunctionProvider.class.getMethod("getTableFunctionProcessorProviderFactory", ConnectorTableFunctionHandle.class)));
+    }
+
     @Test
     public void testIdentityCast()
     {
@@ -78,7 +91,7 @@ public class TestGlobalFunctionCatalog
             if (operatorType == CAST || operatorType == OperatorType.SATURATED_FLOOR_CAST) {
                 continue;
             }
-            if (!function.getSignature().getTypeVariableConstraints().isEmpty()) {
+            if (function.getSignature().isGeneric()) {
                 continue;
             }
             if (function.getSignature().getArgumentTypes().stream().anyMatch(TypeSignature::isCalculated)) {
@@ -176,7 +189,14 @@ public class TestGlobalFunctionCatalog
                         functionSignature("decimal(p,s)", "double"),
                         functionSignature("double", "decimal(p,s)"))
                 .forParameters(BIGINT, BIGINT)
-                .failsWithMessage("Could not choose a best candidate operator. Explicit type casts must be added.");
+                .failsWithMessage(
+                        """
+                        Could not choose a best candidate operator. Explicit type casts must be added.
+                        Actual types: (bigint, bigint)
+                        Candidates are:
+                        \t * (decimal(19,0),double):boolean
+                        \t * (double,decimal(19,0)):boolean
+                        """);
     }
 
     @Test
@@ -219,9 +239,9 @@ public class TestGlobalFunctionCatalog
                                 ImmutableList.of("T1", "T2", "T3"),
                                 "boolean",
                                 ImmutableList.of(
-                                        TypeVariableConstraint.builder("T1").variadicBound("row").build(),
-                                        TypeVariableConstraint.builder("T2").variadicBound("row").build(),
-                                        TypeVariableConstraint.builder("T3").variadicBound("row").build())))
+                                        TypeVariableConstraint.builder("T1").rowType().build(),
+                                        TypeVariableConstraint.builder("T2").rowType().build(),
+                                        TypeVariableConstraint.builder("T3").rowType().build())))
                 .forParameters(UnknownType.UNKNOWN, BIGINT, BIGINT)
                 .returns(functionSignature("bigint", "bigint", "bigint"));
     }
@@ -230,8 +250,7 @@ public class TestGlobalFunctionCatalog
     public void testResolveFunctionForUnknown()
     {
         assertThatResolveFunction()
-                .among(
-                        functionSignature("bigint"))
+                .among(functionSignature("bigint"))
                 .forParameters(UnknownType.UNKNOWN)
                 .returns(functionSignature("bigint"));
 
@@ -266,7 +285,14 @@ public class TestGlobalFunctionCatalog
                         functionSignature(ImmutableList.of("JoniRegExp"), "JoniRegExp"),
                         functionSignature(ImmutableList.of("integer"), "integer"))
                 .forParameters(UnknownType.UNKNOWN)
-                .failsWithMessage("Could not choose a best candidate operator. Explicit type casts must be added.");
+                .failsWithMessage(
+                        """
+                        Could not choose a best candidate operator. Explicit type casts must be added.
+                        Actual types: (unknown)
+                        Candidates are:
+                        \t * (joniregexp):joniregexp
+                        \t * (integer):integer
+                        """);
     }
 
     private static List<FunctionMetadata> listOperators(TestingFunctionResolution functionResolution)
@@ -334,11 +360,11 @@ public class TestGlobalFunctionCatalog
             return this;
         }
 
-        public ResolveFunctionAssertion failsWithMessage(String... messages)
+        public ResolveFunctionAssertion failsWithMessage(String message)
         {
             assertThatThrownBy(this::resolveSignature)
                     .isInstanceOf(RuntimeException.class)
-                    .hasMessageContainingAll(messages);
+                    .hasMessage(message);
             return this;
         }
 

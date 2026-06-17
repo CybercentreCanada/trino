@@ -14,7 +14,7 @@
 package io.trino.plugin.hive.crypto;
 
 import org.apache.parquet.hadoop.metadata.ColumnPath;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.Base64;
 import java.util.Optional;
@@ -48,8 +48,10 @@ public final class TestEnvironmentDecryptionKeyRetriever
     public void mapModeUsesMetadata()
     {
         // footer: id1→k1 , id2→k2
-        String footerValue = String.join(",",
-                "id1:" + b64("k1"), "id2:" + b64("k2"));
+        String footerValue = String.join(
+                ",",
+                "id1:" + b64("k1"),
+                "id2:" + b64("k2"));
         // column: meta→ageKey
         String columnValue = "meta:" + b64("ageKey");
 

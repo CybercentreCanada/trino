@@ -98,7 +98,8 @@ public class WindowFilterPushDown
             PlanNode rewrittenSource = context.rewrite(node.getSource());
 
             if (canReplaceWithRowNumber(node)) {
-                return new RowNumberNode(idAllocator.getNextId(),
+                return new RowNumberNode(
+                        idAllocator.getNextId(),
                         rewrittenSource,
                         node.getPartitionBy(),
                         false,
@@ -194,7 +195,7 @@ public class WindowFilterPushDown
             }
 
             // Remove the ranking domain because it is absorbed into the node
-            TupleDomain<Symbol> newTupleDomain = tupleDomain.filter((symbol, domain) -> !symbol.equals(rankingSymbol));
+            TupleDomain<Symbol> newTupleDomain = tupleDomain.filter((symbol, _) -> !symbol.equals(rankingSymbol));
             Expression newPredicate = combineConjuncts(
                     extractionResult.getRemainingExpression(),
                     domainTranslator.toPredicate(newTupleDomain));
@@ -266,7 +267,8 @@ public class WindowFilterPushDown
 
         private TopNRankingNode convertToTopNRanking(WindowNode windowNode, RankingType rankingType, int limit)
         {
-            return new TopNRankingNode(idAllocator.getNextId(),
+            return new TopNRankingNode(
+                    idAllocator.getNextId(),
                     windowNode.getSource(),
                     windowNode.getSpecification(),
                     rankingType,

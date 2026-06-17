@@ -78,7 +78,7 @@ import static org.junit.jupiter.api.parallel.ExecutionMode.CONCURRENT;
 @Execution(CONCURRENT)
 public class TestBroadcastOutputBuffer
 {
-    private static final String TASK_INSTANCE_ID = "task-instance-id";
+    private static final long TASK_INSTANCE_ID = 0x1337;
 
     private static final List<BigintType> TYPES = ImmutableList.of(BIGINT);
     private static final OutputBufferId FIRST = new OutputBufferId(0);
@@ -164,7 +164,9 @@ public class TestBroadcastOutputBuffer
         outputBuffers = outputBuffers.withBuffer(SECOND, BROADCAST_PARTITION_ID);
         buffer.setOutputBuffers(outputBuffers);
         assertQueueState(buffer, SECOND, 11, 0);
-        assertBufferResultEquals(TYPES, getBufferResult(buffer, SECOND, 0, sizeOfPages(10), NO_WAIT), bufferResult(0, createPage(0),
+        assertBufferResultEquals(TYPES, getBufferResult(buffer, SECOND, 0, sizeOfPages(10), NO_WAIT), bufferResult(
+                0,
+                createPage(0),
                 createPage(1),
                 createPage(2),
                 createPage(3),
@@ -225,7 +227,9 @@ public class TestBroadcastOutputBuffer
 
         // remove all remaining pages from first queue, should not be finished
         BufferResult x = getBufferResult(buffer, FIRST, 6, sizeOfPages(10), NO_WAIT);
-        assertBufferResultEquals(TYPES, x, bufferResult(6, createPage(6),
+        assertBufferResultEquals(TYPES, x, bufferResult(
+                6,
+                createPage(6),
                 createPage(7),
                 createPage(8),
                 createPage(9),
@@ -243,7 +247,9 @@ public class TestBroadcastOutputBuffer
         assertThat(buffer.getState()).isEqualTo(FLUSHING);
 
         // remove all remaining pages from second queue, should be finished
-        assertBufferResultEquals(TYPES, getBufferResult(buffer, SECOND, 10, sizeOfPages(10), NO_WAIT), bufferResult(10, createPage(10),
+        assertBufferResultEquals(TYPES, getBufferResult(buffer, SECOND, 10, sizeOfPages(10), NO_WAIT), bufferResult(
+                10,
+                createPage(10),
                 createPage(11),
                 createPage(12),
                 createPage(13)));
@@ -451,7 +457,7 @@ public class TestBroadcastOutputBuffer
         buffer.setNoMorePages();
         addPage(buffer, createPage(0));
         addPage(buffer, createPage(0));
-        assertThat(buffer.getInfo().getTotalPagesSent()).isEqualTo(0);
+        assertThat(buffer.getInfo().totalPagesSent()).isEqualTo(0);
     }
 
     @Test
@@ -484,7 +490,7 @@ public class TestBroadcastOutputBuffer
         buffer.destroy();
         addPage(buffer, createPage(0));
         addPage(buffer, createPage(0));
-        assertThat(buffer.getInfo().getTotalPagesSent()).isEqualTo(0);
+        assertThat(buffer.getInfo().totalPagesSent()).isEqualTo(0);
     }
 
     @Test
@@ -776,7 +782,9 @@ public class TestBroadcastOutputBuffer
         assertFutureIsDone(secondEnqueuePage);
 
         // get and acknowledge the last 6 pages
-        assertBufferResultEquals(TYPES, getBufferResult(buffer, FIRST, 1, sizeOfPages(100), NO_WAIT),
+        assertBufferResultEquals(
+                TYPES,
+                getBufferResult(buffer, FIRST, 1, sizeOfPages(100), NO_WAIT),
                 bufferResult(1, createPage(1), createPage(2), createPage(3), createPage(4), createPage(5), createPage(6)));
         assertBufferResultEquals(TYPES, getBufferResult(buffer, FIRST, 7, sizeOfPages(100), NO_WAIT), emptyResults(TASK_INSTANCE_ID, 7, true));
 

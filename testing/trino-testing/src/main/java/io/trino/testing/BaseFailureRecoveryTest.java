@@ -17,10 +17,8 @@ import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.graph.Traverser;
-import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Scopes;
-import io.airlift.configuration.AbstractConfigurationAwareModule;
 import io.airlift.units.Duration;
 import io.trino.Session;
 import io.trino.client.StageStats;
@@ -126,13 +124,9 @@ public abstract class BaseFailureRecoveryTest
                 ImmutableMap.of(
                         // making http timeouts shorter so tests which simulate communication timeouts finish in reasonable amount of time
                         "scheduler.http-client.idle-timeout", REQUEST_TIMEOUT.toString()),
-                new AbstractConfigurationAwareModule() {
-                    @Override
-                    protected void setup(Binder binder)
-                    {
-                        configBinder(binder).bindConfig(TestingFailureInjectionConfig.class);
-                        newOptionalBinder(binder, FailureInjector.class).setBinding().to(TestingFailureInjector.class).in(Scopes.SINGLETON);
-                    }
+                binder -> {
+                    configBinder(binder).bindConfig(TestingFailureInjectionConfig.class);
+                    newOptionalBinder(binder, FailureInjector.class).setBinding().to(TestingFailureInjector.class).in(Scopes.SINGLETON);
                 });
     }
 
@@ -152,7 +146,7 @@ public abstract class BaseFailureRecoveryTest
 
     protected void testSelect(String query, Optional<Session> session)
     {
-        testSelect(query, session, queryId -> {});
+        testSelect(query, session, _ -> {});
     }
 
     protected void testSelect(String query, Optional<Session> session, Consumer<QueryId> queryAssertion)
@@ -279,14 +273,14 @@ public abstract class BaseFailureRecoveryTest
                 Optional.empty(),
                 Optional.of("CREATE TABLE <table> AS SELECT * FROM orders"),
                 """
-                        MERGE INTO <table> t
-                        USING (SELECT orderkey, 'X' clerk FROM <table>) s
-                        ON t.orderkey = s.orderkey
-                        WHEN MATCHED AND s.orderkey > 1000
-                            THEN UPDATE SET clerk = t.clerk || s.clerk
-                        WHEN MATCHED AND s.orderkey <= 1000
-                            THEN DELETE
-                        """,
+                MERGE INTO <table> t
+                USING (SELECT orderkey, 'X' clerk FROM <table>) s
+                ON t.orderkey = s.orderkey
+                WHEN MATCHED AND s.orderkey > 1000
+                    THEN UPDATE SET clerk = t.clerk || s.clerk
+                WHEN MATCHED AND s.orderkey <= 1000
+                    THEN DELETE
+                """,
                 Optional.of("DROP TABLE <table>"),
                 true,
                 Optional.of("orderkey"));
@@ -498,9 +492,7 @@ public abstract class BaseFailureRecoveryTest
         return true;
     }
 
-    protected void addPrimaryKeyForMergeTarget(Session session, String tableName, String primaryKey)
-    {
-    }
+    protected void addPrimaryKeyForMergeTarget(Session session, String tableName, String primaryKey) {}
 
     protected class FailureRecoveryAssert
     {
@@ -675,12 +667,12 @@ public abstract class BaseFailureRecoveryTest
 
         public FailureRecoveryAssert finishesSuccessfully()
         {
-            return finishesSuccessfully(queryId -> {});
+            return finishesSuccessfully(_ -> {});
         }
 
         public FailureRecoveryAssert finishesSuccessfullyWithoutTaskFailures()
         {
-            return finishesSuccessfully(queryId -> {}, false);
+            return finishesSuccessfully(_ -> {}, false);
         }
 
         private FailureRecoveryAssert finishesSuccessfully(Consumer<QueryId> queryAssertion)
@@ -969,7 +961,7 @@ public abstract class BaseFailureRecoveryTest
     protected Object[] parallelTest(String name, Runnable runnable)
     {
         return new Object[] {
-                new ParallelTestRunnable(name, runnable)
+                new ParallelTestRunnable(name, runnable),
         };
     }
 

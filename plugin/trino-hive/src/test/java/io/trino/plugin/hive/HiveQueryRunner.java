@@ -38,7 +38,6 @@ import org.intellij.lang.annotations.Language;
 import org.joda.time.DateTimeZone;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -236,12 +235,8 @@ public final class HiveQueryRunner
                 Optional<HiveMetastore> metastore = this.metastore.map(factory -> factory.apply(queryRunner));
                 Path dataDir = queryRunner.getCoordinator().getBaseDataDir().resolve("hive_data");
 
-                if (metastore.isEmpty() && !hiveProperties.buildOrThrow().containsKey("hive.metastore")) {
-                    hiveProperties.put("hive.metastore", "file");
-                    hiveProperties.put("hive.metastore.catalog.dir", queryRunner.getCoordinator().getBaseDataDir().resolve("hive_data").toString());
-                }
                 if (hiveProperties.buildOrThrow().keySet().stream().noneMatch(key ->
-                        key.equals("fs.hadoop.enabled") || key.startsWith("fs.native-"))) {
+                        key.matches("fs\\.(azure|gcs|s3|local|hadoop)\\.enabled"))) {
                     hiveProperties.put("fs.hadoop.enabled", "true");
                 }
 
@@ -295,10 +290,15 @@ public final class HiveQueryRunner
                 copyTpchTables(queryRunner, "tpch", TINY_SCHEMA_NAME, initialTables);
             }
 
-            if (tpchBucketedCatalogEnabled && metastore.getDatabase(TPCH_BUCKETED_SCHEMA).isEmpty()) {
-                metastore.createDatabase(createDatabaseMetastoreObject(TPCH_BUCKETED_SCHEMA, initialSchemasLocationBase));
-                Session session = createBucketedSession(Optional.empty());
-                copyTpchTablesBucketed(queryRunner, "tpch", TINY_SCHEMA_NAME, session, initialTables, tpchColumnNaming);
+            if (tpchBucketedCatalogEnabled) {
+                metastore = ((HiveConnector) queryRunner.getCoordinator().getConnector(HiveQueryRunner.HIVE_BUCKETED_CATALOG))
+                        .getInjector().getInstance(HiveMetastoreFactory.class)
+                        .createMetastore(Optional.of(SESSION.getIdentity()));
+                if (metastore.getDatabase(TPCH_BUCKETED_SCHEMA).isEmpty()) {
+                    metastore.createDatabase(createDatabaseMetastoreObject(TPCH_BUCKETED_SCHEMA, initialSchemasLocationBase));
+                    Session session = createBucketedSession(Optional.empty());
+                    copyTpchTablesBucketed(queryRunner, "tpch", TINY_SCHEMA_NAME, session, initialTables, tpchColumnNaming);
+                }
             }
         }
     }
@@ -329,7 +329,8 @@ public final class HiveQueryRunner
     {
         return testSessionBuilder()
                 .setIdentity(Identity.forUser("hive")
-                        .withConnectorRoles(role.map(selectedRole -> ImmutableMap.of(
+                        .withConnectorRoles(role
+                                .map(selectedRole -> ImmutableMap.of(
                                         HIVE_CATALOG, selectedRole,
                                         HIVE_BUCKETED_CATALOG, selectedRole))
                                 .orElse(ImmutableMap.of()))
@@ -355,40 +356,27 @@ public final class HiveQueryRunner
     private static void copyTableBucketed(QueryRunner queryRunner, QualifiedObjectName tableName, TpchTable<?> table, Session session, ColumnNaming columnNaming)
     {
         long start = System.nanoTime();
-        @Language("SQL") String sql;
-        switch (tableName.objectName()) {
-            case "part":
-            case "partsupp":
-            case "supplier":
-            case "nation":
-            case "region":
-                sql = format("CREATE TABLE %s AS SELECT * FROM %s", tableName.objectName(), tableName);
-                break;
-            case "lineitem":
-                sql = format(
-                        "CREATE TABLE %s WITH (bucketed_by=array['%s'], bucket_count=11) AS SELECT * FROM %s",
-                        tableName.objectName(),
-                        columnNaming.getName(table.getColumn("orderkey")),
-                        tableName);
-                break;
-            case "customer":
-            case "orders":
-                sql = format(
-                        "CREATE TABLE %s WITH (bucketed_by=array['%s'], bucket_count=11) AS SELECT * FROM %s",
-                        tableName.objectName(),
-                        columnNaming.getName(table.getColumn("custkey")),
-                        tableName);
-                break;
-            default:
-                throw new UnsupportedOperationException();
-        }
+        @Language("SQL") String sql = switch (tableName.objectName()) {
+            case "part", "partsupp", "supplier", "nation", "region" -> format("CREATE TABLE %s AS SELECT * FROM %s", tableName.objectName(), tableName);
+            case "lineitem" -> format(
+                    "CREATE TABLE %s WITH (bucketed_by=array['%s'], bucket_count=11) AS SELECT * FROM %s",
+                    tableName.objectName(),
+                    columnNaming.getName(table.getColumn("orderkey")),
+                    tableName);
+            case "customer", "orders" -> format(
+                    "CREATE TABLE %s WITH (bucketed_by=array['%s'], bucket_count=11) AS SELECT * FROM %s",
+                    tableName.objectName(),
+                    columnNaming.getName(table.getColumn("custkey")),
+                    tableName);
+            default -> throw new UnsupportedOperationException();
+        };
         long rows = (Long) queryRunner.execute(session, sql).getMaterializedRows().get(0).getField(0);
         log.info("Imported %s rows from %s in %s", rows, tableName, nanosSince(start));
     }
 
     public static final class DefaultHiveQueryRunnerMain
     {
-        public static void main(String[] args)
+        static void main(String[] args)
                 throws Exception
         {
             Optional<Path> baseDataDir = Optional.empty();
@@ -398,7 +386,7 @@ public final class HiveQueryRunner
                     System.exit(1);
                 }
 
-                Path path = Paths.get(args[0]);
+                Path path = Path.of(args[0]);
                 createDirectories(path);
                 baseDataDir = Optional.of(path);
             }
@@ -412,8 +400,8 @@ public final class HiveQueryRunner
                     .setTpcdsCatalogEnabled(true)
                     // Uncomment to enable standard column naming (column names to be prefixed with the first letter of the table name, e.g.: o_orderkey vs orderkey)
                     // and standard column types (decimals vs double for some columns). This will allow running unmodified tpch queries on the cluster.
-                    //.setTpchColumnNaming(ColumnNaming.STANDARD)
-                    //.setTpchDecimalTypeMapping(DecimalTypeMapping.DECIMAL)
+                    // .setTpchColumnNaming(ColumnNaming.STANDARD)
+                    // .setTpchDecimalTypeMapping(DecimalTypeMapping.DECIMAL)
                     .build();
             log.info("======== SERVER STARTED ========");
             log.info("\n====\n%s\n====", queryRunner.getCoordinator().getBaseUrl());
@@ -424,7 +412,7 @@ public final class HiveQueryRunner
     {
         private HiveGlueQueryRunnerMain() {}
 
-        public static void main(String[] args)
+        static void main()
                 throws Exception
         {
             // Requires AWS credentials, which can be provided any way supported by the DefaultProviderChain

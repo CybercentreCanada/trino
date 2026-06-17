@@ -48,6 +48,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 
@@ -280,7 +281,7 @@ public final class TestRun
             }, toList())));
             // see PluginReader. printPluginFeatures() for all possible feature prefixes
             Map<String, List<String>> environmentFeaturesByName = environment.getConfiguredFeatures();
-            for (Map.Entry<String, List<String>> entry : featuresByName.entrySet()) {
+            for (Entry<String, List<String>> entry : featuresByName.entrySet()) {
                 String name = entry.getKey();
                 List<String> features = entry.getValue();
                 if (!environmentFeaturesByName.containsKey(name)) {
@@ -288,7 +289,9 @@ public final class TestRun
                 }
                 List<String> environmentFeatures = environmentFeaturesByName.get(name);
                 log.info("Checking if impacted %s %s are overlapping with %s configured in the environment",
-                        name, features, environmentFeatures);
+                        name,
+                        features,
+                        environmentFeatures);
                 if (environmentFeatures.stream().anyMatch(features::contains)) {
                     return true;
                 }
@@ -360,8 +363,10 @@ public final class TestRun
                                         "-DProgressLoggingListener.enabled=false")
                                 .addAll(temptoJavaOptions)
                                 .add(
-                                        "-jar", "/docker/test.jar",
-                                        "--config", String.join(",", ImmutableList.<String>builder()
+                                        "-jar",
+                                        "/docker/test.jar",
+                                        "--config",
+                                        String.join(",", ImmutableList.<String>builder()
                                                 .add("tempto-configuration.yaml") // this comes from classpath
                                                 .add("/docker/trino-product-tests/conf/tempto/tempto-configuration-for-docker-default.yaml")
                                                 .add(CONTAINER_TEMPTO_PROFILE_CONFIG)

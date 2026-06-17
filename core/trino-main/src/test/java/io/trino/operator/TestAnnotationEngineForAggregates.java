@@ -23,7 +23,6 @@ import io.trino.metadata.FunctionManager;
 import io.trino.metadata.InternalFunctionDependencies;
 import io.trino.metadata.MetadataManager;
 import io.trino.metadata.ResolvedFunction;
-import io.trino.metadata.SignatureBinder;
 import io.trino.metadata.SqlAggregationFunction;
 import io.trino.operator.aggregation.ParametricAggregation;
 import io.trino.operator.aggregation.ParametricAggregationImplementation;
@@ -80,6 +79,7 @@ import static io.trino.metadata.FunctionManager.createTestingFunctionManager;
 import static io.trino.metadata.GlobalFunctionCatalog.BUILTIN_SCHEMA;
 import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
 import static io.trino.metadata.OperatorNameUtil.mangleOperatorName;
+import static io.trino.metadata.SignatureBinder.applyBoundVariables;
 import static io.trino.operator.AnnotationEngineAssertions.assertDependencyCount;
 import static io.trino.operator.AnnotationEngineAssertions.assertImplementationCount;
 import static io.trino.operator.aggregation.AggregationFromAnnotationsParser.parseFunctionDefinitions;
@@ -92,8 +92,8 @@ import static io.trino.spi.function.InvocationConvention.InvocationArgumentConve
 import static io.trino.spi.function.InvocationConvention.InvocationReturnConvention.FAIL_ON_NULL;
 import static io.trino.spi.function.OperatorType.LESS_THAN;
 import static io.trino.spi.type.StandardTypes.DOUBLE;
+import static io.trino.spi.type.TypeParameter.typeVariable;
 import static io.trino.spi.type.TypeSignature.arrayType;
-import static io.trino.spi.type.TypeSignatureParameter.typeVariable;
 import static io.trino.spi.type.VarcharType.createVarcharType;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypeSignatures;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
@@ -442,7 +442,8 @@ public class TestAnnotationEngineForAggregates
         @TypeParameter("T")
         public static void input(
                 @AggregationState NullableDoubleState state,
-                @SqlType("array(T)") Block arrayBlock, @SqlType("T") double additionalValue)
+                @SqlType("array(T)") Block arrayBlock,
+                @SqlType("T") double additionalValue)
         {
             // noop this is only for annotation testing puproses
         }
@@ -451,7 +452,8 @@ public class TestAnnotationEngineForAggregates
         @TypeParameter("T")
         public static void input(
                 @AggregationState NullableLongState state,
-                @SqlType("array(T)") Block arrayBlock, @SqlType("T") long additionalValue)
+                @SqlType("array(T)") Block arrayBlock,
+                @SqlType("T") long additionalValue)
         {
             // noop this is only for annotation testing puproses
         }
@@ -706,7 +708,7 @@ public class TestAnnotationEngineForAggregates
                         operator = LESS_THAN,
                         argumentTypes = {DOUBLE, DOUBLE},
                         convention = @Convention(arguments = {NEVER_NULL, NEVER_NULL}, result = FAIL_ON_NULL))
-                        MethodHandle methodHandle,
+                MethodHandle methodHandle,
                 @AggregationState NullableDoubleState state,
                 @SqlType(DOUBLE) double value)
         {
@@ -719,7 +721,7 @@ public class TestAnnotationEngineForAggregates
                         operator = LESS_THAN,
                         argumentTypes = {DOUBLE, DOUBLE},
                         convention = @Convention(arguments = {NEVER_NULL, NEVER_NULL}, result = FAIL_ON_NULL))
-                        MethodHandle methodHandle,
+                MethodHandle methodHandle,
                 @AggregationState NullableDoubleState combine1,
                 @AggregationState NullableDoubleState combine2)
         {
@@ -732,7 +734,7 @@ public class TestAnnotationEngineForAggregates
                         operator = LESS_THAN,
                         argumentTypes = {DOUBLE, DOUBLE},
                         convention = @Convention(arguments = {NEVER_NULL, NEVER_NULL}, result = FAIL_ON_NULL))
-                        MethodHandle methodHandle,
+                MethodHandle methodHandle,
                 @AggregationState NullableDoubleState state,
                 BlockBuilder out)
         {
@@ -1026,7 +1028,8 @@ public class TestAnnotationEngineForAggregates
         public static void input(
                 @TypeParameter("ROW(ARRAY(T1),ROW(ROW(T2)),CHAR)") Type type,
                 @AggregationState NullableDoubleState state,
-                @SqlType("T1") double x, @SqlType("T2") double y)
+                @SqlType("T1") double x,
+                @SqlType("T2") double y)
         {
             // noop this is only for annotation testing purposes
         }
@@ -1157,7 +1160,7 @@ public class TestAnnotationEngineForAggregates
 
         ImmutableMap.Builder<TypeSignature, Type> typeDependencies = ImmutableMap.builder();
         for (TypeSignature typeSignature : dependencyDeclaration.getTypeDependencies()) {
-            typeSignature = SignatureBinder.applyBoundVariables(typeSignature, functionBinding);
+            typeSignature = applyBoundVariables(typeSignature, functionBinding.variables());
             typeDependencies.put(typeSignature, PLANNER_CONTEXT.getTypeManager().getType(typeSignature));
         }
 
@@ -1180,7 +1183,7 @@ public class TestAnnotationEngineForAggregates
 
     private static ResolvedFunction resolveDependency(FunctionDependencyDeclaration.FunctionDependency dependency)
     {
-        QualifiedName name = QualifiedName.of(dependency.getName().getCatalogName(), dependency.getName().getSchemaName(), dependency.getName().getFunctionName());
+        QualifiedName name = QualifiedName.of(dependency.getName().catalogName(), dependency.getName().schemaName(), dependency.getName().functionName());
         return PLANNER_CONTEXT.getFunctionResolver().resolveFunction(TEST_SESSION, name, fromTypeSignatures(dependency.getArgumentTypes()), new AllowAllAccessControl());
     }
 

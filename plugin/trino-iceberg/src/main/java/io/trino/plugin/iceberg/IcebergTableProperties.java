@@ -64,6 +64,8 @@ public class IcebergTableProperties
     public static final String FORMAT_VERSION_PROPERTY = "format_version";
     public static final String COMPRESSION_CODEC = "compression_codec";
     public static final String MAX_COMMIT_RETRY = "max_commit_retry";
+    public static final String DELETE_AFTER_COMMIT_ENABLED = "delete_after_commit_enabled";
+    public static final String MAX_PREVIOUS_VERSIONS = "max_previous_versions";
     public static final String ORC_BLOOM_FILTER_COLUMNS_PROPERTY = "orc_bloom_filter_columns";
     public static final String ORC_BLOOM_FILTER_FPP_PROPERTY = "orc_bloom_filter_fpp";
     public static final String PARQUET_BLOOM_FILTER_COLUMNS_PROPERTY = "parquet_bloom_filter_columns";
@@ -79,6 +81,8 @@ public class IcebergTableProperties
             .add(LOCATION_PROPERTY)
             .add(FORMAT_VERSION_PROPERTY)
             .add(MAX_COMMIT_RETRY)
+            .add(DELETE_AFTER_COMMIT_ENABLED)
+            .add(MAX_PREVIOUS_VERSIONS)
             .add(ORC_BLOOM_FILTER_COLUMNS_PROPERTY)
             .add(ORC_BLOOM_FILTER_FPP_PROPERTY)
             .add(OBJECT_STORE_LAYOUT_ENABLED_PROPERTY)
@@ -156,6 +160,21 @@ public class IcebergTableProperties
                             }
                         },
                         false))
+                .add(booleanProperty(
+                        DELETE_AFTER_COMMIT_ENABLED,
+                        "Whether to delete old tracked metadata files after each table commit",
+                        icebergConfig.isDeleteAfterCommitEnabled().orElse(null),
+                        false))
+                .add(integerProperty(
+                        MAX_PREVIOUS_VERSIONS,
+                        "The number of old metadata files to keep",
+                        icebergConfig.getMaxPreviousVersions().orElse(null),
+                        value -> {
+                            if (value < 1) {
+                                throw new TrinoException(INVALID_TABLE_PROPERTY, "%s must be greater than or equal to 1".formatted(MAX_PREVIOUS_VERSIONS));
+                            }
+                        },
+                        false))
                 .add(new PropertyMetadata<>(
                         ORC_BLOOM_FILTER_COLUMNS_PROPERTY,
                         "ORC Bloom filter index columns",
@@ -221,7 +240,8 @@ public class IcebergTableProperties
         checkState(SUPPORTED_PROPERTIES.containsAll(tableProperties.stream()
                         .map(PropertyMetadata::getName)
                         .collect(toImmutableList())),
-                "%s does not contain all supported properties", SUPPORTED_PROPERTIES);
+                "%s does not contain all supported properties",
+                SUPPORTED_PROPERTIES);
     }
 
     public List<PropertyMetadata<?>> getTableProperties()
@@ -267,7 +287,8 @@ public class IcebergTableProperties
     private static void validateFormatVersion(int version)
     {
         if (version < FORMAT_VERSION_SUPPORT_MIN || version > FORMAT_VERSION_SUPPORT_MAX) {
-            throw new TrinoException(INVALID_TABLE_PROPERTY,
+            throw new TrinoException(
+                    INVALID_TABLE_PROPERTY,
                     format("format_version must be between %d and %d", FORMAT_VERSION_SUPPORT_MIN, FORMAT_VERSION_SUPPORT_MAX));
         }
     }
@@ -293,6 +314,16 @@ public class IcebergTableProperties
     public static Optional<Integer> getMaxCommitRetry(Map<String, Object> tableProperties)
     {
         return Optional.ofNullable((Integer) tableProperties.get(MAX_COMMIT_RETRY));
+    }
+
+    public static Optional<Boolean> isDeleteAfterCommitEnabled(Map<String, Object> tableProperties)
+    {
+        return Optional.ofNullable((Boolean) tableProperties.get(DELETE_AFTER_COMMIT_ENABLED));
+    }
+
+    public static Optional<Integer> getMaxPreviousVersions(Map<String, Object> tableProperties)
+    {
+        return Optional.ofNullable((Integer) tableProperties.get(MAX_PREVIOUS_VERSIONS));
     }
 
     public static List<String> getOrcBloomFilterColumns(Map<String, Object> tableProperties)

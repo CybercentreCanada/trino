@@ -79,11 +79,13 @@ public class ThreadPerDriverTaskExecutor
     @GuardedBy("this")
     private int runningLeafDrivers;
 
+    // Do not inline this field to avoid creating lambdas that cannot be cached by JVM.
+    private final Runnable leafSplitDoneCallback = this::leafSplitDone;
+
     @Inject
     public ThreadPerDriverTaskExecutor(TaskManagerConfig config, Tracer tracer, VersionEmbedder versionEmbedder)
     {
-        this(
-                tracer,
+        this(tracer,
                 versionEmbedder,
                 new FairScheduler(config.getMaxWorkerThreads(), "SplitRunner-%d", Ticker.systemTicker()),
                 config.getMinDriversPerTask(),
@@ -177,7 +179,7 @@ public class ThreadPerDriverTaskExecutor
 
     private boolean scheduleLeafSplit(TaskEntry task)
     {
-        boolean scheduled = task.dequeueAndRunLeafSplit(this::leafSplitDone);
+        boolean scheduled = task.dequeueAndRunLeafSplit(leafSplitDoneCallback);
         if (scheduled) {
             runningLeafDrivers++;
         }

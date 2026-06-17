@@ -14,6 +14,7 @@
 package io.trino.operator.scalar;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.DynamicSliceOutput;
 import io.airlift.slice.SliceOutput;
 import io.trino.FullConnectorSession;
@@ -34,9 +35,14 @@ import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.Decimals;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeId;
-import io.trino.sql.relational.CallExpression;
-import io.trino.sql.relational.RowExpression;
+import io.trino.sql.ir.Call;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.Lambda;
+import io.trino.sql.ir.Reference;
+import io.trino.sql.planner.Symbol;
 import io.trino.testing.TestingSession;
+import io.trino.type.FunctionType;
 import io.trino.type.JsonPath2016Type;
 import org.junit.jupiter.api.Test;
 import org.openjdk.jmh.annotations.Benchmark;
@@ -64,10 +70,9 @@ import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.sql.analyzer.ExpressionAnalyzer.JSON_NO_PARAMETERS_ROW_TYPE;
 import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
+import static io.trino.sql.ir.IrExpressions.call;
+import static io.trino.sql.ir.IrExpressions.constantNull;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
-import static io.trino.sql.relational.Expressions.constant;
-import static io.trino.sql.relational.Expressions.constantNull;
-import static io.trino.sql.relational.Expressions.field;
 import static io.trino.type.Json2016Type.JSON_2016;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -148,30 +153,32 @@ public class BenchmarkJsonPathBinaryOperators
                     new IrMemberAccessor(new IrContextVariable(Optional.empty()), Optional.of("first"), Optional.empty()),
                     new IrMemberAccessor(new IrContextVariable(Optional.empty()), Optional.of("second"), Optional.empty()),
                     Optional.empty());
-            List<RowExpression> jsonValueProjection = ImmutableList.of(new CallExpression(
+            List<Expression> jsonValueProjection = ImmutableList.of(new Call(
                     functionResolution.resolveFunction(
                             JSON_VALUE_FUNCTION_NAME,
                             fromTypes(ImmutableList.of(
                                     JSON_2016,
                                     jsonPath2016Type,
                                     JSON_NO_PARAMETERS_ROW_TYPE,
-                                    TINYINT,
                                     VARCHAR,
                                     TINYINT,
-                                    VARCHAR))),
+                                    new FunctionType(ImmutableList.of(), VARCHAR),
+                                    TINYINT,
+                                    new FunctionType(ImmutableList.of(), VARCHAR)))),
                     ImmutableList.of(
-                            new CallExpression(
-                                    functionResolution.resolveFunction(VARCHAR_TO_JSON, fromTypes(VARCHAR, BOOLEAN)),
-                                    ImmutableList.of(field(0, VARCHAR), constant(true, BOOLEAN))),
-                            constant(new IrJsonPath(false, path), jsonPath2016Type),
+                            call(functionResolution.resolveFunction(VARCHAR_TO_JSON, fromTypes(VARCHAR, BOOLEAN)),
+                                    new Reference(VARCHAR, "$col_0"),
+                                    new Constant(BOOLEAN, true)),
+                            new Constant(jsonPath2016Type, new IrJsonPath(false, path)),
                             constantNull(JSON_NO_PARAMETERS_ROW_TYPE),
-                            constant(0L, TINYINT),
                             constantNull(VARCHAR),
-                            constant(0L, TINYINT),
-                            constantNull(VARCHAR))));
+                            new Constant(TINYINT, 0L),
+                            new Lambda(ImmutableList.of(), constantNull(VARCHAR)),
+                            new Constant(TINYINT, 0L),
+                            new Lambda(ImmutableList.of(), constantNull(VARCHAR)))));
 
             return functionResolution.getExpressionCompiler()
-                    .compilePageProcessor(Optional.empty(), jsonValueProjection)
+                    .compilePageProcessor(Optional.empty(), jsonValueProjection, ImmutableMap.of(new Symbol(VARCHAR, "$col_0"), 0))
                     .get();
         }
 
@@ -281,7 +288,7 @@ public class BenchmarkJsonPathBinaryOperators
         new BenchmarkJsonPathBinaryOperators().benchmarkJsonValueFunctionMultipleVaryingTypes(data);
     }
 
-    public static void main(String[] args)
+    static void main()
             throws Exception
     {
         Benchmarks.benchmark(BenchmarkJsonPathBinaryOperators.class).run();

@@ -133,7 +133,7 @@ public final class BlockAssertions
 
         Random random = random();
         int[] ids = IntStream.range(0, positionCount)
-                .map(i -> random.nextInt(dictionary.getPositionCount()))
+                .map(_ -> random.nextInt(dictionary.getPositionCount()))
                 .toArray();
         return DictionaryBlock.create(positionCount, dictionary, ids);
     }
@@ -237,12 +237,11 @@ public final class BlockAssertions
 
             return mapType.createBlockFromKeyValue(Optional.ofNullable(isNull), offsets, keyBlock, valueBlock);
         }
-        if (type instanceof RowType) {
-            List<Type> fieldTypes = type.getTypeParameters();
-            Block[] fieldBlocks = new Block[fieldTypes.size()];
+        if (type instanceof RowType rowType) {
+            Block[] fieldBlocks = new Block[rowType.getFields().size()];
 
             for (int i = 0; i < fieldBlocks.length; i++) {
-                fieldBlocks[i] = createRandomBlockForType(fieldTypes.get(i), positionCount, nullRate);
+                fieldBlocks[i] = createRandomBlockForType(rowType.getFields().get(i).getType(), positionCount, nullRate);
             }
 
             return RowBlock.fromNotNullSuppressedFieldBlocks(positionCount, Optional.ofNullable(isNull), fieldBlocks);
@@ -304,7 +303,7 @@ public final class BlockAssertions
                 .toArray();
         Random random = random();
         return createLongsBlock(IntStream.range(0, positionCount)
-                .mapToLong(position -> uniqueValues[random.nextInt(numberOfUniqueValues)])
+                .mapToLong(_ -> uniqueValues[random.nextInt(numberOfUniqueValues)])
                 .boxed()
                 .collect(toImmutableList()));
     }

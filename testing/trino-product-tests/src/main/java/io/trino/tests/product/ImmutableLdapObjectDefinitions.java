@@ -34,8 +34,7 @@ public final class ImmutableLdapObjectDefinitions
     private static final String LDAP_PASSWORD = "LDAPPass123";
     private static final String MEMBER = "member";
 
-    private ImmutableLdapObjectDefinitions()
-    {}
+    private ImmutableLdapObjectDefinitions() {}
 
     public static final LdapObjectDefinition AMERICA_ORG = buildLdapOrganizationObject("America", AMERICA_DISTINGUISHED_NAME, "America");
 
@@ -75,9 +74,20 @@ public final class ImmutableLdapObjectDefinitions
     {
         return new LdapObjectRequirement(
                 ImmutableList.of(
-                        AMERICA_ORG, ASIA_ORG, EUROPE_ORG,
-                        DEFAULT_GROUP_USER, PARENT_GROUP_USER, CHILD_GROUP_USER, ORPHAN_USER, SPECIAL_USER, USER_IN_MULTIPLE_GROUPS, USER_IN_AMERICA, USER_IN_EUROPE,
-                        DEFAULT_GROUP, PARENT_GROUP, CHILD_GROUP));
+                        AMERICA_ORG,
+                        ASIA_ORG,
+                        EUROPE_ORG,
+                        DEFAULT_GROUP_USER,
+                        PARENT_GROUP_USER,
+                        CHILD_GROUP_USER,
+                        ORPHAN_USER,
+                        SPECIAL_USER,
+                        USER_IN_MULTIPLE_GROUPS,
+                        USER_IN_AMERICA,
+                        USER_IN_EUROPE,
+                        DEFAULT_GROUP,
+                        PARENT_GROUP,
+                        CHILD_GROUP));
     }
 
     public static LdapObjectDefinition buildLdapOrganizationObject(String id, String distinguishedName, String unit)
@@ -107,8 +117,7 @@ public final class ImmutableLdapObjectDefinitions
                         "cn", groupName,
                         "member", format("uid=%s,%s", userName, userOrganizationName)))
                 .setModificationAttributes(ImmutableMap.of(
-                        MEMBER,
-                        memberAttributes.stream()
+                        MEMBER, memberAttributes.stream()
                                 .map(LdapObjectDefinition::getDistinguishedName)
                                 .collect(toImmutableList())))
                 .setObjectClasses(Arrays.asList("groupOfNames"))

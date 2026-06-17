@@ -52,6 +52,7 @@ import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.trino.SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY;
 import static io.trino.plugin.jdbc.TypeHandlingJdbcSessionProperties.UNSUPPORTED_TYPE_HANDLING;
 import static io.trino.plugin.jdbc.UnsupportedTypeHandling.CONVERT_TO_VARCHAR;
+import static io.trino.plugin.redshift.RedshiftQueryRunner.IAM_ROLE;
 import static io.trino.plugin.redshift.TestingRedshiftServer.JDBC_PASSWORD;
 import static io.trino.plugin.redshift.TestingRedshiftServer.JDBC_URL;
 import static io.trino.plugin.redshift.TestingRedshiftServer.JDBC_USER;
@@ -94,11 +95,12 @@ public class TestRedshiftConnectorTest
     {
         return switch (connectorBehavior) {
             case SUPPORTS_COMMENT_ON_COLUMN,
-                 SUPPORTS_JOIN_PUSHDOWN,
                  SUPPORTS_CANCELLATION,
+                 SUPPORTS_JOIN_PUSHDOWN,
                  SUPPORTS_JOIN_PUSHDOWN_WITH_VARCHAR_EQUALITY -> true;
             case SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT,
                  SUPPORTS_ADD_COLUMN_WITH_COMMENT,
+                 SUPPORTS_ADD_COLUMN_WITH_POSITION,
                  SUPPORTS_AGGREGATION_PUSHDOWN_CORRELATION,
                  SUPPORTS_AGGREGATION_PUSHDOWN_COVARIANCE,
                  SUPPORTS_AGGREGATION_PUSHDOWN_REGRESSION,
@@ -109,11 +111,20 @@ public class TestRedshiftConnectorTest
                  SUPPORTS_JOIN_PUSHDOWN_WITH_DISTINCT_FROM,
                  SUPPORTS_JOIN_PUSHDOWN_WITH_FULL_JOIN,
                  SUPPORTS_MAP_TYPE,
+                 SUPPORTS_PREDICATE_ARITHMETIC_EXPRESSION_PUSHDOWN,
                  SUPPORTS_RENAME_TABLE_ACROSS_SCHEMAS,
                  SUPPORTS_ROW_TYPE,
+                 SUPPORTS_ROW_LEVEL_UPDATE,
+                 SUPPORTS_MERGE,
                  SUPPORTS_SET_COLUMN_TYPE -> false;
             default -> super.hasBehavior(connectorBehavior);
         };
+    }
+
+    @Override
+    protected TestTable newTrinoTable(String namePrefix, String tableDefinition, List<String> rowsToInsert)
+    {
+        return new TestTable(new TrinoSqlExecutorWithRetries(getQueryRunner()), namePrefix, tableDefinition, rowsToInsert);
     }
 
     @Test
@@ -304,8 +315,7 @@ public class TestRedshiftConnectorTest
                                                             .setComment(Optional.of("Dynamic Column."))
                                                             .setColumnType(BIGINT)
                                                             .setNullable(true)
-                                                            .build(),
-                                                    Domain.multipleValues(BIGINT, List.of(1L, 2L, 3L, 4L), false)));
+                                                            .build(), Domain.multipleValues(BIGINT, List.of(1L, 2L, 3L, 4L), false)));
                             assertThat(effectivePredicate).isEqualTo(expectedPredicate);
                             return true;
                         }));
@@ -594,7 +604,8 @@ public class TestRedshiftConnectorTest
             assertThat(query("SELECT avg(short_decimal), avg(long_decimal), avg(a_bigint), avg(t_double) FROM " + emptyTableName)).isFullyPushedDown();
         }
 
-        try (TestTable testTable = createAggregationTestTable(schemaName + ".test_aggregation_pushdown",
+        try (TestTable testTable = createAggregationTestTable(
+                schemaName + ".test_aggregation_pushdown",
                 ImmutableList.of("100.000, 100000000.000000000, 100.000, 100000000", "123.321, 123456789.987654321, 123.321, 123456789"))) {
             String testTableName = testTable.getName() + "_" + distStyle;
             copyWithDistStyle(testTable.getName(), testTableName, distStyle, Optional.of("a_bigint"));
@@ -661,8 +672,10 @@ public class TestRedshiftConnectorTest
                 "12345789.9876543210",
                 format("%s.%s", "1".repeat(28), "9".repeat(10)));
 
-        try (TestTable testTable = newTrinoTable(TEST_SCHEMA + ".test_agg_pushdown_avg_max_decimal",
-                "(t_decimal DECIMAL(38, 10))", rows)) {
+        try (TestTable testTable = newTrinoTable(
+                TEST_SCHEMA + ".test_agg_pushdown_avg_max_decimal",
+                "(t_decimal DECIMAL(38, 10))",
+                rows)) {
             // Redshift avg rounds down decimal result which doesn't match Presto semantics
             assertThatThrownBy(() -> assertThat(query("SELECT avg(t_decimal) FROM " + testTable.getName())).isFullyPushedDown())
                     .isInstanceOf(AssertionError.class)
@@ -683,8 +696,10 @@ public class TestRedshiftConnectorTest
                 "0.987654321234567890",
                 format("0.%s", "1".repeat(18)));
 
-        try (TestTable testTable = newTrinoTable(TEST_SCHEMA + ".test_agg_pushdown_avg_max_decimal",
-                "(t_decimal DECIMAL(18, 18))", rows)) {
+        try (TestTable testTable = newTrinoTable(
+                TEST_SCHEMA + ".test_agg_pushdown_avg_max_decimal",
+                "(t_decimal DECIMAL(18, 18))",
+                rows)) {
             assertThat(query("SELECT avg(t_decimal) FROM " + testTable.getName())).isFullyPushedDown();
         }
     }
@@ -856,7 +871,7 @@ public class TestRedshiftConnectorTest
     @Override
     protected SqlExecutor onRemoteDatabase()
     {
-        return TestingRedshiftServer::executeInRedshift;
+        return TestingRedshiftServer::executeInRedshiftWithRetry;
     }
 
     private SqlExecutor onRemoteDatabaseWithSchema(String schema)
@@ -881,15 +896,14 @@ public class TestRedshiftConnectorTest
     {
         long secondsToSleep = round(minimalQueryDuration.convertTo(SECONDS).getValue() + 1);
         // pg_sleep unsupported: https://docs.aws.amazon.com/redshift/latest/dg/c_unsupported-postgresql-functions.html,
-        // adding a python UDF replacement
+        // Using a predefined AWS lambda replacement
         onRemoteDatabaseWithSchema(TEST_SCHEMA).execute(
                 """
-                CREATE OR REPLACE FUNCTION janky_sleep (x float) RETURNS bool IMMUTABLE as $$
-                    from time import sleep
-                    sleep(x)
-                    return True
-                $$ LANGUAGE plpythonu;
-                """);
+                CREATE OR REPLACE EXTERNAL FUNCTION\s
+                        janky_sleep(x int) returns int
+                        lambda 'trino-redshift-ci-sleep' IAM_ROLE '%s'
+                STABLE
+                """.formatted(IAM_ROLE));
         return new io.trino.testing.sql.TestView(
                 onRemoteDatabaseWithSchema(TEST_SCHEMA),
                 "test_sleeping_view",

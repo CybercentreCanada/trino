@@ -62,7 +62,10 @@ import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorCapabilities;
 import io.trino.spi.connector.ConnectorName;
 import io.trino.spi.connector.ConnectorOutputMetadata;
+import io.trino.spi.connector.ConnectorTableCredentials;
+import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTableMetadata;
+import io.trino.spi.connector.ConnectorWritableTableHandle;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.EntityKindAndName;
@@ -97,6 +100,7 @@ import io.trino.spi.function.FunctionId;
 import io.trino.spi.function.FunctionMetadata;
 import io.trino.spi.function.LanguageFunction;
 import io.trino.spi.function.OperatorType;
+import io.trino.spi.function.table.ConnectorTableFunctionHandle;
 import io.trino.spi.metrics.Metrics;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.FunctionAuthorization;
@@ -211,6 +215,15 @@ public class TracingMetadata
     }
 
     @Override
+    public Set<ColumnHandle> getColumnHandlesForTableExecute(Session session, TableExecuteHandle tableExecuteHandle)
+    {
+        Span span = startSpan("getColumnHandlesForTableExecute", tableExecuteHandle);
+        try (var _ = scopedSpan(span)) {
+            return delegate.getColumnHandlesForTableExecute(session, tableExecuteHandle);
+        }
+    }
+
+    @Override
     public Optional<TableLayout> getLayoutForTableExecute(Session session, TableExecuteHandle tableExecuteHandle)
     {
         Span span = startSpan("getLayoutForTableExecute", tableExecuteHandle);
@@ -229,11 +242,11 @@ public class TracingMetadata
     }
 
     @Override
-    public void finishTableExecute(Session session, TableExecuteHandle handle, Collection<Slice> fragments, List<Object> tableExecuteState)
+    public Map<String, Long> finishTableExecute(Session session, TableExecuteHandle handle, Collection<Slice> fragments, List<Object> tableExecuteState)
     {
         Span span = startSpan("finishTableExecute", handle);
         try (var _ = scopedSpan(span)) {
-            delegate.finishTableExecute(session, handle, fragments, tableExecuteState);
+            return delegate.finishTableExecute(session, handle, fragments, tableExecuteState);
         }
     }
 
@@ -528,6 +541,24 @@ public class TracingMetadata
     }
 
     @Override
+    public void setDefaultValue(Session session, TableHandle tableHandle, ColumnHandle column, String defaultValue)
+    {
+        Span span = startSpan("setDefaultValue", tableHandle);
+        try (var _ = scopedSpan(span)) {
+            delegate.setDefaultValue(session, tableHandle, column, defaultValue);
+        }
+    }
+
+    @Override
+    public void dropDefaultValue(Session session, TableHandle tableHandle, ColumnHandle column)
+    {
+        Span span = startSpan("dropDefaultValue", tableHandle);
+        try (var _ = scopedSpan(span)) {
+            delegate.dropDefaultValue(session, tableHandle, column);
+        }
+    }
+
+    @Override
     public void setColumnType(Session session, TableHandle tableHandle, ColumnHandle column, Type type)
     {
         Span span = startSpan("setColumnType", tableHandle);
@@ -760,7 +791,8 @@ public class TracingMetadata
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics,
             List<TableHandle> sourceTableHandles,
-            List<String> sourceTableFunctions)
+            List<String> sourceTableFunctions,
+            boolean hasNonDeterministicFunctions)
     {
         Span span = startSpan("finishRefreshMaterializedView", tableHandle);
         try (var _ = scopedSpan(span)) {
@@ -771,7 +803,8 @@ public class TracingMetadata
                     fragments,
                     computedStatistics,
                     sourceTableHandles,
-                    sourceTableFunctions);
+                    sourceTableFunctions,
+                    hasNonDeterministicFunctions);
         }
     }
 
@@ -865,6 +898,15 @@ public class TracingMetadata
         Span span = startSpan("getCatalogHandle", catalogName);
         try (var _ = scopedSpan(span)) {
             return delegate.getCatalogHandle(session, catalogName);
+        }
+    }
+
+    @Override
+    public Optional<CatalogInfo> getCatalogInfo(Session session, String catalogName)
+    {
+        Span span = startSpan("getCatalogInfo", catalogName);
+        try (var _ = scopedSpan(span)) {
+            return delegate.getCatalogInfo(session, catalogName);
         }
     }
 
@@ -1540,11 +1582,11 @@ public class TracingMetadata
     }
 
     @Override
-    public MaterializedViewFreshness getMaterializedViewFreshness(Session session, QualifiedObjectName name)
+    public MaterializedViewFreshness getMaterializedViewFreshness(Session session, QualifiedObjectName name, boolean considerGracePeriod)
     {
         Span span = startSpan("getMaterializedViewFreshness", name);
         try (var _ = scopedSpan(span)) {
-            return delegate.getMaterializedViewFreshness(session, name);
+            return delegate.getMaterializedViewFreshness(session, name, considerGracePeriod);
         }
     }
 
@@ -1683,6 +1725,33 @@ public class TracingMetadata
         }
     }
 
+    @Override
+    public Optional<ConnectorTableCredentials> getTableCredentials(Session session, CatalogHandle catalogHandle, ConnectorTableHandle tableHandle)
+    {
+        Span span = startSpan("getTableCredentials", catalogHandle, tableHandle);
+        try (var _ = scopedSpan(span)) {
+            return delegate.getTableCredentials(session, catalogHandle, tableHandle);
+        }
+    }
+
+    @Override
+    public Optional<ConnectorTableCredentials> getTableCredentials(Session session, CatalogHandle catalogHandle, ConnectorWritableTableHandle tableHandle)
+    {
+        Span span = startSpan("getTableCredentials", catalogHandle, tableHandle);
+        try (var _ = scopedSpan(span)) {
+            return delegate.getTableCredentials(session, catalogHandle, tableHandle);
+        }
+    }
+
+    @Override
+    public Optional<ConnectorTableCredentials> getTableCredentials(Session session, CatalogHandle catalogHandle, ConnectorTableFunctionHandle tableFunctionHandle)
+    {
+        Span span = startSpan("getTableCredentials", catalogHandle, tableFunctionHandle);
+        try (var _ = scopedSpan(span)) {
+            return delegate.getTableCredentials(session, catalogHandle, tableFunctionHandle);
+        }
+    }
+
     private Span startSpan(String methodName)
     {
         return tracer.spanBuilder("Metadata." + methodName)
@@ -1769,6 +1838,36 @@ public class TracingMetadata
         return span;
     }
 
+    private Span startSpan(String methodName, CatalogHandle catalogHandle, ConnectorTableHandle tableHandle)
+    {
+        Span span = startSpan(methodName);
+        if (span.isRecording()) {
+            span.setAttribute(TrinoAttributes.CATALOG, catalogHandle.getCatalogName().toString());
+            span.setAttribute(TrinoAttributes.HANDLE, tableHandle.toString());
+        }
+        return span;
+    }
+
+    private Span startSpan(String methodName, CatalogHandle catalogHandle, ConnectorTableFunctionHandle tableFunctionHandle)
+    {
+        Span span = startSpan(methodName);
+        if (span.isRecording()) {
+            span.setAttribute(TrinoAttributes.CATALOG, catalogHandle.getCatalogName().toString());
+            span.setAttribute(TrinoAttributes.HANDLE, tableFunctionHandle.toString());
+        }
+        return span;
+    }
+
+    private Span startSpan(String methodName, CatalogHandle catalogHandle, ConnectorWritableTableHandle tableHandle)
+    {
+        Span span = startSpan(methodName);
+        if (span.isRecording()) {
+            span.setAttribute(TrinoAttributes.CATALOG, catalogHandle.getCatalogName().toString());
+            span.setAttribute(TrinoAttributes.HANDLE, tableHandle.toString());
+        }
+        return span;
+    }
+
     private Span startSpan(String methodName, TableExecuteHandle handle)
     {
         Span span = startSpan(methodName);
@@ -1782,16 +1881,17 @@ public class TracingMetadata
     private Span startSpan(String methodName, CatalogSchemaFunctionName table)
     {
         return startSpan(methodName)
-                .setAttribute(TrinoAttributes.CATALOG, table.getCatalogName())
-                .setAttribute(TrinoAttributes.SCHEMA, table.getSchemaName())
-                .setAttribute(TrinoAttributes.FUNCTION, table.getFunctionName());
+                .setAttribute(TrinoAttributes.CATALOG, table.catalogName())
+                .setAttribute(TrinoAttributes.SCHEMA, table.schemaName())
+                .setAttribute(TrinoAttributes.FUNCTION, table.functionName());
     }
 
     private Span startSpan(String methodName, EntityKindAndName entity, Set<EntityPrivilege> privileges, TrinoPrincipal grantee, boolean grantOption)
     {
         Span span = startSpan(methodName);
         if (span.isRecording()) {
-            String grant = String.format("%s-%s-%s-%s-%s%s",
+            String grant = String.format(
+                    "%s-%s-%s-%s-%s%s",
                     entity.entityKind(),
                     entity.name(),
                     grantee.getType(),

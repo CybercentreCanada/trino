@@ -60,7 +60,6 @@ import static io.trino.sql.ir.Booleans.TRUE;
 import static io.trino.sql.ir.Comparison.Operator.EQUAL;
 import static io.trino.sql.ir.Comparison.Operator.NOT_EQUAL;
 import static io.trino.sql.ir.Logical.Operator.AND;
-import static io.trino.sql.planner.assertions.PlanMatchPattern.any;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.exchange;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.filter;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.join;
@@ -88,7 +87,7 @@ public class TestHivePlans
     private static final TestingFunctionResolution FUNCTIONS = new TestingFunctionResolution();
     private static final ResolvedFunction LIKE = FUNCTIONS.resolveFunction("$like", fromTypes(createVarcharType(5), LIKE_PATTERN));
     private static final ResolvedFunction SUBSTRING = FUNCTIONS.resolveFunction("substring", fromTypes(createVarcharType(5), BIGINT));
-    private static final ResolvedFunction MODULUS_INTEGER = FUNCTIONS.resolveOperator(OperatorType.MODULUS, ImmutableList.of(INTEGER, INTEGER));
+    private static final ResolvedFunction MODULO_INTEGER = FUNCTIONS.resolveOperator(OperatorType.MODULO, ImmutableList.of(INTEGER, INTEGER));
 
     private File baseDir;
 
@@ -277,16 +276,16 @@ public class TestHivePlans
                 output(
                         join(INNER, builder -> builder
                                 .equiCriteria("L_INT_PART", "R_INT_COL")
-                                .filter(new Comparison(EQUAL, new Call(MODULUS_INTEGER, ImmutableList.of(new Reference(INTEGER, "R_INT_COL"), new Constant(INTEGER, 2L))), new Constant(INTEGER, 0L)))
                                 .left(
                                         exchange(REMOTE, REPARTITION,
-                                                any(
+                                                filter(
+                                                        new Comparison(EQUAL, new Call(MODULO_INTEGER, ImmutableList.of(new Reference(INTEGER, "L_INT_PART"), new Constant(INTEGER, 2L))), new Constant(INTEGER, 0L)),
                                                         tableScan("table_int_partitioned", Map.of("L_INT_PART", "int_part", "L_STR_COL", "str_col")))))
                                 .right(
                                         exchange(LOCAL,
                                                 exchange(REMOTE, REPARTITION,
                                                         filter(
-                                                                new Between(new Reference(INTEGER, "R_INT_COL"), new Constant(INTEGER, 2L), new Constant(INTEGER, 4L)),
+                                                                new Logical(AND, ImmutableList.of(new In(new Reference(INTEGER, "R_INT_COL"), ImmutableList.of(new Constant(INTEGER, 2L), new Constant(INTEGER, 4L))), new Comparison(EQUAL, new Call(MODULO_INTEGER, ImmutableList.of(new Reference(INTEGER, "R_INT_COL"), new Constant(INTEGER, 2L))), new Constant(INTEGER, 0L)))),
                                                                 tableScan("table_unpartitioned", Map.of("R_STR_COL", "str_col", "R_INT_COL", "int_col")))))))));
     }
 
@@ -328,7 +327,8 @@ public class TestHivePlans
                                                 tableScan("table_int_with_too_many_partitions", Map.of("L_INT_PART", "int_part", "L_STR_COL", "str_col"))))
                                 .right(
                                         exchange(LOCAL,
-                                                exchange(REMOTE, REPLICATE,
+                                                exchange(REMOTE,
+                                                        REPLICATE,
                                                         tableScan("table_unpartitioned", Map.of("R_STR_COL", "str_col", "R_INT_COL", "int_col"))))))));
     }
 

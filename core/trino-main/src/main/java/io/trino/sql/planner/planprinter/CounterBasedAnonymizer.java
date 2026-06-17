@@ -63,14 +63,14 @@ public class CounterBasedAnonymizer
         COLUMN,
         SYMBOL,
         LITERAL,
-        VALUE
+        VALUE,
     }
 
     private final ExpressionFormatter.Formatter anonymizeExpressionFormatter =
             new ExpressionFormatter.Formatter(Optional.of(this::anonymizeLiteral), Optional.of(this::anonymizeSymbolReference));
     private final Map<String, String> anonymizedMap = new HashMap<>();
     private final Map<ObjectType, Integer> counterMap = Arrays.stream(ObjectType.values())
-            .collect(toMap(objectType -> objectType, objectType -> 0));
+            .collect(toMap(objectType -> objectType, _ -> 0));
 
     @Override
     public String anonymize(Type type, String value)
@@ -153,8 +153,8 @@ public class CounterBasedAnonymizer
     public String anonymize(TableHandle tableHandle, TableInfo tableInfo)
     {
         ImmutableMap.Builder<String, String> result = ImmutableMap.<String, String>builder()
-                .put("table", anonymize(tableInfo.getTableName()));
-        tableInfo.getConnectorName().ifPresent(connector -> result.put("connector", connector));
+                .put("table", anonymize(tableInfo.tableName()));
+        tableInfo.connectorName().ifPresent(connector -> result.put("connector", connector));
         return formatMap(result.buildOrThrow());
     }
 
@@ -270,7 +270,7 @@ public class CounterBasedAnonymizer
     private <T> String anonymize(T object, ObjectType objectType)
     {
         return anonymizedMap.computeIfAbsent(objectType.name() + object, _ -> {
-            Integer counter = counterMap.computeIfPresent(objectType, (k, v) -> v + 1);
+            Integer counter = counterMap.computeIfPresent(objectType, (_, v) -> v + 1);
             return objectType.name().toLowerCase(ENGLISH) + "_" + counter;
         });
     }

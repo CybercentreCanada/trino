@@ -37,7 +37,10 @@ import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorCapabilities;
 import io.trino.spi.connector.ConnectorName;
 import io.trino.spi.connector.ConnectorOutputMetadata;
+import io.trino.spi.connector.ConnectorTableCredentials;
+import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTableMetadata;
+import io.trino.spi.connector.ConnectorWritableTableHandle;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.ConstraintApplicationResult;
 import io.trino.spi.connector.EntityKindAndName;
@@ -73,6 +76,7 @@ import io.trino.spi.function.FunctionNullability;
 import io.trino.spi.function.LanguageFunction;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.function.Signature;
+import io.trino.spi.function.table.ConnectorTableFunctionHandle;
 import io.trino.spi.metrics.Metrics;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.security.FunctionAuthorization;
@@ -155,6 +159,12 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
+    public Set<ColumnHandle> getColumnHandlesForTableExecute(Session session, TableExecuteHandle tableExecuteHandle)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public Optional<TableLayout> getLayoutForTableExecute(Session session, TableExecuteHandle tableExecuteHandle)
     {
         throw new UnsupportedOperationException();
@@ -167,7 +177,7 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public void finishTableExecute(Session session, TableExecuteHandle handle, Collection<Slice> fragments, List<Object> tableExecuteState)
+    public Map<String, Long> finishTableExecute(Session session, TableExecuteHandle handle, Collection<Slice> fragments, List<Object> tableExecuteState)
     {
         throw new UnsupportedOperationException();
     }
@@ -383,6 +393,18 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
+    public void setDefaultValue(Session session, TableHandle tableHandle, ColumnHandle column, String defaultValue)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void dropDefaultValue(Session session, TableHandle tableHandle, ColumnHandle column)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void setColumnType(Session session, TableHandle tableHandle, ColumnHandle column, Type type)
     {
         throw new UnsupportedOperationException();
@@ -516,7 +538,8 @@ public abstract class AbstractMockMetadata
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics,
             List<TableHandle> sourceTableHandles,
-            List<String> sourceTableFunctions)
+            List<String> sourceTableFunctions,
+            boolean hasNonDeterministicFunctions)
     {
         throw new UnsupportedOperationException();
     }
@@ -577,6 +600,12 @@ public abstract class AbstractMockMetadata
 
     @Override
     public Optional<CatalogHandle> getCatalogHandle(Session session, String catalogName)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<CatalogInfo> getCatalogInfo(Session session, String catalogName)
     {
         throw new UnsupportedOperationException();
     }
@@ -875,6 +904,7 @@ public abstract class AbstractMockMetadata
                     toFunctionId(name, boundSignature.toSignature()),
                     SCALAR,
                     true,
+                    false,
                     new FunctionNullability(false, ImmutableList.of()),
                     ImmutableMap.of(),
                     ImmutableSet.of());
@@ -912,7 +942,7 @@ public abstract class AbstractMockMetadata
                 BUILTIN_SCHEMA,
                 FunctionMetadata.scalarBuilder("random")
                         .signature(Signature.builder().returnType(DOUBLE).build())
-                        .alias(RAND_NAME.getFunctionName())
+                        .alias(RAND_NAME.functionName())
                         .nondeterministic()
                         .noDescription()
                         .build()));
@@ -1039,7 +1069,7 @@ public abstract class AbstractMockMetadata
     }
 
     @Override
-    public MaterializedViewFreshness getMaterializedViewFreshness(Session session, QualifiedObjectName name)
+    public MaterializedViewFreshness getMaterializedViewFreshness(Session session, QualifiedObjectName name, boolean considerGracePeriod)
     {
         throw new UnsupportedOperationException();
     }
@@ -1135,5 +1165,23 @@ public abstract class AbstractMockMetadata
     public Set<FunctionAuthorization> getFunctionsAuthorizationInfo(Session session, QualifiedObjectPrefix prefix)
     {
         throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public Optional<ConnectorTableCredentials> getTableCredentials(Session session, CatalogHandle catalogHandle, ConnectorTableHandle tableHandle)
+    {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<ConnectorTableCredentials> getTableCredentials(Session session, CatalogHandle catalogHandle, ConnectorWritableTableHandle tableHandle)
+    {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<ConnectorTableCredentials> getTableCredentials(Session session, CatalogHandle catalogHandle, ConnectorTableFunctionHandle tableFunctionHandle)
+    {
+        return Optional.empty();
     }
 }
