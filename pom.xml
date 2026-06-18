@@ -320,6 +320,14 @@
             </dependency>
 
             <dependency>
+                <!-- Clickhouse client will by default use LZ4 compression, which requires this dependency -->
+                <!-- https://github.com/ClickHouse/clickhouse-docs/pull/2408/files -->
+                <groupId>at.yawk.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>1.11.0</version>
+            </dependency>
+
+            <dependency>
                 <groupId>cccs.ap.iceberg</groupId>
                 <artifactId>iceberg-api</artifactId>
                 <version>${dep.iceberg.version}</version>
@@ -365,7 +373,7 @@
             </dependency>
 
             <dependency>
-                <groupId>org.apache.iceberg</groupId>
+                <groupId>cccs.ap.iceberg</groupId>
                 <artifactId>iceberg-gcp</artifactId>
                 <version>${dep.iceberg.version}</version>
             </dependency>
@@ -408,14 +416,6 @@
                         <artifactId>slf4j-api</artifactId>
                     </exclusion>
                 </exclusions>
-            </dependency>
-
-            <dependency>
-                <!-- Clickhouse client will by default use LZ4 compression, which requires this dependency -->
-                <!-- https://github.com/ClickHouse/clickhouse-docs/pull/2408/files -->
-                <groupId>at.yawk.lz4</groupId>
-                <artifactId>lz4-java</artifactId>
-                <version>1.11.0</version>
             </dependency>
 
             <dependency>

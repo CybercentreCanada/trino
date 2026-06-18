@@ -386,6 +386,13 @@
         </dependency>
 
         <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-bundled-guava</artifactId>
+            <version>${dep.iceberg.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-storage-blob</artifactId>
             <scope>runtime</scope>
@@ -394,6 +401,13 @@
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-storage-common</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.dremio.iceberg.authmgr</groupId>
+            <artifactId>authmgr-oauth2-runtime</artifactId>
+            <version>1.1.0</version>
             <scope>runtime</scope>
         </dependency>
 
@@ -407,20 +421,6 @@
                     <artifactId>javax.annotation-api</artifactId>
                 </exclusion>
             </exclusions>
-        </dependency>
-
-        <dependency>
-            <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>iceberg-bundled-guava</artifactId>
-            <version>${dep.iceberg.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>com.dremio.iceberg.authmgr</groupId>
-            <artifactId>authmgr-oauth2-runtime</artifactId>
-            <version>1.1.0</version>
-            <scope>runtime</scope>
         </dependency>
 
         <dependency>
