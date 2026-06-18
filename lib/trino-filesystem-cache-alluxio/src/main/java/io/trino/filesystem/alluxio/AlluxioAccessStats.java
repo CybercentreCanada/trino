@@ -46,8 +46,8 @@ public class AlluxioAccessStats
         Map<String, Long> toMap()
         {
             return Map.of(
-                "hits", hits.sum(),
-                "bytes", bytes.sum());
+                    "hits", hits.sum(),
+                    "bytes", bytes.sum());
         }
     }
 
@@ -111,14 +111,14 @@ public class AlluxioAccessStats
         // Take snapshots and clear maps atomically to avoid race conditions
         Map<String, Map<String, Long>> externalSnapshot = externalReads.entrySet().stream()
                 .collect(Collectors.toMap(
-                    Map.Entry::getKey,
-                    e -> e.getValue().toMap()));
+                        Map.Entry::getKey,
+                        e -> e.getValue().toMap()));
         externalReads.clear();
 
         Map<String, Map<String, Long>> cacheSnapshot = cacheReads.entrySet().stream()
                 .collect(Collectors.toMap(
-                    Map.Entry::getKey,
-                    e -> e.getValue().toMap()));
+                        Map.Entry::getKey,
+                        e -> e.getValue().toMap()));
         cacheReads.clear();
 
         // Skip logging if both are empty
