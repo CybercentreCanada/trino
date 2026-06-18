@@ -32,31 +32,13 @@ public class IcebergRestCatalogModule
     protected void setup(Binder binder)
     {
         configBinder(binder).bindConfig(IcebergRestCatalogConfig.class);
-<<<<<<< HEAD
-        install(conditionalModule(
-                IcebergRestCatalogConfig.class,
-                config -> config.getSecurity() == Security.OAUTH2,
-                new OAuth2SecurityModule()));
-        install(conditionalModule(
-                IcebergRestCatalogConfig.class,
-                config -> config.getSecurity() == Security.DREMIO,
-                new DremioSecurityModule()));
-        install(conditionalModule(
-                IcebergRestCatalogConfig.class,
-                config -> config.getSecurity() == Security.SIGV4,
-                new SigV4SecurityModule()));
-        install(conditionalModule(
-                IcebergRestCatalogConfig.class,
-                config -> config.getSecurity() == Security.NONE,
-                new NoneSecurityModule()));
-=======
         install(switch (buildConfigObject(IcebergRestCatalogConfig.class).getSecurity()) {
             case OAUTH2 -> new OAuth2SecurityModule();
+            case DREMIO -> new DremioSecurityModule();
             case SIGV4 -> new SigV4SecurityModule();
             case GOOGLE -> new GoogleSecurityModule();
             case NONE -> new NoneSecurityModule();
         });
->>>>>>> tags/481
 
         binder.bind(IcebergRestCatalogPropertiesProvider.class).in(Scopes.SINGLETON);
         binder.bind(TrinoCatalogFactory.class).to(TrinoIcebergRestCatalogFactory.class).in(Scopes.SINGLETON);

@@ -109,23 +109,6 @@ public class TrinoIcebergRestCatalogFactory
         // Creation of the RESTSessionCatalog is lazy due to required network calls
         // for authorization and config route
         if (icebergCatalog == null) {
-<<<<<<< HEAD
-            ImmutableMap.Builder<String, String> properties = ImmutableMap.builder();
-            properties.put(CatalogProperties.URI, serverUri.toString());
-            warehouse.ifPresent(location -> properties.put(CatalogProperties.WAREHOUSE_LOCATION, location));
-            prefix.ifPresent(prefix -> properties.put("prefix", prefix));
-            properties.put("view-endpoints-supported", Boolean.toString(viewEndpointsEnabled));
-            properties.put("trino-version", trinoVersion);
-            properties.put(AUTH_SESSION_TIMEOUT_MS, String.valueOf(sessionTimeout.toMillis()));
-            properties.putAll(securityProperties.get());
-            properties.putAll(identity.getExtraCredentials());
-
-            if (vendedCredentialsEnabled) {
-                properties.put("header.X-Iceberg-Access-Delegation", "vended-credentials");
-            }
-
-=======
->>>>>>> tags/481
             RESTSessionCatalog icebergCatalogInstance = new RESTSessionCatalog(
                     config -> HTTPClient.builder(config)
                             .uri(config.get(CatalogProperties.URI))

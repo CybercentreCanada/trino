@@ -39,11 +39,7 @@ public class OracleConfig
     private int connectionPoolMinSize = 1;
     private int connectionPoolMaxSize = 30;
     private Duration inactiveConnectionTimeout = new Duration(20, MINUTES);
-<<<<<<< HEAD
-    private Duration connectionWaitTimeout = new Duration(5, SECONDS);
-=======
     private Duration connectionPoolWaitDuration = new Duration(3, SECONDS);
->>>>>>> tags/481
     private Integer fetchSize;
 
     public boolean isSynonymsEnabled()
