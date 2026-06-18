@@ -408,6 +408,7 @@
                         <artifactId>slf4j-api</artifactId>
                     </exclusion>
                 </exclusions>
+            </dependency>
 
             <dependency>
                 <!-- Clickhouse client will by default use LZ4 compression, which requires this dependency -->
