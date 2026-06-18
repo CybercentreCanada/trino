@@ -21,11 +21,7 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-<<<<<<< HEAD
-public record OpaQueryContext(TrinoIdentity identity, OpaPluginContext softwareStack, Optional<QueryId> queryId, Optional<String> source)
-=======
-public record OpaQueryContext(TrinoIdentity identity, OpaPluginContext softwareStack, Map<String, String> properties, Optional<QueryId> queryId)
->>>>>>> tags/481
+public record OpaQueryContext(TrinoIdentity identity, OpaPluginContext softwareStack, Map<String, String> properties, Optional<QueryId> queryId, Optional<String> source)
 {
     public OpaQueryContext
     {
@@ -36,8 +32,8 @@ public record OpaQueryContext(TrinoIdentity identity, OpaPluginContext softwareS
         requireNonNull(source, "source is null");
     }
 
-    public OpaQueryContext(TrinoIdentity identity, OpaPluginContext softwareStack, Optional<QueryId> queryId)
+    public OpaQueryContext(TrinoIdentity identity, OpaPluginContext softwareStack, Map<String, String> properties, Optional<QueryId> queryId)
     {
-        this(identity, softwareStack, queryId, Optional.empty());
+        this(identity, softwareStack, properties, queryId, Optional.empty());
     }
 }

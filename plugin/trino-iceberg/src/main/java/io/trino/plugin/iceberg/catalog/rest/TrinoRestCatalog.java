@@ -75,13 +75,10 @@ import org.apache.iceberg.view.ViewBuilder;
 import org.apache.iceberg.view.ViewRepresentation;
 import org.apache.iceberg.view.ViewVersion;
 
-<<<<<<< HEAD
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-=======
-import java.io.IOException;
->>>>>>> tags/481
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Iterator;

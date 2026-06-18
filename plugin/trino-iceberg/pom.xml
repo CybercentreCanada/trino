@@ -45,7 +45,19 @@
 
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-azure</artifactId>
+            <version>${dep.iceberg.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-core</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-gcp</artifactId>
+            <version>${dep.iceberg.version}</version>
         </dependency>
 
         <dependency>
@@ -244,51 +256,6 @@
         </dependency>
 
         <dependency>
-<<<<<<< HEAD
-=======
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-api</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-aws</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-azure</artifactId>
-            <version>${dep.iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-gcp</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-nessie</artifactId>
-            <version>${dep.iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-parquet</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-snowflake</artifactId>
-        </dependency>
-
-        <dependency>
->>>>>>> tags/481
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-column</artifactId>
         </dependency>
@@ -419,6 +386,13 @@
         </dependency>
 
         <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-bundled-guava</artifactId>
+            <version>${dep.iceberg.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-storage-blob</artifactId>
             <scope>runtime</scope>
@@ -427,6 +401,13 @@
         <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-storage-common</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.dremio.iceberg.authmgr</groupId>
+            <artifactId>authmgr-oauth2-runtime</artifactId>
+            <version>1.1.0</version>
             <scope>runtime</scope>
         </dependency>
 
@@ -440,20 +421,6 @@
                     <artifactId>javax.annotation-api</artifactId>
                 </exclusion>
             </exclusions>
-        </dependency>
-
-        <dependency>
-            <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>iceberg-bundled-guava</artifactId>
-            <version>${dep.iceberg.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>com.dremio.iceberg.authmgr</groupId>
-            <artifactId>authmgr-oauth2-runtime</artifactId>
-            <version>1.1.0</version>
-            <scope>runtime</scope>
         </dependency>
 
         <dependency>

@@ -10,9 +10,9 @@ variables:
   m2RepoContainerPath: /tmp/m2/repository
 
 parameters:
-- name: skipChecks
-  type: boolean
-  default: false
+  - name: skipChecks
+    type: boolean
+    default: false
 
 jobs:
   - job: PrepareNode
@@ -38,9 +38,9 @@ jobs:
       DOCKER_BUILDKIT: 1
       MAVEN_INSTALL_OPTS: "-Xmx4G -XX:+ExitOnOutOfMemoryError"
       MAVEN_FAST_INSTALL: "-B -V -T 1C -DskipTests -Dmaven.source.skip=true"
-      SKIPPED_PROJECTS: "!:trino-docs,!:trino-duckdb,!:trino-exasol,!:trino-faker,!:trino-hdfs,!:trino-hive,!:trino-hudi,!:trino-ignite,!:trino-kafka,!:trino-kafka-event-listener,!:trino-lakehouse,!:trino-loki,!:trino-pinot,!:trino-ranger,!:trino-snowflake,!:trino-google-sheets,!:trino-druid,!:trino-exchange-hdfs,!:trino-openlineage,!:trino-thrift-api,!:trino-thrift-testing-server,!:trino-thrift,!:trino-clickhouse,!:trino-vertica,!:trino-singlestore,!:trino-teradata-functions,!:trino-elasticsearch,!:trino-bigquery,!:trino-testing-resources,!:trino-delta-lake,!:trino-prometheus,!:trino-cassandra,!:trino-sqlserver,!:trino-mariadb,!:trino-redis,!:trino-redshift,!:trino-example-jdbc,!:trino-proxy,!:trino-verifier,!:trino-benchmark-queries,!:trino-benchto-benchmarks,!:trino-tests,!:trino-faulttolerant-tests,!:trino-plugin-reader,!:trino-product-tests-groups,!:trino-product-tests,!:trino-product-tests-launcher,!:trino-server-dev,!:trino-test-jdbc-compatibility-old-driver,!:trino-test-jdbc-compatibility-old-server,!:trino-testing-services,!:trino-testing,!:trino-testing-containers,!:trino-testing-kafka"
+      SKIPPED_PROJECTS: "!:trino-datasketches,!:trino-docs,!:trino-duckdb,!:trino-exasol,!:trino-faker,!:trino-hdfs,!:trino-hive,!:trino-hudi,!:trino-ignite,!:trino-kafka,!:trino-kafka-event-listener,!:trino-lakehouse,!:trino-loki,!:trino-pinot,!:trino-ranger,!:trino-snowflake,!:trino-google-sheets,!:trino-druid,!:trino-exchange-hdfs,!:trino-openlineage,!:trino-thrift-api,!:trino-thrift-testing-server,!:trino-thrift,!:trino-clickhouse,!:trino-singlestore,!:trino-teradata-functions,!:trino-elasticsearch,!:trino-bigquery,!:trino-testing-resources,!:trino-delta-lake,!:trino-prometheus,!:trino-cassandra,!:trino-sqlserver,!:trino-mariadb,!:trino-redis,!:trino-redshift,!:trino-example-jdbc,!:trino-proxy,!:trino-verifier,!:trino-benchmark-queries,!:trino-benchto-benchmarks,!:trino-tests,!:trino-faulttolerant-tests,!:trino-plugin-reader,!:trino-product-tests-groups,!:trino-product-tests,!:trino-product-tests-launcher,!:trino-server-dev,!:trino-test-jdbc-compatibility-old-driver,!:trino-test-jdbc-compatibility-old-server,!:trino-testing-services,!:trino-testing,!:trino-testing-containers,!:trino-testing-kafka"
     container:
-      image: uchimera.azurecr.io/cccs/dev/trino-build:478_trino-478_20251127223605_b13208
+      image: uchimera.azurecr.io/cccs/dev/trino-build:481_trino-481-merge-fixes_20260618151353_b14735
       options: --entrypoint="" --user=0 -e M2_STRATUS_TOKEN
       endpoint: uchimera
       volumes:
@@ -50,7 +50,7 @@ jobs:
       - task: Bash@3
         displayName: Parse Source Control Branch Name
         inputs:
-          targetType: 'inline'
+          targetType: "inline"
           script: |
             BRANCH_NAME=$(echo "$SYSTEM_PULLREQUEST_SOURCEBRANCH $BUILD_SOURCEBRANCH" | sed -r 's/^\s*(refs\/heads\/)?(\S*).*$/\2/' | sed 's/\//_/g')
             echo "##vso[task.setvariable variable=BRANCH_NAME]$BRANCH_NAME"
@@ -58,7 +58,7 @@ jobs:
       - task: Bash@3
         displayName: Maven build
         inputs:
-          targetType: 'inline'
+          targetType: "inline"
           script: |
             export MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
             $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -U -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }} -s /root/.m2/settings.xml -Pcccs-stratus,cccs-trino
@@ -68,7 +68,7 @@ jobs:
       - task: Bash@3
         displayName: Maven build without checks
         inputs:
-          targetType: 'inline'
+          targetType: "inline"
           script: |
             export MAVEN_OPTS="${{ variables.MAVEN_INSTALL_OPTS }}"
             $(Build.SourcesDirectory)/mvnw clean install ${{ variables.MAVEN_FAST_INSTALL }} -U -Dair.check.skip-all -e -pl '${{ variables.SKIPPED_PROJECTS }}' -Dsmartbuilder.profiling=true -Dmaven.repo.local=${{ variables.m2RepoContainerPath }} -s /root/.m2/settings.xml -Pcccs-stratus,cccs-trino
@@ -83,7 +83,7 @@ jobs:
       - task: Bash@3
         displayName: Build Base Image
         inputs:
-          targetType: 'inline'
+          targetType: "inline"
           script: |
             cd $(Build.SourcesDirectory)/core/docker
             chmod g+w ${HOME}

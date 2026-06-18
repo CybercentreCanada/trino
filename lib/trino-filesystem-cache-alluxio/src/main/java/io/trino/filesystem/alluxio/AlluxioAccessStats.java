@@ -46,8 +46,8 @@ public class AlluxioAccessStats
         Map<String, Long> toMap()
         {
             return Map.of(
-                "hits", hits.sum(),
-                "bytes", bytes.sum());
+                    "hits", hits.sum(),
+                    "bytes", bytes.sum());
         }
     }
 
@@ -93,7 +93,7 @@ public class AlluxioAccessStats
     {
         if (bytes > 0) {
             log.debug("External read: %s bytes for %s", bytes, location);
-            externalReads.computeIfAbsent(normalizePath(location.toString()), p -> new Stats()).add(bytes);
+            externalReads.computeIfAbsent(normalizePath(location.toString()), _ -> new Stats()).add(bytes);
         }
     }
 
@@ -101,7 +101,7 @@ public class AlluxioAccessStats
     {
         if (bytes > 0) {
             log.debug("Cache read: %s bytes for %s", bytes, location);
-            cacheReads.computeIfAbsent(normalizePath(location.toString()), p -> new Stats()).add(bytes);
+            cacheReads.computeIfAbsent(normalizePath(location.toString()), _ -> new Stats()).add(bytes);
         }
     }
 
@@ -111,14 +111,14 @@ public class AlluxioAccessStats
         // Take snapshots and clear maps atomically to avoid race conditions
         Map<String, Map<String, Long>> externalSnapshot = externalReads.entrySet().stream()
                 .collect(Collectors.toMap(
-                    Map.Entry::getKey,
-                    e -> e.getValue().toMap()));
+                        Map.Entry::getKey,
+                        e -> e.getValue().toMap()));
         externalReads.clear();
 
         Map<String, Map<String, Long>> cacheSnapshot = cacheReads.entrySet().stream()
                 .collect(Collectors.toMap(
-                    Map.Entry::getKey,
-                    e -> e.getValue().toMap()));
+                        Map.Entry::getKey,
+                        e -> e.getValue().toMap()));
         cacheReads.clear();
 
         // Skip logging if both are empty

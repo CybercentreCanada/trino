@@ -194,21 +194,11 @@
         <dep.confluent.version>8.1.1</dep.confluent.version>
         <dep.docker.images.version>126</dep.docker.images.version>
         <dep.drift.version>1.24</dep.drift.version>
-<<<<<<< HEAD
-        <dep.flyway.version>11.15.0</dep.flyway.version>
-        <dep.frontend-maven-plugin.version>1.15.4</dep.frontend-maven-plugin.version>
-        <dep.frontend-node.version>v22.14.0</dep.frontend-node.version>
-        <dep.frontend-npm.version>11.2.0</dep.frontend-npm.version>
-        <dep.gib.version>4.5.6</dep.gib.version>
-        <dep.httpcore5.version>5.3.6</dep.httpcore5.version>
-        <dep.iceberg.version>1.10.0.0-SNAPSHOT</dep.iceberg.version>
-=======
         <dep.frontend-maven-plugin.version>2.0.0</dep.frontend-maven-plugin.version>
         <dep.frontend-node.version>v24.12.0</dep.frontend-node.version>
         <dep.frontend-npm.version>11.7.0</dep.frontend-npm.version>
         <dep.httpcore5.version>5.4.2</dep.httpcore5.version>
-        <dep.iceberg.version>1.10.1</dep.iceberg.version>
->>>>>>> tags/481
+        <dep.iceberg.version>1.10.1.0-SNAPSHOT</dep.iceberg.version>
         <dep.jna.version>5.18.1</dep.jna.version>
         <dep.jsonwebtoken.version>0.13.0</dep.jsonwebtoken.version>
         <dep.jts.version>1.20.0</dep.jts.version>
@@ -330,7 +320,14 @@
             </dependency>
 
             <dependency>
-<<<<<<< HEAD
+                <!-- Clickhouse client will by default use LZ4 compression, which requires this dependency -->
+                <!-- https://github.com/ClickHouse/clickhouse-docs/pull/2408/files -->
+                <groupId>at.yawk.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>1.11.0</version>
+            </dependency>
+
+            <dependency>
                 <groupId>cccs.ap.iceberg</groupId>
                 <artifactId>iceberg-api</artifactId>
                 <version>${dep.iceberg.version}</version>
@@ -377,14 +374,8 @@
 
             <dependency>
                 <groupId>cccs.ap.iceberg</groupId>
-                <artifactId>iceberg-nessie</artifactId>
+                <artifactId>iceberg-gcp</artifactId>
                 <version>${dep.iceberg.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.slf4j</groupId>
-                        <artifactId>slf4j-api</artifactId>
-                    </exclusion>
-                </exclusions>
             </dependency>
 
             <dependency>
@@ -425,13 +416,6 @@
                         <artifactId>slf4j-api</artifactId>
                     </exclusion>
                 </exclusions>
-=======
-                <!-- Clickhouse client will by default use LZ4 compression, which requires this dependency -->
-                <!-- https://github.com/ClickHouse/clickhouse-docs/pull/2408/files -->
-                <groupId>at.yawk.lz4</groupId>
-                <artifactId>lz4-java</artifactId>
-                <version>1.11.0</version>
->>>>>>> tags/481
             </dependency>
 
             <dependency>
@@ -2021,100 +2005,6 @@
             </dependency>
 
             <dependency>
-<<<<<<< HEAD
-=======
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-api</artifactId>
-                <version>${dep.iceberg.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.slf4j</groupId>
-                        <artifactId>slf4j-api</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-aws</artifactId>
-                <version>${dep.iceberg.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-core</artifactId>
-                <version>${dep.iceberg.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.apache.avro</groupId>
-                        <artifactId>avro</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.slf4j</groupId>
-                        <artifactId>slf4j-api</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-core</artifactId>
-                <version>${dep.iceberg.version}</version>
-                <classifier>tests</classifier>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.apache.avro</groupId>
-                        <artifactId>avro</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.slf4j</groupId>
-                        <artifactId>slf4j-api</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-gcp</artifactId>
-                <version>${dep.iceberg.version}</version>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-orc</artifactId>
-                <version>${dep.iceberg.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.apache.avro</groupId>
-                        <artifactId>avro</artifactId>
-                    </exclusion>
-                    <exclusion>
-                        <groupId>org.slf4j</groupId>
-                        <artifactId>slf4j-api</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-parquet</artifactId>
-                <version>${dep.iceberg.version}</version>
-                <exclusions>
-                    <exclusion>
-                        <groupId>org.slf4j</groupId>
-                        <artifactId>slf4j-api</artifactId>
-                    </exclusion>
-                </exclusions>
-            </dependency>
-
-            <dependency>
-                <groupId>org.apache.iceberg</groupId>
-                <artifactId>iceberg-snowflake</artifactId>
-                <version>${dep.iceberg.version}</version>
-            </dependency>
-
-            <dependency>
->>>>>>> tags/481
                 <groupId>org.apache.kafka</groupId>
                 <artifactId>kafka-clients</artifactId>
                 <version>4.2.0</version>
@@ -2870,7 +2760,33 @@
                             <exception>
                                 <conflictingDependencies>
                                     <dependency>
-<<<<<<< HEAD
+                                        <groupId>org.glassfish.jersey.containers</groupId>
+                                        <artifactId>jersey-container-servlet</artifactId>
+                                    </dependency>
+                                    <dependency>
+                                        <groupId>org.glassfish.jersey.core</groupId>
+                                        <artifactId>jersey-client</artifactId>
+                                    </dependency>
+                                    <dependency>
+                                        <groupId>org.glassfish.jersey.core</groupId>
+                                        <artifactId>jersey-common</artifactId>
+                                    </dependency>
+                                    <dependency>
+                                        <groupId>org.glassfish.jersey.core</groupId>
+                                        <artifactId>jersey-server</artifactId>
+                                    </dependency>
+                                    <dependency>
+                                        <groupId>org.glassfish.jersey.inject</groupId>
+                                        <artifactId>jersey-hk2</artifactId>
+                                    </dependency>
+                                </conflictingDependencies>
+                                <resources>
+                                    <resource>about.html</resource>
+                                </resources>
+                            </exception>
+                            <exception>
+                                <conflictingDependencies>
+                                    <dependency>
                                         <groupId>com.dremio.iceberg.authmgr</groupId>
                                         <artifactId>authmgr-oauth2-runtime</artifactId>
                                     </dependency>
@@ -2896,31 +2812,6 @@
                                     <class>jakarta.annotation.sql.DataSourceDefinition</class>
                                     <class>jakarta.annotation.sql.DataSourceDefinitions</class>
                                 </classes>
-=======
-                                        <groupId>org.glassfish.jersey.containers</groupId>
-                                        <artifactId>jersey-container-servlet</artifactId>
-                                    </dependency>
-                                    <dependency>
-                                        <groupId>org.glassfish.jersey.core</groupId>
-                                        <artifactId>jersey-client</artifactId>
-                                    </dependency>
-                                    <dependency>
-                                        <groupId>org.glassfish.jersey.core</groupId>
-                                        <artifactId>jersey-common</artifactId>
-                                    </dependency>
-                                    <dependency>
-                                        <groupId>org.glassfish.jersey.core</groupId>
-                                        <artifactId>jersey-server</artifactId>
-                                    </dependency>
-                                    <dependency>
-                                        <groupId>org.glassfish.jersey.inject</groupId>
-                                        <artifactId>jersey-hk2</artifactId>
-                                    </dependency>
-                                </conflictingDependencies>
-                                <resources>
-                                    <resource>about.html</resource>
-                                </resources>
->>>>>>> tags/481
                             </exception>
                         </exceptions>
                     </configuration>

@@ -48,12 +48,8 @@ public final class ConcurrencyLimitHttpPipelinePolicy
             Thread.currentThread().interrupt();
             return Mono.error(e);
         }
-<<<<<<< HEAD
-        return next.process().doFinally(_ -> semaphore.release());
-=======
         return next.process()
                 .timeout(requestTimeout)
                 .doFinally(_ -> semaphore.release());
->>>>>>> tags/481
     }
 }

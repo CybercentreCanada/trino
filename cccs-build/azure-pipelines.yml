@@ -12,8 +12,8 @@ variables:
   imageRepository: cccs/dev/trino-build
   buildTimestamp: $[format('{0:yyyyMMddHHmmss}', pipeline.startTime)]
   baseImageTag: 25-jdk-noble
-  trinoVersion: 478
-  mavenVersion: 3.9.11
+  trinoVersion: 481
+  mavenVersion: 3.9.15
 
 pool:
   vmImage: ubuntu-latest
