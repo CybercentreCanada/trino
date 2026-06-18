@@ -59,8 +59,11 @@ public class TestOracleConfig
                 .put("oracle.connection-pool.min-size", "10")
                 .put("oracle.connection-pool.max-size", "20")
                 .put("oracle.connection-pool.inactive-timeout", "30s")
-                .put("oracle.connection-pool.wait-timeout", "10s")
                 .put("oracle.connection-pool.wait-duration", "10s")
+                .put("oracle.fetch-size", "2000")
+                .buildOrThrow();
+
+        OracleConfig expected = new OracleConfig()
                 .setSynonymsEnabled(true)
                 .setRemarksReportingEnabled(true)
                 .setDefaultNumberScale(2)
@@ -76,7 +79,11 @@ public class TestOracleConfig
     }
 
     @Test
+    public void testValidation()
+    {
+        assertFailsValidation(
                 new OracleConfig()
+                        .setDefaultNumberScale(-1),
                 "defaultNumberScale",
                 "must be greater than or equal to 0",
                 Min.class);
