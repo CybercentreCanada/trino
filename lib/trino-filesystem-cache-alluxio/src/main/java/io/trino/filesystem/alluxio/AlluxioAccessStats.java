@@ -93,7 +93,7 @@ public class AlluxioAccessStats
     {
         if (bytes > 0) {
             log.debug("External read: %s bytes for %s", bytes, location);
-            externalReads.computeIfAbsent(normalizePath(location.toString()), p -> new Stats()).add(bytes);
+            externalReads.computeIfAbsent(normalizePath(location.toString()), _ -> new Stats()).add(bytes);
         }
     }
 
@@ -101,7 +101,7 @@ public class AlluxioAccessStats
     {
         if (bytes > 0) {
             log.debug("Cache read: %s bytes for %s", bytes, location);
-            cacheReads.computeIfAbsent(normalizePath(location.toString()), p -> new Stats()).add(bytes);
+            cacheReads.computeIfAbsent(normalizePath(location.toString()), _ -> new Stats()).add(bytes);
         }
     }
 

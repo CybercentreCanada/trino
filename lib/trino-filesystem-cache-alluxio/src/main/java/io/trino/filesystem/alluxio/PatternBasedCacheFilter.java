@@ -57,7 +57,7 @@ public class PatternBasedCacheFilter
     {
         CACHE_ALL,
         ALLOW_LIST,
-        BLOCK_LIST
+        BLOCK_LIST,
     }
 
     private final Path configPath;
