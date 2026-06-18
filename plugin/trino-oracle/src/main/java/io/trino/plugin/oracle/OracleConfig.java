@@ -180,18 +180,4 @@ public class OracleConfig
     {
         return getConnectionPoolMaxSize() >= getConnectionPoolMinSize();
     }
-
-    @NotNull
-    public Duration getConnectionWaitTimeout()
-    {
-        return connectionWaitTimeout;
-    }
-
-    @Config("oracle.connection-pool.wait-timeout")
-    @ConfigDescription("How long to wait for a used connection to be released by a client")
-    public OracleConfig setConnectionWaitTimeout(Duration connectionWaitTimeout)
-    {
-        this.connectionWaitTimeout = connectionWaitTimeout;
-        return this;
-    }
 }
