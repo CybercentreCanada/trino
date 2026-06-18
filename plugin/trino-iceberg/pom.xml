@@ -55,7 +55,7 @@
         </dependency>
 
         <dependency>
-            <groupId>cccs.ap.icebergg</groupId>
+            <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-gcp</artifactId>
         </dependency>
 
