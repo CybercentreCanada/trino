@@ -23,7 +23,6 @@ import io.airlift.log.Logger;
 import java.io.BufferedReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -75,7 +74,7 @@ public class PatternBasedCacheFilter
     public PatternBasedCacheFilter(AlluxioConfiguration conf, String cacheConfigFile)
     {
         log.debug("Initializing PatternBasedCacheFilter with config file: %s", cacheConfigFile);
-        this.configPath = Paths.get(cacheConfigFile);
+        this.configPath = Path.of(cacheConfigFile);
         this.reloadConfigExecutor.scheduleWithFixedDelay(this::reloadConfig, 0, 60, TimeUnit.SECONDS);
     }
 
