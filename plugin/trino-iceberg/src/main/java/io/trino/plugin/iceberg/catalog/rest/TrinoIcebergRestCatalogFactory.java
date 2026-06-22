@@ -36,6 +36,7 @@ import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.RESTUtil;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -120,7 +121,23 @@ public class TrinoIcebergRestCatalogFactory
                                 : ConnectorIdentity.ofUser("fake");
                         return fileIoFactory.create(fileSystemFactory.create(currentIdentity, config), true, config);
                     });
-            icebergCatalogInstance.initialize(catalogName.toString(), catalogPropertiesProvider.catalogProperties());
+
+            // Inject the per-user assertion or token if present (assertion takes precedence)
+            Map<String, String> initProps = new HashMap<>(catalogPropertiesProvider.catalogProperties());
+            Map<String, String> extras = identity.getExtraCredentials();
+
+            String assertion = extras.get("rest.auth.oauth2.jwt-bearer.assertion");
+            if (assertion != null && !assertion.isBlank()) {
+                initProps.put("rest.auth.oauth2.jwt-bearer.assertion", assertion);
+            }
+            else {
+                String token = extras.get("rest.auth.oauth2.token");
+                if (token != null && !token.isBlank()) {
+                    initProps.put("rest.auth.oauth2.token", token);
+                }
+            }
+
+            icebergCatalogInstance.initialize(catalogName.toString(), initProps);
 
             icebergCatalog = icebergCatalogInstance;
         }
