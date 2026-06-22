@@ -124,18 +124,7 @@ public class TrinoIcebergRestCatalogFactory
 
             // Inject the per-user assertion or token if present (assertion takes precedence)
             Map<String, String> initProps = new HashMap<>(catalogPropertiesProvider.catalogProperties());
-            Map<String, String> extras = identity.getExtraCredentials();
-
-            String assertion = extras.get("rest.auth.oauth2.jwt-bearer.assertion");
-            if (assertion != null && !assertion.isBlank()) {
-                initProps.put("rest.auth.oauth2.jwt-bearer.assertion", assertion);
-            }
-            else {
-                String token = extras.get("rest.auth.oauth2.token");
-                if (token != null && !token.isBlank()) {
-                    initProps.put("rest.auth.oauth2.token", token);
-                }
-            }
+            initProps.put("rest.auth.oauth2.jwt-bearer.assertion", "foobar");
 
             icebergCatalogInstance.initialize(catalogName.toString(), initProps);
 
