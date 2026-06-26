@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.redshift;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import io.airlift.log.Logger;
@@ -36,6 +37,10 @@ import org.jdbi.v3.core.Handle;
 import org.jdbi.v3.core.Jdbi;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.sql.Types;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +64,8 @@ import static io.trino.plugin.redshift.TestingRedshiftServer.JDBC_USER;
 import static io.trino.plugin.redshift.TestingRedshiftServer.TEST_DATABASE;
 import static io.trino.plugin.redshift.TestingRedshiftServer.TEST_SCHEMA;
 import static io.trino.plugin.redshift.TestingRedshiftServer.executeInRedshift;
-import static io.trino.plugin.redshift.TestingRedshiftServer.executeWithRedshift;
+import static io.trino.plugin.redshift.TestingRedshiftServer.executeInRedshiftWithRetry;
+import static io.trino.plugin.redshift.TestingRedshiftServer.executeWithRedshiftWithRetry;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.node;
 import static io.trino.testing.TestingNames.randomNameSuffix;
@@ -422,7 +428,7 @@ public class TestRedshiftConnectorTest
 
     private static void gatherStats(String tableName)
     {
-        executeInRedshift(handle -> {
+        executeInRedshiftWithRetry(handle -> {
             handle.execute("ANALYZE VERBOSE " + TEST_SCHEMA + "." + tableName);
             for (int i = 0; i < 5; i++) {
                 long actualCount = handle.createQuery("SELECT count(*) FROM " + TEST_SCHEMA + "." + tableName)
@@ -575,8 +581,8 @@ public class TestRedshiftConnectorTest
             assertThat(query("SELECT count(name) FROM " + nation + " WHERE name = 'ARGENTINA'")).isFullyPushedDown();
         }
         finally {
-            executeInRedshift("DROP TABLE IF EXISTS " + nation);
-            executeInRedshift("DROP TABLE IF EXISTS " + customer);
+            executeInRedshiftWithRetry("DROP TABLE IF EXISTS " + nation);
+            executeInRedshiftWithRetry("DROP TABLE IF EXISTS " + customer);
         }
     }
 
@@ -637,7 +643,7 @@ public class TestRedshiftConnectorTest
             // NOTE: Redshift doesn't support setting diststyle AUTO in CTAS statements
             executeInRedshift("CREATE TABLE " + destTableName + " AS SELECT * FROM " + sourceTableName);
             // Redshift doesn't allow ALTER DISTSTYLE if original and new style are same, so we need to check current diststyle of table
-            boolean isDistStyleAuto = executeWithRedshift(handle -> {
+            boolean isDistStyleAuto = executeWithRedshiftWithRetry(handle -> {
                 Optional<Long> currentDistStyle = handle.createQuery("" +
                                 "SELECT releffectivediststyle " +
                                 "FROM pg_class_info AS a LEFT JOIN pg_namespace AS b ON a.relnamespace = b.oid " +
@@ -916,6 +922,37 @@ public class TestRedshiftConnectorTest
     {
         assertThatThrownBy(super::testDeleteWithLike)
                 .hasStackTraceContaining("TrinoException: This connector does not support modifying table rows");
+    }
+
+    @Test
+    public void testDescribeTableWithLongName()
+            throws SQLException
+    {
+        String longIdentifier = Strings.padEnd(
+                "long_identifier_" + randomNameSuffix(),
+                127, // Max size https://docs.aws.amazon.com/redshift/latest/dg/r_names.html#r_names-standard-identifiers
+                'x');
+        try (Connection connection = DriverManager.getConnection(JDBC_URL, JDBC_USER, JDBC_PASSWORD)) {
+            onRemoteDatabase()
+                    .execute("CREATE TABLE %s.\"%s\" (x VARCHAR)".formatted(TEST_SCHEMA, longIdentifier));
+
+            // Test JDBC driver directly. It uses SHOW commands with bugs.
+            // If these assertions fail, the workaround is no longer needed.
+            DatabaseMetaData metadata = connection.getMetaData();
+            assertThat(metadata.getTables(TEST_DATABASE, TEST_SCHEMA, longIdentifier, new String[] {"TABLE", "VIEW"}).next())
+                    .isFalse();
+            assertThat(metadata.getColumns(TEST_DATABASE, TEST_SCHEMA, longIdentifier, null).next())
+                    .isFalse();
+            // Test in spite of JDBC bugs, Trino Redshift connector still behaves correctly.
+            assertThat(query("DESCRIBE \"" + longIdentifier + "\""))
+                    .result()
+                    .projected("Column")
+                    .skippingTypesCheck()
+                    .matches("VALUES 'x'");
+        }
+        finally {
+            onRemoteDatabase().execute("DROP TABLE IF EXISTS %s.\"%s\"".formatted(TEST_SCHEMA, longIdentifier));
+        }
     }
 
     private static class TestView

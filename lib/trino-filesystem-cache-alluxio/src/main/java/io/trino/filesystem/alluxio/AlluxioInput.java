@@ -77,11 +77,18 @@ public class AlluxioInput
         if (length == 0) {
             return;
         }
+        if (length > fileLength - position) {
+            throw new EOFException("Read past end of file %s: position %s, length %s, file length %s".formatted(inputFile.location(), position, length, fileLength));
+        }
 
+<<<<<<< HEAD
         int bytesRead = skipCache ? 0 : helper.doCacheRead(position, buffer, offset, length);
         if (length > bytesRead && position + bytesRead == fileLength) {
             throw new EOFException("Read %s of %s requested bytes: %s".formatted(bytesRead, length, inputFile.location()));
         }
+=======
+        int bytesRead = helper.doCacheRead(position, buffer, offset, length);
+>>>>>>> tags/482
         doExternalRead(position + bytesRead, buffer, offset + bytesRead, length - bytesRead);
     }
 

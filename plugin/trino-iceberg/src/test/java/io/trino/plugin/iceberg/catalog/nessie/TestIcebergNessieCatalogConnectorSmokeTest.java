@@ -26,12 +26,10 @@ import io.trino.plugin.iceberg.containers.NessieContainer;
 import io.trino.testing.QueryRunner;
 import io.trino.testing.TestingConnectorBehavior;
 import io.trino.tpch.TpchTable;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.nessie.NessieCatalog;
 import org.junit.jupiter.api.AfterAll;
@@ -98,7 +96,7 @@ public class TestIcebergNessieCatalogConnectorSmokeTest
                         .put(URI, nessieContainer.getRestApiUri())
                         .put(WAREHOUSE_LOCATION, tempDir.toString())
                         .buildOrThrow(),
-                new Configuration(false));
+                null);
 
         return IcebergQueryRunner.builder()
                 .setBaseDataDir(Optional.of(tempDir))
@@ -109,6 +107,7 @@ public class TestIcebergNessieCatalogConnectorSmokeTest
                                 "iceberg.nessie-catalog.uri", nessieContainer.getRestApiUri(),
                                 "iceberg.nessie-catalog.default-warehouse-dir", tempDir.toString(),
                                 "iceberg.writer-sort-buffer-size", "1MB"))
+                .addIcebergProperty("fs.hadoop.enabled", "true")
                 .setSchemaInitializer(
                         SchemaInitializer.builder()
                                 .withClonedTpchTables(ImmutableList.<TpchTable<?>>builder()
@@ -136,12 +135,11 @@ public class TestIcebergNessieCatalogConnectorSmokeTest
         }
 
         assertThat(e)
-                .hasMessageContaining("Failed to commit during write:")
-                .hasMessageContaining("Cannot commit: ref hash is out of date");
+                .hasMessageContaining("Failed to commit during write:");
         assertThat(Throwables.getCausalChain(e))
-                .anySatisfy(throwable -> assertThat(throwable)
-                        .isInstanceOf(CommitFailedException.class)
-                        .hasMessageContaining("Cannot commit: ref hash is out of date"));
+                .anySatisfy(throwable -> assertThat(nullToEmpty(throwable.getMessage())).containsAnyOf(
+                        "Cannot commit: ref hash is out of date",
+                        "Found new conflicting delete files that can apply to records matching"));
     }
 
     @Test
