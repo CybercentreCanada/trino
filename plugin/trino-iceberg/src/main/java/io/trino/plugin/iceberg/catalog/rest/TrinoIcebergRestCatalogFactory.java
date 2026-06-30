@@ -36,6 +36,7 @@ import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.RESTUtil;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -109,23 +110,6 @@ public class TrinoIcebergRestCatalogFactory
         // Creation of the RESTSessionCatalog is lazy due to required network calls
         // for authorization and config route
         if (icebergCatalog == null) {
-<<<<<<< HEAD
-            ImmutableMap.Builder<String, String> properties = ImmutableMap.builder();
-            properties.put(CatalogProperties.URI, serverUri.toString());
-            warehouse.ifPresent(location -> properties.put(CatalogProperties.WAREHOUSE_LOCATION, location));
-            prefix.ifPresent(prefix -> properties.put("prefix", prefix));
-            properties.put("view-endpoints-supported", Boolean.toString(viewEndpointsEnabled));
-            properties.put("trino-version", trinoVersion);
-            properties.put(AUTH_SESSION_TIMEOUT_MS, String.valueOf(sessionTimeout.toMillis()));
-            properties.putAll(securityProperties.get());
-            properties.putAll(identity.getExtraCredentials());
-
-            if (vendedCredentialsEnabled) {
-                properties.put("header.X-Iceberg-Access-Delegation", "vended-credentials");
-            }
-
-=======
->>>>>>> tags/481
             RESTSessionCatalog icebergCatalogInstance = new RESTSessionCatalog(
                     config -> HTTPClient.builder(config)
                             .uri(config.get(CatalogProperties.URI))
@@ -137,7 +121,23 @@ public class TrinoIcebergRestCatalogFactory
                                 : ConnectorIdentity.ofUser("fake");
                         return fileIoFactory.create(fileSystemFactory.create(currentIdentity, config), true, config);
                     });
-            icebergCatalogInstance.initialize(catalogName.toString(), catalogPropertiesProvider.catalogProperties());
+
+            // Inject the per-user assertion or token if present (assertion takes precedence)
+            Map<String, String> initProps = new HashMap<>(catalogPropertiesProvider.catalogProperties());
+            Map<String, String> extras = identity.getExtraCredentials();
+
+            String assertion = extras.get("rest.auth.oauth2.jwt-bearer.assertion");
+            if (assertion != null && !assertion.isBlank()) {
+                initProps.put("rest.auth.oauth2.jwt-bearer.assertion", assertion);
+            }
+            else {
+                String token = extras.get("rest.auth.oauth2.token");
+                if (token != null && !token.isBlank()) {
+                    initProps.put("rest.auth.oauth2.token", token);
+                }
+            }
+
+            icebergCatalogInstance.initialize(catalogName.toString(), initProps);
 
             icebergCatalog = icebergCatalogInstance;
         }

@@ -74,11 +74,8 @@ public class AzureFileSystemFactory
                 config.getMaxSingleUploadSize(),
                 config.getMaxHttpRequests(),
                 config.getMaxHttpConnections(),
-<<<<<<< HEAD
-=======
                 config.getConnectionPoolMaxIdleTime(),
                 config.getHttpRequestTimeout(),
->>>>>>> tags/481
                 config.getApplicationId(),
                 config.isMultipartWriteEnabled());
     }
@@ -93,11 +90,8 @@ public class AzureFileSystemFactory
             DataSize maxSingleUploadSize,
             int maxHttpRequests,
             int maxHttpConnections,
-<<<<<<< HEAD
-=======
             Duration connectionPoolMaxIdleTime,
             Duration httpRequestTimeout,
->>>>>>> tags/481
             String applicationId,
             boolean multipart)
     {
@@ -111,14 +105,10 @@ public class AzureFileSystemFactory
         requireNonNull(connectionPoolMaxIdleTime, "connectionPoolMaxIdleTime is null");
         requireNonNull(httpRequestTimeout, "httpRequestTimeout is null");
         this.tracingOptions = new OpenTelemetryTracingOptions().setOpenTelemetry(openTelemetry);
-<<<<<<< HEAD
-        this.connectionProvider = ConnectionProvider.create(applicationId, maxHttpConnections);
-=======
         this.connectionProvider = ConnectionProvider.builder(applicationId)
                 .maxConnections(maxHttpConnections)
                 .maxIdleTime(connectionPoolMaxIdleTime.toJavaTime())
                 .build();
->>>>>>> tags/481
         this.eventLoopGroup = new MultiThreadIoEventLoopGroup(NioIoHandler.newFactory());
         HttpClientOptions clientOptions = new HttpClientOptions();
         clientOptions.setTracingOptions(tracingOptions);

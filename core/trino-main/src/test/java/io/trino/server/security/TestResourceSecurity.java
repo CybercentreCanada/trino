@@ -82,9 +82,11 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import static com.google.common.hash.Hashing.sha256;
 import static com.google.common.net.HttpHeaders.AUTHORIZATION;
@@ -145,6 +147,7 @@ public class TestResourceSecurity
     private static final String MANAGEMENT_PASSWORD = "management-password";
     private static final String HMAC_KEY = Resources.getResource("hmac_key.txt").getPath();
     private static final String JWK_KEY_ID = "test-rsa";
+    private static final String GROUPS_CLAIM = "groups";
     private static final String TRINO_AUDIENCE = "trino-client";
     private static final String ADDITIONAL_AUDIENCE = "https://external-service.com";
     private static final String UNTRUSTED_CLIENT_AUDIENCE = "https://untrusted.com";
@@ -795,6 +798,14 @@ public class TestResourceSecurity
     public void testOAuth2Groups()
             throws Exception
     {
+        testOAuth2Groups(Optional.empty());
+        testOAuth2Groups(Optional.of(ImmutableSet.of()));
+        testOAuth2Groups(Optional.of(ImmutableSet.of("admin", "public")));
+    }
+
+    private void testOAuth2Groups(Optional<Set<String>> groups)
+            throws Exception
+    {
         try (TokenServer tokenServer = new TokenServer(Optional.empty());
                 TestingTrinoServer server = TestingTrinoServer.builder()
                         .setProperties(ImmutableMap.<String, String>builder()
@@ -802,13 +813,14 @@ public class TestResourceSecurity
                                 .put("web-ui.enabled", "true")
                                 .put("http-server.authentication.type", "oauth2")
                                 .putAll(getOAuth2Properties(tokenServer))
+                                .put("deprecated.http-server.authentication.oauth2.groups-field", GROUPS_CLAIM)
                                 .buildOrThrow())
                         .setAdditionalModule(oauth2Module(tokenServer))
                         .setSystemAccessControl(TestSystemAccessControl.NO_IMPERSONATION)
                         .build()) {
             HttpServerInfo httpServerInfo = server.getInstance(Key.get(HttpServerInfo.class));
 
-            String accessToken = tokenServer.issueAccessToken();
+            String accessToken = tokenServer.issueAccessToken(groups);
             OkHttpClient clientWithOAuthToken = client.newBuilder()
                     .authenticator((_, response) -> response.request().newBuilder()
                             .header(AUTHORIZATION, "Bearer " + accessToken)
@@ -824,6 +836,7 @@ public class TestResourceSecurity
                 assertThat(response.code()).isEqualTo(SC_OK);
                 assertThat(response.header("user")).isEqualTo(TEST_USER);
                 assertThat(response.header("principal")).isEqualTo(TEST_USER);
+                assertThat(response.header("groups")).isEqualTo(groups.map(TestResource::toHeader).orElse(""));
             }
 
             OkHttpClient clientWithOAuthCookie = client.newBuilder()
@@ -853,6 +866,7 @@ public class TestResourceSecurity
                 assertThat(response.code()).isEqualTo(SC_OK);
                 assertThat(response.header("user")).isEqualTo(TEST_USER);
                 assertThat(response.header("principal")).isEqualTo(TEST_USER);
+                assertThat(response.header("groups")).isEqualTo(groups.map(TestResource::toHeader).orElse(""));
             }
         }
     }
@@ -1041,7 +1055,7 @@ public class TestResourceSecurity
             this.principalField = requireNonNull(principalField, "principalField is null");
             jwkServer = createTestingJwkServer();
             jwkServer.start();
-            accessToken = issueAccessToken();
+            accessToken = issueAccessToken(Optional.empty());
         }
 
         @Override
@@ -1124,7 +1138,7 @@ public class TestResourceSecurity
             return REFRESH_TOKEN;
         }
 
-        public String issueAccessToken()
+        public String issueAccessToken(Optional<Set<String>> groups)
         {
             JwtBuilder accessToken = newJwtBuilder()
                     .signWith(JWK_PRIVATE_KEY)
@@ -1138,6 +1152,7 @@ public class TestResourceSecurity
             else {
                 accessToken.subject(TEST_USER);
             }
+            groups.ifPresent(groupsClaim -> accessToken.claim(GROUPS_CLAIM, groupsClaim));
             return accessToken.compact();
         }
 
@@ -1199,7 +1214,13 @@ public class TestResourceSecurity
             return jakarta.ws.rs.core.Response.ok()
                     .header("user", identity.getUser())
                     .header("principal", identity.getPrincipal().map(Principal::getName).orElse(null))
+                    .header("groups", toHeader(identity.getGroups()))
                     .build();
+        }
+
+        public static String toHeader(Set<String> groups)
+        {
+            return groups.stream().sorted().collect(Collectors.joining(","));
         }
     }
 

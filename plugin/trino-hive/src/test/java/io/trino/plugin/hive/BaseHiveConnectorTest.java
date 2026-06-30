@@ -167,7 +167,7 @@ import static io.trino.plugin.hive.HiveTableProperties.STORAGE_FORMAT_PROPERTY;
 import static io.trino.plugin.hive.TestingHiveUtils.getConnectorService;
 import static io.trino.plugin.hive.ViewReaderUtil.PRESTO_VIEW_FLAG;
 import static io.trino.plugin.hive.util.HiveTypeTranslator.toHiveType;
-import static io.trino.plugin.hive.util.HiveTypeUtil.getTypeSignature;
+import static io.trino.plugin.hive.util.HiveTypeUtil.getTypeDescriptor;
 import static io.trino.plugin.hive.util.HiveUtil.columnExtraInfo;
 import static io.trino.spi.security.Identity.ofUser;
 import static io.trino.spi.security.SelectedRole.Type.ROLE;
@@ -2413,7 +2413,7 @@ public abstract class BaseHiveConnectorTest
                         .mapToObj(i -> format("MAP(ARRAY[%s, %s], ARRAY[%s, %s])", i + 567.123, i + 568.456, i + 22769, i + 22770))
                         .collect(toImmutableList()),
                 "MAP(ARRAY[567.123, 568.456], ARRAY[22769, 22770])",
-                149,
+                166,
                 1);
     }
 
@@ -4552,6 +4552,24 @@ public abstract class BaseHiveConnectorTest
     }
 
     @Test
+    public void testInsertWithNullFormat()
+    {
+        for (HiveStorageFormat storageFormat : ImmutableList.of(HiveStorageFormat.TEXTFILE, HiveStorageFormat.RCTEXT, HiveStorageFormat.SEQUENCEFILE)) {
+            String tableName = "test_insert_with_null_format_" + storageFormat.name().toLowerCase(ENGLISH);
+            assertUpdate("CREATE TABLE %s (value VARCHAR) WITH (format = '%s', null_format = 'null_value')"
+                    .formatted(tableName, storageFormat));
+
+            assertUpdate(
+                    "INSERT INTO %s VALUES ('null_value'), (NULL), ('non-null'), (''), ('\\N')".formatted(tableName),
+                    5);
+
+            assertThat(query("SELECT * FROM " + tableName))
+                    .matches("VALUES NULL, NULL, VARCHAR 'non-null', VARCHAR '', VARCHAR '\\N'");
+            assertUpdate("DROP TABLE " + tableName);
+        }
+    }
+
+    @Test
     public void testCreateExternalTableWithDataNotAllowed()
             throws IOException
     {
@@ -6432,7 +6450,7 @@ public abstract class BaseHiveConnectorTest
         assertUpdate("CREATE TABLE test_table_with_char_rc WITH (format = 'RCTEXT') AS SELECT CAST('khaki' AS CHAR(7)) char_column", 1);
         try {
             assertQuery(
-                    "SELECT * FROM test_table_with_char_rc WHERE char_column = 'khaki  '",
+                    "SELECT * FROM test_table_with_char_rc WHERE char_column = 'khaki'",
                     "VALUES ('khaki  ')");
         }
         finally {
@@ -8502,15 +8520,12 @@ public abstract class BaseHiveConnectorTest
     @Override
     protected boolean isColumnNameRejected(Exception exception, String columnName, boolean delimited)
     {
-        switch (columnName) {
-            case " aleadingspace":
-                return "Hive column names must not start with a space: ' aleadingspace'".equals(exception.getMessage());
-            case "atrailingspace ":
-                return "Hive column names must not end with a space: 'atrailingspace '".equals(exception.getMessage());
-            case "a,comma":
-                return "Hive column names must not contain commas: 'a,comma'".equals(exception.getMessage());
-        }
-        return false;
+        return switch (columnName) {
+            case " aleadingspace" -> "Hive column names must not start with a space: ' aleadingspace'".equals(exception.getMessage());
+            case "atrailingspace " -> "Hive column names must not end with a space: 'atrailingspace '".equals(exception.getMessage());
+            case "a,comma" -> "Hive column names must not contain commas: 'a,comma'".equals(exception.getMessage());
+            default -> false;
+        };
     }
 
     private void testColumnPruning(Session session, HiveStorageFormat storageFormat)
@@ -8916,6 +8931,112 @@ public abstract class BaseHiveConnectorTest
                     assertUpdate("DROP TABLE IF EXISTS " + tableName);
                     assertUpdate(withTimestampPrecision(session, precision), format(createTableAs, storageFormat, ts), 1);
                 });
+    }
+
+    @Test
+    public void testNestedTimestampContainerPrecision()
+    {
+        record TimestampTestData(int id, HiveTimestampPrecision writePrecision, String writeValue, String millisValue, String microsValue, String nanosValue)
+        {
+            String readValue(HiveTimestampPrecision precision)
+            {
+                return switch (precision) {
+                    case MILLISECONDS -> millisValue;
+                    case MICROSECONDS -> microsValue;
+                    case NANOSECONDS -> nanosValue;
+                };
+            }
+        }
+
+        List<TimestampTestData> testData = List.of(
+                new TimestampTestData(
+                        1,
+                        HiveTimestampPrecision.MILLISECONDS,
+                        "2020-01-02 12:01:00.999",
+                        "2020-01-02 12:01:00.999",
+                        "2020-01-02 12:01:00.999000",
+                        "2020-01-02 12:01:00.999000000"),
+                new TimestampTestData(
+                        2,
+                        HiveTimestampPrecision.MICROSECONDS,
+                        "2020-01-02 12:01:00.111499",
+                        "2020-01-02 12:01:00.111",
+                        "2020-01-02 12:01:00.111499",
+                        "2020-01-02 12:01:00.111499000"),
+                new TimestampTestData(
+                        3,
+                        HiveTimestampPrecision.NANOSECONDS,
+                        "2020-01-02 12:01:00.111499999",
+                        "2020-01-02 12:01:00.111",
+                        "2020-01-02 12:01:00.111500",
+                        "2020-01-02 12:01:00.111499999"));
+
+        for (HiveStorageFormat storageFormat : List.of(HiveStorageFormat.ORC, HiveStorageFormat.PARQUET, HiveStorageFormat.RCBINARY, HiveStorageFormat.RCTEXT, HiveStorageFormat.SEQUENCEFILE, HiveStorageFormat.TEXTFILE)) {
+            String tableName = "test_nested_timestamp_container_precision_" + storageFormat.name().toLowerCase(ENGLISH);
+            try {
+                assertUpdate(
+                        """
+                        CREATE TABLE %s (
+                           id INTEGER,
+                           arr ARRAY(TIMESTAMP),
+                           map MAP(TIMESTAMP, TIMESTAMP),
+                           row ROW(col TIMESTAMP),
+                           nested ARRAY(MAP(TIMESTAMP, ROW(col ARRAY(TIMESTAMP))))
+                        )
+                        WITH (format = '%s')
+                        """.formatted(tableName, storageFormat));
+
+                for (TimestampTestData entry : testData) {
+                    String timestamp = "TIMESTAMP '%s'".formatted(entry.writeValue());
+                    assertUpdate(
+                            withTimestampPrecision(getSession(), entry.writePrecision()),
+                            """
+                            INSERT INTO %s VALUES (
+                                %s,
+                                array[%3$s],
+                                map(array[%3$s], array[%3$s]),
+                                row(%3$s),
+                                array[map(array[%3$s], array[row(array[%3$s])])]
+                            )
+                            """.formatted(tableName, entry.id(), timestamp),
+                            1);
+                }
+
+                for (HiveTimestampPrecision precision : HiveTimestampPrecision.values()) {
+                    Session session = withTimestampPrecision(getSession(), precision);
+                    String type = "timestamp(%d)".formatted(precision.getPrecision());
+                    assertQuery(
+                            session,
+                            "SELECT typeof(arr), typeof(map), typeof(row), typeof(nested) FROM %s LIMIT 1".formatted(tableName),
+                            "VALUES ('array(%1$s)', 'map(%1$s, %1$s)', 'row(\"col\" %1$s)', 'array(map(%1$s, row(\"col\" array(%1$s))))')".formatted(type));
+                    assertQuery(
+                            session,
+                            """
+                            SELECT
+                               id,
+                               CAST(arr[1] AS VARCHAR),
+                               CAST(map_entries(map)[1][1] AS VARCHAR),
+                               CAST(map_entries(map)[1][2] AS VARCHAR),
+                               CAST(row.col AS VARCHAR),
+                               CAST(map_entries(nested[1])[1][1] AS VARCHAR),
+                               CAST(map_entries(nested[1])[1][2].col[1] AS VARCHAR)
+                            FROM %s
+                            ORDER BY id
+                            """.formatted(tableName),
+                            testData.stream()
+                                    .map(entry -> timestampContainerExpectedRow(entry.id(), entry.readValue(precision)))
+                                    .collect(joining(", ", "VALUES ", "")));
+                }
+            }
+            finally {
+                assertUpdate("DROP TABLE IF EXISTS " + tableName);
+            }
+        }
+    }
+
+    private static String timestampContainerExpectedRow(int id, String value)
+    {
+        return "(%s, '%2$s', '%2$s', '%2$s', '%2$s', '%2$s', '%2$s')".formatted(id, value);
     }
 
     private void testTimestampPrecisionWrites(Session session, String tableName, BiConsumer<String, HiveTimestampPrecision> populateData)
@@ -9581,7 +9702,7 @@ public abstract class BaseHiveConnectorTest
 
     private Type canonicalizeType(Type type)
     {
-        return TESTING_TYPE_MANAGER.getType(getTypeSignature(toHiveType(type)));
+        return TESTING_TYPE_MANAGER.getType(getTypeDescriptor(toHiveType(type)));
     }
 
     private void assertColumnType(TableMetadata tableMetadata, String columnName, Type expectedType)
