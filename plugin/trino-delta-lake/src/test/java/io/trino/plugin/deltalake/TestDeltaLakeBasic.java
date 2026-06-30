@@ -175,6 +175,7 @@ public class TestDeltaLakeBasic
         closeAfterClass(() -> deleteRecursively(catalogDir, ALLOW_INSECURE));
 
         return DeltaLakeQueryRunner.builder()
+                .addDeltaProperty("fs.hadoop.enabled", "true")
                 .addDeltaProperty("hive.metastore.catalog.dir", catalogDir.toUri().toString())
                 .addDeltaProperty("delta.register-table-procedure.enabled", "true")
                 .addDeltaProperty("delta.enable-non-concurrent-writes", "true")
@@ -548,7 +549,6 @@ public class TestDeltaLakeBasic
                     ImmutableList.of("0.12", "3.45"),
                     ImmutableList.of(decimal("0.12", createDecimalType(3, 2)), decimal("3.45", createDecimalType(3, 2))));
             testPartitionValuesParsedCheckpoint(mode, "varchar", ImmutableList.of("'alice'", "'bob'"), ImmutableList.of("alice", "bob"));
-            // TODO https://github.com/trinodb/trino/issues/24155 Cannot insert varbinary values into partitioned columns
             testPartitionValuesParsedCheckpoint(
                     mode,
                     "date",
@@ -566,7 +566,7 @@ public class TestDeltaLakeBasic
                     "timestamp with time zone",
                     ImmutableList.of("TIMESTAMP '1970-01-01 00:00:00 +00:00'", "TIMESTAMP '1970-01-02 00:00:00 +00:00'"),
                     ImmutableList.of(SqlTimestamp.newInstance(3, 0, 0), SqlTimestamp.newInstance(3, epochPlus1DayMillis, 0)));
-            // array, map, row types are unsupported as partition column type. This is tested in TestDeltaLakeConnectorTest.testCreateTableWithUnsupportedPartitionType.
+            // array, map, row, varbinary types are unsupported as partition column type. This is tested in TestDeltaLakeConnectorTest.testCreateTableWithUnsupportedPartitionType.
         }
     }
 
