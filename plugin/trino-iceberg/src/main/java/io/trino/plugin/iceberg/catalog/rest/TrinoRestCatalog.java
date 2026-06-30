@@ -943,7 +943,6 @@ public class TrinoRestCatalog
                 yield new SessionCatalog.SessionContext(sessionId, null, credentials, ImmutableMap.of(), session.getIdentity());
             }
             case USER -> {
-<<<<<<< HEAD
                 String sessionId;
                 String user = session.getUser();
                 String source = session.getSource().orElse("default");
@@ -958,9 +957,6 @@ public class TrinoRestCatalog
                     sessionId = format("%s-%s", user, source);
                 }
                 log.debug("Generated sessionId for %s with sessionType: %s", user, sessionId);
-=======
-                String sessionId = format("%s-%s-%s", session.getUser(), session.getQueryId(), session.getSource().orElse("default"));
->>>>>>> tags/482
 
                 Map<String, String> properties = ImmutableMap.of(
                         "user", session.getUser(),
