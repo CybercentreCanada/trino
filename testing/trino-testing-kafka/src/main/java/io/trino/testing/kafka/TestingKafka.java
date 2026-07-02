@@ -24,9 +24,10 @@ import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 import org.apache.kafka.common.serialization.LongSerializer;
+import org.testcontainers.containers.Container;
 import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.containers.Network;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.utility.MountableFile;
 
@@ -41,7 +42,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Stream;
@@ -49,7 +52,6 @@ import java.util.stream.Stream;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.String.format;
 import static java.time.temporal.ChronoUnit.MILLIS;
-import static org.testcontainers.containers.KafkaContainer.KAFKA_PORT;
 import static org.testcontainers.utility.MountableFile.forClasspathResource;
 
 public final class TestingKafka
@@ -57,14 +59,15 @@ public final class TestingKafka
 {
     private static final Logger log = Logger.get(TestingKafka.class);
 
-    private static final String DEFAULT_CONFLUENT_PLATFORM_VERSION = "7.9.0";
+    private static final String DEFAULT_CONFLUENT_PLATFORM_VERSION = "8.1.1";
     private static final int SCHEMA_REGISTRY_PORT = 8081;
+    private static final int KAFKA_PORT = 9092;
 
     private static final DockerImageName KAFKA_IMAGE_NAME = DockerImageName.parse("confluentinc/cp-kafka");
     private static final DockerImageName SCHEMA_REGISTRY_IMAGE_NAME = DockerImageName.parse("confluentinc/cp-schema-registry");
 
     private final Network network;
-    private final KafkaContainer kafka;
+    private final ConfluentKafkaContainer kafka;
     private final GenericContainer<?> schemaRegistry;
     private final boolean withSchemaRegistry;
     private final Closer closer = Closer.create();
@@ -95,10 +98,11 @@ public final class TestingKafka
         // Modify the template directly instead.
         MountableFile kafkaLogTemplate = forClasspathResource("log4j-kafka.properties.template");
         MountableFile schemaRegistryLogTemplate = forClasspathResource("log4j-schema-registry.properties.template");
-        kafka = new KafkaContainer(KAFKA_IMAGE_NAME.withTag(confluentPlatformVersion))
+        kafka = new ConfluentKafkaContainer(KAFKA_IMAGE_NAME.withTag(confluentPlatformVersion))
                 .withStartupAttempts(3)
                 .withNetwork(network)
                 .withNetworkAliases("kafka")
+                .withEnv("CLUSTER_ID", "test-cluster-" + UUID.randomUUID().toString().replaceAll("-", ""))
                 .withCopyFileToContainer(
                         kafkaLogTemplate,
                         "/etc/confluent/docker/log4j.properties.template");
@@ -106,7 +110,7 @@ public final class TestingKafka
                 .withStartupAttempts(3)
                 .withNetwork(network)
                 .withNetworkAliases("schema-registry")
-                .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:9092")
+                .withEnv("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", "PLAINTEXT://kafka:9093")
                 .withEnv("SCHEMA_REGISTRY_HOST_NAME", "0.0.0.0")
                 .withEnv("SCHEMA_REGISTRY_LISTENERS", "http://0.0.0.0:" + SCHEMA_REGISTRY_PORT)
                 .withEnv("SCHEMA_REGISTRY_HEAP_OPTS", "-Xmx1G")
@@ -154,21 +158,7 @@ public final class TestingKafka
 
     private void createTopic(int partitions, int replication, String topic)
     {
-        try {
-            List<String> command = new ArrayList<>();
-            command.add("kafka-topics");
-            command.add("--partitions");
-            command.add(Integer.toString(partitions));
-            command.add("--replication-factor");
-            command.add(Integer.toString(replication));
-            command.add("--topic");
-            command.add(topic);
-
-            kafka.execInContainer(command.toArray(new String[0]));
-        }
-        catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+        createTopicWithConfig(partitions, replication, topic, false);
     }
 
     public void createTopicWithConfig(int partitions, int replication, String topic, boolean enableLogAppendTime)
@@ -177,6 +167,7 @@ public final class TestingKafka
             List<String> command = new ArrayList<>();
             command.add("kafka-topics");
             command.add("--create");
+            command.add("--if-not-exists");
             command.add("--topic");
             command.add(topic);
             command.add("--partitions");
@@ -184,17 +175,46 @@ public final class TestingKafka
             command.add("--replication-factor");
             command.add(Integer.toString(replication));
             command.add("--bootstrap-server");
-            command.add("localhost:9092");
+            command.add("localhost:9093");
             if (enableLogAppendTime) {
                 command.add("--config");
                 command.add("message.timestamp.type=LogAppendTime");
             }
 
-            kafka.execInContainer(command.toArray(new String[0]));
+            executeKafkaTopicsCommand(topic, command);
+
+            executeKafkaTopicsCommand(topic, List.of(
+                    "kafka-topics",
+                    "--describe",
+                    "--topic",
+                    topic,
+                    "--bootstrap-server",
+                    "localhost:9093"));
         }
         catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private void executeKafkaTopicsCommand(String topic, List<String> command)
+    {
+        Failsafe.with(
+                        RetryPolicy.builder()
+                                .onRetry(event -> log.warn(event.getLastException(), "Retrying Kafka topic setup for %s", topic))
+                                .withMaxAttempts(10)
+                                .withBackoff(100, 10_000, MILLIS)
+                                .build())
+                .get(() -> {
+                    Container.ExecResult result = kafka.execInContainer(command.toArray(new String[0]));
+                    checkState(
+                            result.getExitCode() == 0,
+                            "Failed to execute Kafka topic command %s: exitCode=%s, stdout=%s, stderr=%s",
+                            command,
+                            result.getExitCode(),
+                            result.getStdout(),
+                            result.getStderr());
+                    return result;
+                });
     }
 
     public <K, V> RecordMetadata sendMessages(Stream<ProducerRecord<K, V>> recordStream)
@@ -206,7 +226,7 @@ public final class TestingKafka
     {
         try (KafkaProducer<K, V> producer = createProducer(extraProducerProperties)) {
             Future<RecordMetadata> future = recordStream.map(record -> send(producer, record))
-                    .reduce((first, second) -> second)
+                    .reduce((_, second) -> second)
                     .orElseGet(() -> Futures.immediateFuture(null));
             producer.flush();
             return future.get();
@@ -223,11 +243,11 @@ public final class TestingKafka
     private <K, V> Future<RecordMetadata> send(KafkaProducer<K, V> producer, ProducerRecord<K, V> record)
     {
         return Failsafe.with(
-                RetryPolicy.builder()
-                        .onRetry(event -> log.warn(event.getLastException(), "Retrying message send"))
-                        .withMaxAttempts(10)
-                        .withBackoff(1, 10_000, MILLIS)
-                        .build())
+                        RetryPolicy.builder()
+                                .onRetry(event -> log.warn(event.getLastException(), "Retrying message send"))
+                                .withMaxAttempts(10)
+                                .withBackoff(1, 10_000, MILLIS)
+                                .build())
                 .get(() -> producer.send(record));
     }
 
@@ -252,7 +272,7 @@ public final class TestingKafka
     private static Properties toProperties(Map<String, String> map)
     {
         Properties properties = new Properties();
-        for (Map.Entry<String, String> entry : map.entrySet()) {
+        for (Entry<String, String> entry : map.entrySet()) {
             properties.setProperty(entry.getKey(), entry.getValue());
         }
         return properties;

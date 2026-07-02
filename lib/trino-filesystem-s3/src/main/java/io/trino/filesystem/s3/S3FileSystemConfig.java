@@ -19,6 +19,7 @@ import com.google.common.net.HostAndPort;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.ConfigSecuritySensitive;
+import io.airlift.configuration.DefunctConfig;
 import io.airlift.configuration.LegacyConfig;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
@@ -28,7 +29,6 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import software.amazon.awssdk.core.signer.Signer;
 import software.amazon.awssdk.retries.api.RetryStrategy;
 import software.amazon.awssdk.services.s3.model.ObjectCannedACL;
 import software.amazon.awssdk.services.s3.model.StorageClass;
@@ -42,6 +42,7 @@ import static software.amazon.awssdk.awscore.retry.AwsRetryStrategy.adaptiveRetr
 import static software.amazon.awssdk.awscore.retry.AwsRetryStrategy.legacyRetryStrategy;
 import static software.amazon.awssdk.awscore.retry.AwsRetryStrategy.standardRetryStrategy;
 
+@DefunctConfig("s3.exclusive-create")
 public class S3FileSystemConfig
 {
     public enum S3SseType
@@ -87,19 +88,7 @@ public class S3FileSystemConfig
         Aws4Signer,
         AsyncAws4Signer,
         Aws4UnsignedPayloadSigner,
-        EventStreamAws4Signer;
-
-        @SuppressWarnings("deprecation")
-        public Signer create()
-        {
-            return switch (this) {
-                case AwsS3V4Signer -> software.amazon.awssdk.auth.signer.AwsS3V4Signer.create();
-                case Aws4Signer -> software.amazon.awssdk.auth.signer.Aws4Signer.create();
-                case AsyncAws4Signer -> software.amazon.awssdk.auth.signer.AsyncAws4Signer.create();
-                case Aws4UnsignedPayloadSigner -> software.amazon.awssdk.auth.signer.Aws4UnsignedPayloadSigner.create();
-                case EventStreamAws4Signer -> software.amazon.awssdk.auth.signer.EventStreamAws4Signer.create();
-            };
-        }
+        EventStreamAws4Signer,
     }
 
     public enum ObjectCannedAcl
@@ -175,7 +164,6 @@ public class S3FileSystemConfig
     private ObjectCannedAcl objectCannedAcl = ObjectCannedAcl.NONE;
     private RetryMode retryMode = RetryMode.LEGACY;
     private int maxErrorRetries = 20;
-    private boolean supportsExclusiveCreate = true;
     private boolean crossRegionAccessEnabled;
     private String applicationId = "Trino";
 
@@ -609,19 +597,6 @@ public class S3FileSystemConfig
     public S3FileSystemConfig setNonProxyHosts(String nonProxyHosts)
     {
         this.nonProxyHosts = ImmutableSet.copyOf(Splitter.on(',').omitEmptyStrings().trimResults().split(nullToEmpty(nonProxyHosts)));
-        return this;
-    }
-
-    public boolean isSupportsExclusiveCreate()
-    {
-        return supportsExclusiveCreate;
-    }
-
-    @Config("s3.exclusive-create")
-    @ConfigDescription("Whether S3-compatible storage supports exclusive create (true for Minio and AWS S3)")
-    public S3FileSystemConfig setSupportsExclusiveCreate(boolean supportsExclusiveCreate)
-    {
-        this.supportsExclusiveCreate = supportsExclusiveCreate;
         return this;
     }
 

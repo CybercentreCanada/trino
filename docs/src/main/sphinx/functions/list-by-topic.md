@@ -56,8 +56,11 @@ For more details, see {doc}`array`
 - {func}`any_match`
 - {func}`array_distinct`
 - {func}`array_except`
+- {func}`array_first`
+- {func}`array_histogram`
 - {func}`array_intersect`
 - {func}`array_join`
+- {func}`array_last`
 - {func}`array_max`
 - {func}`array_min`
 - {func}`array_position`
@@ -172,6 +175,13 @@ For more details, see {doc}`conversion`
 - {func}`format`
 - {func}`try_cast`
 - {func}`typeof`
+
+## DataSketches
+
+For more details, see {doc}`datasketches`
+
+- {func}`theta_sketch_cardinality`
+- {func}`theta_sketch_union`
 
 ## Date and time
 
@@ -429,6 +439,12 @@ For more details, see {doc}`regexp`
 - {func}`regexp_replace`
 - {func}`regexp_split`
 
+## Row
+
+For more details, see {doc}`row`
+
+- {func}`ROW::fields`
+
 ## Row pattern recognition expressions
 
 - {ref}`classifier <classifier-function>`
@@ -467,6 +483,7 @@ For more details, see {doc}`string`
 - {func}`codepoint`
 - {func}`concat`
 - {func}`concat_ws`
+- {func}`ends_with`
 - {func}`format`
 - {func}`from_utf8`
 - {func}`hamming_distance`
@@ -478,7 +495,7 @@ For more details, see {doc}`string`
 - {func}`luhn_check`
 - {func}`normalize`
 - {func}`position`
-- {func}`randmom_string`, catalog function of the [](/connector/faker)
+- {func}`random_string`, catalog function of the [](/connector/faker)
 - {func}`replace`
 - {func}`reverse`
 - {func}`rpad`

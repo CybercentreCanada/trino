@@ -35,6 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -109,7 +110,8 @@ public class TestAvroPageDataReaderWithoutTypeManager
             while (avroFileReader.hasNext()) {
                 Page p = avroFileReader.next();
                 MapBlock mb = (MapBlock) p.getBlock(0);
-                MapBlock expected = (MapBlock) MAP_VARCHAR_VARCHAR.createBlockFromKeyValue(Optional.empty(),
+                MapBlock expected = (MapBlock) MAP_VARCHAR_VARCHAR.createBlockFromKeyValue(
+                        Optional.empty(),
                         new int[] {0, 1},
                         createStringsBlock("key1"),
                         createStringsBlock("value1"));
@@ -178,7 +180,7 @@ public class TestAvroPageDataReaderWithoutTypeManager
             int totalRecords = 0;
             while (avroFileReader.hasNext()) {
                 Page p = avroFileReader.next();
-                for (Map.Entry<Integer, Class<?>> channelClass : expectedBlockPerChannel.entrySet()) {
+                for (Entry<Integer, Class<?>> channelClass : expectedBlockPerChannel.entrySet()) {
                     assertThat(p.getBlock(channelClass.getKey())).isInstanceOf(channelClass.getValue());
                 }
                 totalRecords += p.getPositionCount();
@@ -206,7 +208,7 @@ public class TestAvroPageDataReaderWithoutTypeManager
 
         GenericRecord expected = (GenericRecord) new RandomData(base, 1).iterator().next();
 
-        //test superset
+        // test superset
         TrinoInputFile input = createWrittenFileWithData(base, ImmutableList.of(expected));
         try (AvroFileReader avroFileReader = new AvroFileReader(input, superSchema, new BaseAvroTypeBlockHandler())) {
             int totalRecords = 0;
@@ -219,7 +221,7 @@ public class TestAvroPageDataReaderWithoutTypeManager
             assertThat(totalRecords).isEqualTo(1);
         }
 
-        //test reordered
+        // test reordered
         input = createWrittenFileWithData(base, ImmutableList.of(expected));
         try (AvroFileReader avroFileReader = new AvroFileReader(input, reorderdSchema, new BaseAvroTypeBlockHandler())) {
             int totalRecords = 0;
@@ -258,7 +260,7 @@ public class TestAvroPageDataReaderWithoutTypeManager
 
         TrinoInputFile inputFile = createWrittenFileWithSchema(1000, unionRecord);
 
-        //read the file with the non-union schema and ensure that no error thrown
+        // read the file with the non-union schema and ensure that no error thrown
         try (AvroFileReader avroFileReader = new AvroFileReader(inputFile, nonUnionRecord, new BaseAvroTypeBlockHandler())) {
             while (avroFileReader.hasNext()) {
                 assertThat(avroFileReader.next()).isNotNull();

@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
@@ -36,7 +37,9 @@ import static java.util.function.Function.identity;
 import static java.util.function.Predicate.not;
 import static java.util.stream.Collectors.toMap;
 
-@Command(name = "modulesToConnectors", mixinStandardHelpOptions = true,
+@Command(
+        name = "modulesToConnectors",
+        mixinStandardHelpOptions = true,
         description = "Maps Trino plugin modules to connectors they provide and filters them using an impacted modules list.")
 public class PluginReader
         implements Callable<Integer>
@@ -52,7 +55,7 @@ public class PluginReader
     @Option(names = {"-r", "--root-pom"}, description = "Trino root module pom.xml")
     private File rootPom = new File("pom.xml");
 
-    public static void main(String... args)
+    static void main(String... args)
     {
         int exitCode = new CommandLine(new PluginReader()).execute(args);
         System.exit(exitCode);
@@ -69,7 +72,7 @@ public class PluginReader
             }
         }
         Map<String, String> modulesToPlugins = mapModulesToPlugins(rootPom);
-        Stream<Map.Entry<String, String>> modulesStream = modulesToPlugins.entrySet().stream();
+        Stream<Entry<String, String>> modulesStream = modulesToPlugins.entrySet().stream();
         if (impactedModules.isPresent()) {
             List<String> nonPluginModules = impactedModules.get().stream()
                     .filter(not(modulesToPlugins::containsKey))

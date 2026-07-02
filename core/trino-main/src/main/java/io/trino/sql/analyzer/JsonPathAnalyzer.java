@@ -16,8 +16,11 @@ package io.trino.sql.analyzer;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import io.airlift.slice.Slices;
+import io.trino.json.XQueryRegex;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.OperatorNotFoundException;
+import io.trino.operator.scalar.JoniRegexpCasts;
 import io.trino.spi.TrinoException;
 import io.trino.spi.function.BoundSignature;
 import io.trino.spi.function.OperatorType;
@@ -80,7 +83,7 @@ import static io.trino.sql.analyzer.ExpressionAnalyzer.isNumericType;
 import static io.trino.sql.analyzer.ExpressionAnalyzer.isStringType;
 import static io.trino.sql.analyzer.ExpressionTreeUtils.extractLocation;
 import static io.trino.sql.analyzer.SemanticExceptions.semanticException;
-import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
+import static io.trino.sql.analyzer.TypeDescriptorProvider.fromTypes;
 import static io.trino.sql.jsonpath.tree.ArithmeticUnary.Sign.PLUS;
 import static io.trino.type.Json2016Type.JSON_2016;
 import static java.util.Objects.requireNonNull;
@@ -104,7 +107,7 @@ public class JsonPathAnalyzer
     public JsonPathAnalysis analyzeJsonPath(StringLiteral path, Map<String, Type> parameterTypes)
     {
         Location pathStart = extractLocation(path)
-                .map(location -> new Location(location.getLineNumber(), location.getColumnNumber()))
+                .map(location -> new Location(location.lineNumber(), location.columnNumber()))
                 .orElseThrow(() -> new IllegalStateException("missing NodeLocation in path"));
         PathNode root = PathParser.withRelativeErrorLocation(pathStart).parseJsonPath(path.getValue());
         new Visitor(parameterTypes, path).process(root);
@@ -292,7 +295,7 @@ public class JsonPathAnalyzer
             Type predicateType = process(node.getPredicate());
 
             requireNonNull(predicateType, "missing type of predicate expression");
-            checkState(predicateType.equals(BOOLEAN), "invalid type of predicate expression: " + predicateType.getDisplayName());
+            checkState(predicateType.equals(BOOLEAN), "invalid type of predicate expression: %s", predicateType.getDisplayName());
 
             if (sourceType != null) {
                 types.put(PathNodeRef.of(node), sourceType);
@@ -435,11 +438,11 @@ public class JsonPathAnalyzer
         {
             Type leftType = process(node.getLeft());
             requireNonNull(leftType, "missing type of predicate expression");
-            checkState(leftType.equals(BOOLEAN), "invalid type of predicate expression: " + leftType.getDisplayName());
+            checkState(leftType.equals(BOOLEAN), "invalid type of predicate expression: %s", leftType.getDisplayName());
 
             Type rightType = process(node.getRight());
             requireNonNull(rightType, "missing type of predicate expression");
-            checkState(rightType.equals(BOOLEAN), "invalid type of predicate expression: " + rightType.getDisplayName());
+            checkState(rightType.equals(BOOLEAN), "invalid type of predicate expression: %s", rightType.getDisplayName());
 
             types.put(PathNodeRef.of(node), BOOLEAN);
             return BOOLEAN;
@@ -450,11 +453,11 @@ public class JsonPathAnalyzer
         {
             Type leftType = process(node.getLeft());
             requireNonNull(leftType, "missing type of predicate expression");
-            checkState(leftType.equals(BOOLEAN), "invalid type of predicate expression: " + leftType.getDisplayName());
+            checkState(leftType.equals(BOOLEAN), "invalid type of predicate expression: %s", leftType.getDisplayName());
 
             Type rightType = process(node.getRight());
             requireNonNull(rightType, "missing type of predicate expression");
-            checkState(rightType.equals(BOOLEAN), "invalid type of predicate expression: " + rightType.getDisplayName());
+            checkState(rightType.equals(BOOLEAN), "invalid type of predicate expression: %s", rightType.getDisplayName());
 
             types.put(PathNodeRef.of(node), BOOLEAN);
             return BOOLEAN;
@@ -471,11 +474,36 @@ public class JsonPathAnalyzer
         @Override
         protected Type visitLikeRegexPredicate(LikeRegexPredicate node, Void context)
         {
-            throw semanticException(NOT_SUPPORTED, pathNode, "like_regex predicate in JSON path is not yet supported");
-            // TODO when like_regex is supported, this method should do the following:
-            // process(node.getPath());
-            // types.put(PathNodeRef.of(node), BOOLEAN);
-            // return BOOLEAN;
+            process(node.getPath());
+            Set<XQueryRegex.Flag> flags;
+            try {
+                flags = XQueryRegex.parseFlags(node.getFlag().orElse(""));
+            }
+            catch (IllegalArgumentException e) {
+                throw semanticException(INVALID_PATH, pathNode, e, "invalid like_regex flags in JSON path: %s", e.getMessage());
+            }
+            // SQL:2023 §9.46 treats a malformed pattern as a non-recoverable error (not subject to
+            // the path expression's ON ERROR clause), so we reject it at analysis time. Two passes:
+            //   1. XQueryRegex.validatePattern rejects Joni-isms that aren't valid XQuery regex
+            //      (POSIX classes, named groups, lookaround, possessive quantifiers, hex / unicode
+            //      escapes outside the XQuery \x{HHHH} form, etc.) — keeps the dialect honest.
+            //   2. JoniRegexpCasts.joniRegexp catches the remaining structural errors (unbalanced
+            //      brackets, dangling quantifiers, ...) via Joni's parser.
+            try {
+                XQueryRegex.validatePattern(node.getPattern());
+            }
+            catch (IllegalArgumentException e) {
+                throw semanticException(INVALID_PATH, pathNode, e, "invalid like_regex pattern in JSON path: %s", e.getMessage());
+            }
+            String translated = XQueryRegex.patternWithFlags(node.getPattern(), flags);
+            try {
+                JoniRegexpCasts.joniRegexp(Slices.utf8Slice(translated));
+            }
+            catch (TrinoException e) {
+                throw semanticException(INVALID_PATH, pathNode, e, "invalid like_regex pattern in JSON path: %s", e.getMessage());
+            }
+            types.put(PathNodeRef.of(node), BOOLEAN);
+            return BOOLEAN;
         }
 
         @Override
@@ -483,7 +511,7 @@ public class JsonPathAnalyzer
         {
             Type predicateType = process(node.getPredicate());
             requireNonNull(predicateType, "missing type of predicate expression");
-            checkState(predicateType.equals(BOOLEAN), "invalid type of predicate expression: " + predicateType.getDisplayName());
+            checkState(predicateType.equals(BOOLEAN), "invalid type of predicate expression: %s", predicateType.getDisplayName());
 
             types.put(PathNodeRef.of(node), BOOLEAN);
             return BOOLEAN;
@@ -503,7 +531,7 @@ public class JsonPathAnalyzer
         {
             Type predicateType = process(node.getPredicate());
             requireNonNull(predicateType, "missing type of predicate expression");
-            checkState(predicateType.equals(BOOLEAN), "invalid type of predicate expression: " + predicateType.getDisplayName());
+            checkState(predicateType.equals(BOOLEAN), "invalid type of predicate expression: %s", predicateType.getDisplayName());
 
             types.put(PathNodeRef.of(node), BOOLEAN);
             return BOOLEAN;

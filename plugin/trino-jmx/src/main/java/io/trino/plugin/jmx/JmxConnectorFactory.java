@@ -25,9 +25,9 @@ import io.trino.spi.connector.ConnectorFactory;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 
+import static io.airlift.bootstrap.ClosingBinder.closingBinder;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.configuration.ConfigBinder.configBinder;
-import static io.trino.plugin.base.ClosingBinder.closingBinder;
 import static io.trino.plugin.base.Versions.checkStrictSpiVersionMatch;
 import static java.util.concurrent.Executors.newSingleThreadScheduledExecutor;
 
@@ -63,6 +63,7 @@ public class JmxConnectorFactory
 
         Injector injector = app
                 .doNotInitializeLogging()
+                .disableSystemProperties()
                 .setRequiredConfigurationProperties(config)
                 .initialize();
 

@@ -37,11 +37,12 @@ import static io.trino.spi.type.DateTimeEncoding.packDateTimeWithZone;
 import static io.trino.spi.type.TimeZoneKey.getTimeZoneKey;
 import static io.trino.spi.type.TimestampWithTimeZoneType.MAX_PRECISION;
 import static io.trino.spi.type.TimestampWithTimeZoneType.MAX_SHORT_PRECISION;
-import static io.trino.type.DateTimes.MILLISECONDS_PER_SECOND;
+import static io.trino.spi.type.Timestamps.MILLISECONDS_PER_SECOND;
+import static io.trino.spi.type.Timestamps.round;
 import static io.trino.type.DateTimes.longTimestampWithTimeZone;
 import static io.trino.type.DateTimes.rescale;
-import static io.trino.type.DateTimes.round;
 
+// fallible
 @ScalarOperator(CAST)
 public final class VarcharToTimestampWithTimeZoneCast
 {
@@ -81,7 +82,7 @@ public final class VarcharToTimestampWithTimeZoneCast
         }
     }
 
-    private static long toShort(int precision, String value, Function<String, ZoneId> zoneId)
+    public static long toShort(int precision, String value, Function<String, ZoneId> zoneId)
     {
         checkArgument(precision <= MAX_SHORT_PRECISION, "precision must be less than max short timestamp precision");
 
@@ -134,7 +135,7 @@ public final class VarcharToTimestampWithTimeZoneCast
         return packDateTimeWithZone(epochSecond * MILLISECONDS_PER_SECOND + millisOfSecond, getTimeZoneKey(zone.getId()));
     }
 
-    private static LongTimestampWithTimeZone toLong(int precision, String value, Function<String, ZoneId> zoneId)
+    public static LongTimestampWithTimeZone toLong(int precision, String value, Function<String, ZoneId> zoneId)
     {
         checkArgument(precision > MAX_SHORT_PRECISION && precision <= MAX_PRECISION, "precision out of range");
 

@@ -316,9 +316,9 @@ public class TestHiveRedirectionToIceberg
         assertThat(onTrino().executeQuery("SHOW STATS FOR " + hiveTableName))
                 .containsOnly(
                         row("nationkey", null, 25d, 0d, null, "0", "24"),
-                        row("name", 1182d, 25d, 0d, null, null, null),
+                        row("name", 1212d, 25d, 0d, null, null, null),
                         row("regionkey", null, 5d, 0d, null, "0", "4"),
-                        row("comment", 3507d, 25d, 0d, null, null, null),
+                        row("comment", 3639d, 25d, 0d, null, null, null),
                         row(null, null, null, null, 25d, null, null));
 
         onTrino().executeQuery("DROP TABLE " + icebergTableName);
@@ -423,7 +423,7 @@ public class TestHiveRedirectionToIceberg
         assertTableComment("iceberg", "default", tableName).isNull();
 
         String tableComment = "This is my table, there are many like it but this one is mine";
-        onTrino().executeQuery(format("COMMENT ON TABLE " + hiveTableName + " IS '%s'", tableComment));
+        onTrino().executeQuery(format("COMMENT ON TABLE %s IS '%s'", hiveTableName, tableComment));
 
         assertTableComment("hive", "default", tableName).isEqualTo(tableComment);
         assertTableComment("iceberg", "default", tableName).isEqualTo(tableComment);

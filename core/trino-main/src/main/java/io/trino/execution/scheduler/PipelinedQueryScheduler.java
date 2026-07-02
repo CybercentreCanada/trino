@@ -370,7 +370,7 @@ public class PipelinedQueryScheduler
             if (state == DistributedStagesSchedulerState.FAILED) {
                 StageFailureInfo stageFailureInfo = distributedStagesScheduler.getFailureCause()
                         .orElseGet(() -> new StageFailureInfo(toFailure(new VerifyException("distributedStagesScheduler failed but failure cause is not present")), Optional.empty()));
-                ErrorCode errorCode = stageFailureInfo.getFailureInfo().getErrorCode();
+                ErrorCode errorCode = stageFailureInfo.getFailureInfo().errorCode();
                 if (shouldRetry(errorCode)) {
                     long delayInMillis = min(retryInitialDelay.toMillis() * ((long) pow(retryDelayScaleFactor, currentAttempt.get())), retryMaxDelay.toMillis());
                     currentAttempt.incrementAndGet();
@@ -506,7 +506,7 @@ public class PipelinedQueryScheduler
         @Override
         public void taskCreated(PlanFragmentId fragmentId, RemoteTask task)
         {
-            URI taskUri = uriBuilderFrom(task.getTaskStatus().getSelf())
+            URI taskUri = uriBuilderFrom(task.getTaskStatus().self())
                     .appendPath("results")
                     .appendPath("0").build();
             DirectExchangeInput input = new DirectExchangeInput(task.getTaskId(), taskUri.toString());
@@ -1319,17 +1319,12 @@ public class PipelinedQueryScheduler
                         schedulerStats.getSplitsScheduledPerIteration().add(result.getSplitsScheduled());
                         if (result.getBlockedReason().isPresent()) {
                             switch (result.getBlockedReason().get()) {
-                                case WRITER_SCALING:
+                                case WRITER_SCALING -> {
                                     // no-op
-                                    break;
-                                case WAITING_FOR_SOURCE:
-                                    schedulerStats.getWaitingForSource().update(1);
-                                    break;
-                                case SPLIT_QUEUES_FULL:
-                                    schedulerStats.getSplitQueuesFull().update(1);
-                                    break;
-                                default:
-                                    throw new UnsupportedOperationException("Unknown blocked reason: " + result.getBlockedReason().get());
+                                }
+                                case WAITING_FOR_SOURCE -> schedulerStats.getWaitingForSource().update(1);
+                                case SPLIT_QUEUES_FULL -> schedulerStats.getSplitQueuesFull().update(1);
+                                default -> throw new UnsupportedOperationException("Unknown blocked reason: " + result.getBlockedReason().get());
                             }
                         }
                     }
@@ -1593,8 +1588,7 @@ public class PipelinedQueryScheduler
     }
 
     private sealed interface BucketToPartitionKey
-            permits ConstantKey, PartitioningKey
-    {}
+            permits ConstantKey, PartitioningKey {}
 
     enum ConstantKey
             implements BucketToPartitionKey

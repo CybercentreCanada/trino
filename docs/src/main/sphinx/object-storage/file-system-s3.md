@@ -7,7 +7,7 @@ to support S3-compatible storage systems, only AWS S3 and MinIO are tested for
 compatibility. For other storage systems, perform your own testing and consult
 your vendor for more information.
 
-Enable the native implementation with `fs.native-s3.enabled=true` in your
+Enable the native implementation with `fs.s3.enabled=true` in your
 catalog properties file.
 
 ## General configuration
@@ -21,7 +21,7 @@ support:
 
 * - Property
   - Description
-* - `fs.native-s3.enabled`
+* - `fs.s3.enabled`
   - Activate the native implementation for S3 storage support. Defaults to
     `false`. Set to `true` to use S3 and enable all other properties.
 * - `s3.endpoint`
@@ -40,8 +40,6 @@ support:
   - AWS signing protocol to use for authenticating S3 requests. Supported values are: 
     `AwsS3V4Signer`, `Aws4Signer`, `AsyncAws4Signer`, `Aws4UnsignedPayloadSigner`, 
     `EventStreamAws4Signer`.
-* - `s3.exclusive-create`
-  - Whether conditional write is supported by the S3-compatible storage. Defaults to `true`.
 * - `s3.canned-acl`
   - [Canned ACL](https://docs.aws.amazon.com/AmazonS3/latest/userguide/acl-overview.html#canned-acl)
     to use when uploading files to S3. Defaults to `NONE`, which has the same
@@ -292,16 +290,18 @@ Example JSON configuration:
 (fs-legacy-s3-migration)=
 ## Migration from legacy S3 file system
 
-Trino includes legacy Amazon S3 support to use with a catalog using the Delta
-Lake, Hive, Hudi, or Iceberg connectors. Upgrading existing deployments to the
-current native implementation is recommended. Legacy support is deprecated and
-will be removed.
+Previous Trino releases included a legacy Amazon S3 file system implementation
+used by catalogs configured with `fs.hadoop.enabled` and `hive.s3.*`
+properties. That legacy support has been removed. Use the native S3 file
+system implementation.
 
 To migrate a catalog to use the native file system implementation for S3, make
 the following edits to your catalog configuration:
 
-1. Add the `fs.native-s3.enabled=true` catalog configuration property.
-2. Refer to the following table to rename your existing legacy catalog
+1. Add the `fs.s3.enabled=true` catalog configuration property.
+2. If your catalog enabled `fs.hadoop.enabled` only for legacy S3 access,
+   remove that property.
+3. Refer to the following table to rename your existing legacy catalog
    configuration properties to the corresponding native configuration
    properties. Supported configuration values are identical unless otherwise
    noted.
@@ -397,7 +397,7 @@ the following edits to your catalog configuration:
      -
   :::
 
-1. Remove the following legacy configuration properties if they exist in your
+4. Remove the following legacy configuration properties if they exist in your
    catalog configuration:
 
       * `hive.s3.storage-class`

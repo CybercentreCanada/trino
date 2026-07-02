@@ -56,8 +56,9 @@ public class TestDeltaLakePartitioningCompatibility
                 row(9, "with%percent"),
                 row(10, "with space"));
 
-        onTrino().executeQuery(format("CREATE TABLE delta.default.%s (id, col_name)" +
-                        "WITH(location = 's3://%s/%s', partitioned_by = ARRAY['col_name'], checkpoint_interval = " + interval + ") " +
+        onTrino().executeQuery(format(
+                "CREATE TABLE delta.default.%s (id, col_name)" +
+                        "WITH(location = 's3://%s/%s', partitioned_by = ARRAY['col_name'], checkpoint_interval = %s) " +
                         "AS VALUES " +
                         "(1, 'with-hyphen')," +
                         "(2, 'with.dot')," +
@@ -71,7 +72,8 @@ public class TestDeltaLakePartitioningCompatibility
                         "(10, 'with space')",
                 tableName,
                 bucketName,
-                tableDirectory));
+                tableDirectory,
+                interval));
 
         try {
             assertThat(onDelta().executeQuery("SELECT * FROM " + tableName)).containsOnly(expected);
@@ -106,9 +108,10 @@ public class TestDeltaLakePartitioningCompatibility
                 row(9, "with%percent"),
                 row(10, "with space"));
 
-        onDelta().executeQuery(format("CREATE TABLE default.%s " +
+        onDelta().executeQuery(format(
+                "CREATE TABLE default.%s " +
                         "USING DELTA " +
-                        "OPTIONS (checkpointInterval = " + interval + ") " +
+                        "OPTIONS (checkpointInterval = %s) " +
                         "PARTITIONED BY (`col_name`) LOCATION 's3://%s/%s' AS " +
                         "SELECT * FROM (VALUES " +
                         "(1, 'with-hyphen')," +
@@ -123,6 +126,7 @@ public class TestDeltaLakePartitioningCompatibility
                         "(10, 'with space')" +
                         ") t(id, col_name)",
                 tableName,
+                interval,
                 bucketName,
                 tableDirectory));
 
@@ -159,14 +163,17 @@ public class TestDeltaLakePartitioningCompatibility
                 row(9, "with%percent"),
                 row(10, "with space"));
 
-        onTrino().executeQuery(format("CREATE TABLE delta.default.%s (id INTEGER, col_name VARCHAR) " +
-                        "WITH(location = 's3://%s/%s', partitioned_by = ARRAY['col_name'], checkpoint_interval = " + interval + ") ",
+        onTrino().executeQuery(format(
+                "CREATE TABLE delta.default.%s (id INTEGER, col_name VARCHAR) " +
+                        "WITH(location = 's3://%s/%s', partitioned_by = ARRAY['col_name'], checkpoint_interval = %s) ",
                 tableName,
                 bucketName,
-                tableDirectory));
+                tableDirectory,
+                interval));
 
         try {
-            onTrino().executeQuery(format("INSERT INTO delta.default.%s " +
+            onTrino().executeQuery(format(
+                    "INSERT INTO delta.default.%s " +
                             "VALUES" +
                             "(1, 'with-hyphen'), " +
                             "(2, 'with.dot'), " +
@@ -211,16 +218,19 @@ public class TestDeltaLakePartitioningCompatibility
                 row(9, "with%percent"),
                 row(10, "with space"));
 
-        onDelta().executeQuery(format("CREATE TABLE default.%s (id INTEGER, col_name STRING) " +
+        onDelta().executeQuery(format(
+                "CREATE TABLE default.%s (id INTEGER, col_name STRING) " +
                         "USING DELTA " +
-                        "OPTIONS (checkpointInterval = " + interval + ") " +
+                        "OPTIONS (checkpointInterval = %s) " +
                         "PARTITIONED BY (`col_name`) LOCATION 's3://%s/%s'",
                 tableName,
+                interval,
                 bucketName,
                 tableDirectory));
 
         try {
-            onDelta().executeQuery(format("INSERT INTO default.%s " +
+            onDelta().executeQuery(format(
+                    "INSERT INTO default.%s " +
                             "VALUES" +
                             "(1, 'with-hyphen'), " +
                             "(2, 'with.dot'), " +
@@ -266,8 +276,9 @@ public class TestDeltaLakePartitioningCompatibility
                 row(109, "with%percent"),
                 row(110, "with space"));
 
-        onTrino().executeQuery(format("CREATE TABLE delta.default.%s (id, col_name) " +
-                        "WITH(location = 's3://%s/%s', partitioned_by = ARRAY['col_name'], checkpoint_interval = " + interval + ") " +
+        onTrino().executeQuery(format(
+                "CREATE TABLE delta.default.%s (id, col_name) " +
+                        "WITH(location = 's3://%s/%s', partitioned_by = ARRAY['col_name'], checkpoint_interval = %s) " +
                         "AS VALUES " +
                         "(1, 'with-hyphen')," +
                         "(2, 'with.dot')," +
@@ -281,7 +292,8 @@ public class TestDeltaLakePartitioningCompatibility
                         "(10, 'with space')",
                 tableName,
                 bucketName,
-                tableDirectory));
+                tableDirectory,
+                interval));
 
         try {
             onTrino().executeQuery(format("UPDATE delta.default.%s SET id = id + 100", tableName));
@@ -318,9 +330,10 @@ public class TestDeltaLakePartitioningCompatibility
                 row(109, "with%percent"),
                 row(110, "with space"));
 
-        onDelta().executeQuery(format("CREATE TABLE default.%s " +
+        onDelta().executeQuery(format(
+                "CREATE TABLE default.%s " +
                         "USING DELTA " +
-                        "OPTIONS (checkpointInterval = " + interval + ") " +
+                        "OPTIONS (checkpointInterval = %s) " +
                         "PARTITIONED BY (`col_name`) LOCATION 's3://%s/%s' AS " +
                         "SELECT * FROM (VALUES " +
                         "(1, 'with-hyphen')," +
@@ -335,6 +348,7 @@ public class TestDeltaLakePartitioningCompatibility
                         "(10, 'with space')" +
                         ") t(id, col_name)",
                 tableName,
+                interval,
                 bucketName,
                 tableDirectory));
 
@@ -357,7 +371,8 @@ public class TestDeltaLakePartitioningCompatibility
 
         List<QueryAssert.Row> expected = ImmutableList.of(row(1, "part"));
 
-        onDelta().executeQuery(format("CREATE TABLE default.%s " +
+        onDelta().executeQuery(format(
+                "CREATE TABLE default.%s " +
                         "USING DELTA " +
                         "PARTITIONED BY (`original_part_col`) LOCATION 's3://%s/%s' AS " +
                         "SELECT 1 AS original_part_col, 'part' AS new_part_col",
@@ -384,7 +399,8 @@ public class TestDeltaLakePartitioningCompatibility
         String tableName = "test_dl_partitioned_by_non_lowercase_" + randomNameSuffix();
         String tableDirectory = "delta-compatibility-test-" + tableName;
 
-        onDelta().executeQuery(format("CREATE TABLE default.%s " +
+        onDelta().executeQuery(format(
+                "CREATE TABLE default.%s " +
                         "USING DELTA " +
                         "PARTITIONED BY (`PART`) LOCATION 's3://%s/%s' AS " +
                         "SELECT 1 AS data, 2 AS `PART`",

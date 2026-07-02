@@ -13,8 +13,10 @@
  */
 package io.trino.plugin.iceberg.system.files;
 
+import com.google.common.collect.ImmutableMap;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorSplitSource;
+import io.trino.spi.connector.DynamicFilterSnapshot;
 import io.trino.spi.type.Type;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.Table;
@@ -25,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
 import static java.util.Objects.requireNonNull;
@@ -34,35 +37,34 @@ public final class FilesTableSplitSource
         implements ConnectorSplitSource
 {
     private final Table icebergTable;
-    private final Optional<Long> snapshotId;
+    private final OptionalLong snapshotId;
     private final String schemaJson;
     private final String metadataSchemaJson;
     private final Map<Integer, String> partitionSpecsByIdJson;
     private final Optional<Type> partitionColumnType;
-    private final Map<String, String> fileIoProperties;
+    private final Optional<Type> boundsColumnType;
     private boolean finished;
 
     public FilesTableSplitSource(
             Table icebergTable,
-            Optional<Long> snapshotId,
+            OptionalLong snapshotId,
             String schemaJson,
             String metadataSchemaJson,
             Map<Integer, String> partitionSpecsByIdJson,
             Optional<Type> partitionColumnType,
-            Map<String, String> fileIoProperties)
+            Optional<Type> boundsColumnType)
     {
         this.icebergTable = requireNonNull(icebergTable, "icebergTable is null");
         this.snapshotId = requireNonNull(snapshotId, "snapshotId is null");
         this.schemaJson = requireNonNull(schemaJson, "schemaJson is null");
         this.metadataSchemaJson = requireNonNull(metadataSchemaJson, "metadataSchemaJson is null");
-        this.partitionSpecsByIdJson = requireNonNull(partitionSpecsByIdJson, "partitionSpecsByIdJson is null");
+        this.partitionSpecsByIdJson = ImmutableMap.copyOf(partitionSpecsByIdJson);
         this.partitionColumnType = requireNonNull(partitionColumnType, "partitionColumnType is null");
-        this.fileIoProperties = requireNonNull(fileIoProperties, "fileIoProperties is null");
-        this.finished = false;
+        this.boundsColumnType = requireNonNull(boundsColumnType, "boundsColumnType is null");
     }
 
     @Override
-    public CompletableFuture<ConnectorSplitBatch> getNextBatch(int maxSize)
+    public CompletableFuture<List<ConnectorSplit>> getNextBatch(int maxSize, DynamicFilterSnapshot dynamicFilterSnapshot)
     {
         TableScan scan = icebergTable.newScan();
         snapshotId.ifPresent(scan::useSnapshot);
@@ -76,12 +78,12 @@ public final class FilesTableSplitSource
                         metadataSchemaJson,
                         partitionSpecsByIdJson,
                         partitionColumnType,
-                        fileIoProperties));
+                        boundsColumnType));
             }
         }
 
         finished = true;
-        return completedFuture(new ConnectorSplitBatch(splits, true));
+        return completedFuture(splits);
     }
 
     @Override

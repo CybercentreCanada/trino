@@ -19,6 +19,9 @@ import io.trino.spi.function.LiteralParameters;
 import io.trino.spi.function.ScalarOperator;
 import io.trino.spi.function.SqlType;
 import io.trino.spi.type.StandardTypes;
+import io.trino.spi.type.TrinoNumber;
+
+import java.math.BigDecimal;
 
 import static io.trino.spi.StandardErrorCode.INVALID_CAST_ARGUMENT;
 import static io.trino.spi.function.OperatorType.CAST;
@@ -29,6 +32,7 @@ public final class VarcharOperators
 {
     private VarcharOperators() {}
 
+    // fallible
     @LiteralParameters("x")
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.BOOLEAN)
@@ -71,6 +75,7 @@ public final class VarcharOperators
         return (b >= 'a') && (b <= 'z');
     }
 
+    // fallible
     @LiteralParameters("x")
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.DOUBLE)
@@ -84,10 +89,11 @@ public final class VarcharOperators
         }
     }
 
+    // fallible
     @LiteralParameters("x")
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.REAL)
-    public static long castToFloat(@SqlType("varchar(x)") Slice slice)
+    public static long castToReal(@SqlType("varchar(x)") Slice slice)
     {
         try {
             return toReal(Float.parseFloat(slice.toStringUtf8().trim()));
@@ -97,6 +103,7 @@ public final class VarcharOperators
         }
     }
 
+    // fallible
     @LiteralParameters("x")
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.BIGINT)
@@ -110,6 +117,7 @@ public final class VarcharOperators
         }
     }
 
+    // fallible
     @LiteralParameters("x")
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.INTEGER)
@@ -123,6 +131,7 @@ public final class VarcharOperators
         }
     }
 
+    // fallible
     @LiteralParameters("x")
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.SMALLINT)
@@ -136,6 +145,7 @@ public final class VarcharOperators
         }
     }
 
+    // fallible
     @LiteralParameters("x")
     @ScalarOperator(CAST)
     @SqlType(StandardTypes.TINYINT)
@@ -149,8 +159,29 @@ public final class VarcharOperators
         }
     }
 
+    // fallible
     @LiteralParameters("x")
     @ScalarOperator(CAST)
+    @SqlType(StandardTypes.NUMBER)
+    public static TrinoNumber castToNumber(@SqlType("varchar(x)") Slice slice)
+    {
+        String value = slice.toStringUtf8();
+        try {
+            return TrinoNumber.from(switch (value.trim()) {
+                // case-sensitive consistently with castToDouble
+                case "NaN" -> new TrinoNumber.NotANumber();
+                case "+Infinity", "Infinity" -> new TrinoNumber.Infinity(false);
+                case "-Infinity" -> new TrinoNumber.Infinity(true);
+                case String trimmed -> new TrinoNumber.BigDecimalValue(new BigDecimal(trimmed));
+            });
+        }
+        catch (IllegalArgumentException e) {
+            throw new TrinoException(INVALID_CAST_ARGUMENT, format("Cannot cast '%s' to NUMBER", value), e);
+        }
+    }
+
+    @LiteralParameters("x")
+    @ScalarOperator(value = CAST, neverFails = true)
     @SqlType(StandardTypes.VARBINARY)
     public static Slice castToBinary(@SqlType("varchar(x)") Slice slice)
     {

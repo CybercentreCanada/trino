@@ -24,8 +24,7 @@ import static io.trino.testing.TestingSession.testSessionBuilder;
 
 public class WebUiPreviewQueryRunner
 {
-    private WebUiPreviewQueryRunner()
-    {}
+    private WebUiPreviewQueryRunner() {}
 
     public static Builder builder()
     {
@@ -69,7 +68,7 @@ public class WebUiPreviewQueryRunner
         }
     }
 
-    public static void main(String[] args)
+    static void main()
             throws Exception
     {
         DistributedQueryRunner queryRunner = builder()

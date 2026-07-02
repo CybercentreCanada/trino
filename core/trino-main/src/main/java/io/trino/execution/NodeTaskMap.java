@@ -97,13 +97,13 @@ public class NodeTaskMap
         {
             if (remoteTasks.add(task)) {
                 // Check if task state is already done before adding the listener
-                if (task.getTaskStatus().getState().isDone()) {
+                if (task.getTaskStatus().state().isDone()) {
                     remoteTasks.remove(task);
                     return;
                 }
 
                 task.addStateChangeListener(taskStatus -> {
-                    if (taskStatus.getState().isDone()) {
+                    if (taskStatus.state().isDone()) {
                         remoteTasks.remove(task);
                     }
                 });
@@ -171,7 +171,8 @@ public class NodeTaskMap
                 }
 
                 if (reportAsLeaked) {
-                    log.error("BUG! %s for %s leaked with %s partitioned splits (weight: %s). Cleaning up so server can continue to function.",
+                    log.error(
+                            "BUG! %s for %s leaked with %s partitioned splits (weight: %s). Cleaning up so server can continue to function.",
                             getClass().getName(),
                             taskId,
                             leakedCount,

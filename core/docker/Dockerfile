@@ -14,7 +14,8 @@
 #
 FROM ghcr.io/airlift/jvmkill:latest AS jvmkill
 
-FROM redhat/ubi10-minimal:latest AS jdk-download
+# Download and extract JDK using a build platform to avoid tar extract issue while running in qemu
+FROM --platform=$BUILDPLATFORM redhat/ubi10-minimal:latest AS jdk-download
 ARG JDK_DOWNLOAD_LINK
 ARG JDK_VERSION
 ENV JAVA_HOME="/usr/lib/jvm/${JDK_VERSION}"
@@ -32,7 +33,9 @@ RUN \
     # Install JDK from the provided archive link \
     echo "Downloading JDK from ${JDK_DOWNLOAD_LINK}" && \
     mkdir -p "${JAVA_HOME}" && \
-    curl -#LfS "${JDK_DOWNLOAD_LINK}" | tar -zx --strip 1 -C "${JAVA_HOME}"
+    curl -#LfS --retry 8 "${JDK_DOWNLOAD_LINK}" -o /jdktarfile && \
+    tar -zxf /jdktarfile --strip 1 -C "${JAVA_HOME}" && \
+    echo "Done"
 
 FROM redhat/ubi10 AS packages
 
@@ -57,6 +60,7 @@ ARG JDK_VERSION
 ARG ARCH
 ENV JAVA_HOME="/usr/lib/jvm/${JDK_VERSION}"
 ENV PATH=$PATH:$JAVA_HOME/bin
+ENV LANG=C.UTF-8
 ENV CATALOG_MANAGEMENT=static
 COPY --from=jdk-download $JAVA_HOME $JAVA_HOME
 COPY --from=packages /tmp/overlay /

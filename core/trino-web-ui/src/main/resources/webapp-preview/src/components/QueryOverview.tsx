@@ -17,6 +17,7 @@ import { QueryProgressBar } from './QueryProgressBar'
 import {
     Alert,
     Box,
+    Button,
     CircularProgress,
     Divider,
     Grid,
@@ -29,13 +30,22 @@ import {
 } from '@mui/material'
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart'
 import { Texts } from '../constant.ts'
-import { StackInfo, queryStatusApi, QueryStatusInfo, QueryStage, QueryStages, Session } from '../api/webapp/api.ts'
+import {
+    StackInfo,
+    killQueryApi,
+    queryStatusApi,
+    QueryStage,
+    QueryStages,
+    QueryStatusInfo,
+    Session,
+} from '../api/webapp/api.ts'
 import { ApiResponse } from '../api/base.ts'
 import {
     addToHistory,
     formatCount,
     formatDataSize,
     formatShortDateTime,
+    getStageNumber,
     parseAndFormatDataSize,
     parseDataSize,
     parseDuration,
@@ -89,6 +99,8 @@ export const QueryOverview = () => {
     const [queryStatus, setQueryStatus] = useState<IQueryStatus>(initialQueryStatus)
     const [loading, setLoading] = useState<boolean>(true)
     const [error, setError] = useState<string | null>(null)
+    const [queryActionError, setQueryActionError] = useState<string | null>(null)
+    const [queryActionRunning, setQueryActionRunning] = useState<boolean>(false)
     const queryStatusRef = useRef(queryStatus)
 
     useEffect(() => {
@@ -106,6 +118,7 @@ export const QueryOverview = () => {
 
         if (queryId) {
             queryStatusRef.current = initialQueryStatus
+            setQueryActionError(null)
         }
 
         runLoop()
@@ -291,9 +304,13 @@ export const QueryOverview = () => {
                         {key}={value}
                     </div>
                 ))}
-                {Object.entries(session.catalogProperties).map(([key, value]) => (
-                    <div key={key}>
-                        {key}={value}
+                {Object.entries(session.catalogProperties).map(([catalog, catalogProperties]) => (
+                    <div key={catalog}>
+                        {Object.entries(catalogProperties).map(([key, value]) => (
+                            <div key={catalog + key}>
+                                {catalog}.{key}={value}
+                            </div>
+                        ))}
                     </div>
                 ))}
             </>
@@ -433,7 +450,7 @@ export const QueryOverview = () => {
                     {stages ? (
                         stages
                             .slice()
-                            .sort((a, b) => a.stageId.localeCompare(b.stageId))
+                            .sort((stageA, stageB) => getStageNumber(stageA.stageId) - getStageNumber(stageB.stageId))
                             .map((stage: QueryStage) => (
                                 <QueryStageCard
                                     key={stage.stageId}
@@ -453,7 +470,35 @@ export const QueryOverview = () => {
         )
     }
 
+    const runQueryAction = (queryAction: (queryId: string) => Promise<ApiResponse<void>>, actionName: string) => {
+        if (!queryId || queryActionRunning || queryStatus.info?.finalQueryInfo) {
+            return
+        }
+
+        setQueryActionError(null)
+        setQueryActionRunning(true)
+        queryAction(queryId)
+            .then((apiResponse: ApiResponse<void>) => {
+                if (apiResponse.status === 403) {
+                    setQueryActionError(
+                        `${Texts.Error.Forbidden}: You do not have permission to ${actionName} this query.`
+                    )
+                } else if (apiResponse.status !== 202 && apiResponse.status !== 409) {
+                    setQueryActionError(`${Texts.Error.Communication} ${apiResponse.status}: ${apiResponse.message}`)
+                }
+                getQueryStatus()
+            })
+            .finally(() => {
+                setQueryActionRunning(false)
+            })
+    }
+
+    const handleCancel = () => {
+        runQueryAction(killQueryApi, 'cancel')
+    }
+
     const taskRetriesEnabled = queryStatus.info?.retryPolicy == 'TASK'
+    const queryActionDisabled = queryActionRunning || !!queryStatus.info?.finalQueryInfo
     return (
         <>
             {loading && <CircularProgress />}
@@ -462,9 +507,27 @@ export const QueryOverview = () => {
             {!loading && !error && queryStatus.info && (
                 <Grid container spacing={0}>
                     <Grid size={{ xs: 12 }}>
-                        <Box sx={{ pt: 2 }}>
-                            <QueryProgressBar queryInfoBase={queryStatus.info} />
+                        <Box sx={{ pt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                                <QueryProgressBar queryInfoBase={queryStatus.info} />
+                            </Box>
+                            <Box sx={{ display: 'flex', flexShrink: 0, gap: 1 }}>
+                                <Button
+                                    variant="outlined"
+                                    color="error"
+                                    size="small"
+                                    disabled={queryActionDisabled || !!queryActionError}
+                                    onClick={handleCancel}
+                                >
+                                    Cancel query
+                                </Button>
+                            </Box>
                         </Box>
+                        {queryActionError && (
+                            <Alert severity="error" sx={{ mt: 1 }}>
+                                {queryActionError}
+                            </Alert>
+                        )}
                     </Grid>
 
                     <Grid container spacing={3}>

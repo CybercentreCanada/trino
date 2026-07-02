@@ -13,28 +13,33 @@
  */
 package io.trino.geospatial.serde;
 
-import com.esri.core.geometry.Envelope;
-import com.esri.core.geometry.ogc.OGCGeometry;
 import io.airlift.slice.Slice;
+import io.airlift.slice.Slices;
+import io.trino.geospatial.GeometryType;
 import org.junit.jupiter.api.Test;
+import org.locationtech.jts.geom.Envelope;
 import org.locationtech.jts.geom.Geometry;
 import org.locationtech.jts.io.ParseException;
+import org.locationtech.jts.io.WKBWriter;
 import org.locationtech.jts.io.WKTReader;
 
-import static com.esri.core.geometry.ogc.OGCGeometry.createFromEsriGeometry;
-import static io.trino.geospatial.serde.GeometrySerde.deserialize;
-import static io.trino.geospatial.serde.GeometrySerde.deserializeEnvelope;
-import static io.trino.geospatial.serde.GeometrySerde.deserializeType;
-import static io.trino.geospatial.serde.GeometrySerde.serialize;
-import static io.trino.geospatial.serde.GeometrySerializationType.ENVELOPE;
-import static io.trino.geospatial.serde.GeometrySerializationType.GEOMETRY_COLLECTION;
-import static io.trino.geospatial.serde.GeometrySerializationType.LINE_STRING;
-import static io.trino.geospatial.serde.GeometrySerializationType.MULTI_LINE_STRING;
-import static io.trino.geospatial.serde.GeometrySerializationType.MULTI_POINT;
-import static io.trino.geospatial.serde.GeometrySerializationType.MULTI_POLYGON;
-import static io.trino.geospatial.serde.GeometrySerializationType.POINT;
-import static io.trino.geospatial.serde.GeometrySerializationType.POLYGON;
+import static io.trino.geospatial.GeometryType.GEOMETRY_COLLECTION;
+import static io.trino.geospatial.GeometryType.LINE_STRING;
+import static io.trino.geospatial.GeometryType.MULTI_LINE_STRING;
+import static io.trino.geospatial.GeometryType.MULTI_POINT;
+import static io.trino.geospatial.GeometryType.MULTI_POLYGON;
+import static io.trino.geospatial.GeometryType.POINT;
+import static io.trino.geospatial.GeometryType.POLYGON;
+import static io.trino.geospatial.serde.JtsGeometrySerde.crsToSrid;
+import static io.trino.geospatial.serde.JtsGeometrySerde.deserialize;
+import static io.trino.geospatial.serde.JtsGeometrySerde.deserializeEnvelope;
+import static io.trino.geospatial.serde.JtsGeometrySerde.deserializeType;
+import static io.trino.geospatial.serde.JtsGeometrySerde.ewkbToWkb;
+import static io.trino.geospatial.serde.JtsGeometrySerde.extractSrid;
+import static io.trino.geospatial.serde.JtsGeometrySerde.serialize;
+import static io.trino.geospatial.serde.JtsGeometrySerde.wkbToEwkb;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 public class TestGeometrySerialization
 {
@@ -51,9 +56,9 @@ public class TestGeometrySerialization
     @Test
     public void testMultiPoint()
     {
-        testSerialization("MULTIPOINT (0 0)");
-        testSerialization("MULTIPOINT (0 0, 0 0)");
-        testSerialization("MULTIPOINT (0 0, 1 1, 2 3)");
+        testSerialization("MULTIPOINT ((0 0))");
+        testSerialization("MULTIPOINT ((0 0), (0 0))");
+        testSerialization("MULTIPOINT ((0 0), (1 1), (2 3))");
         testSerialization("MULTIPOINT EMPTY");
     }
 
@@ -92,6 +97,7 @@ public class TestGeometrySerialization
         testSerialization("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0), (0.25 0.25, 0.75 0.75, 0.25 0.75, 0.75 0.25, 0.25 0.25), (0.25 0.25, 0.75 0.75, 0.25 0.75, 0.75 0.25, 0.25 0.25))");
         testSerialization("POLYGON EMPTY");
         testSerialization("POLYGON ((0 0, 0 1, 1 1, 1 0, 0 0), (0.25 0.25, 0.25 0.75, 0.75 0.75, 0.75 0.25, 0.25 0.25))");
+        testSerialization("POLYGON ((489960.9893476785 6104581.829743207, 490020.7763635455 6104522.042727341, 490020.77636354364 6104522.042727342, 489960.9893476785 6104581.829743207))");
     }
 
     @Test
@@ -99,8 +105,8 @@ public class TestGeometrySerialization
     {
         testSerialization("MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)))");
         testSerialization("MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)), ((30 20, 45 40, 10 40, 30 20)))");
-        testSerialization("MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)), ((15 5, 40 10, 10 20, 15 5))), ((0 0, 0 1, 1 1, 1 0.5, 1 0, 0 0), (0.25 0.25, 0.25 0.75, 0.75 0.75, 0.75 0.25))");
-        testSerialization("MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)), ((0 0, 0 1, 1 1, 1 0, 0 0), (0.75 0.25, 0.75 0.75, 0.25 0.75, 0.25 0.25, 0.75 0.25)), ((15 5, 40 10, 10 20, 5 10, 15 5))), ((0 0, 0 1, 1 1, 1 0), (0.25 0.25, 0.25 0.75, 0.75 0.75, 0.75 0.25))");
+        testSerialization("MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)), ((15 5, 40 10, 10 20, 15 5)))");
+        testSerialization("MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)), ((0 0, 0 1, 1 1, 1 0, 0 0), (0.75 0.25, 0.75 0.75, 0.25 0.75, 0.25 0.25, 0.75 0.25)), ((15 5, 40 10, 10 20, 5 10, 15 5)))");
         testSerialization("MULTIPOLYGON (((30 20, 45 40, 10 40, 30 20)), ((0 0, 0 1, 1 1, 1 0, 0 0), (0.25 0.25, 0.25 0.75, 0.75 0.75, 0.75 0.25, 0.25 0.25)))");
         testSerialization("MULTIPOLYGON (" +
                 "((30 20, 45 40, 10 40, 30 20)), " +
@@ -132,32 +138,87 @@ public class TestGeometrySerialization
     }
 
     @Test
+    public void testPointSridRoundTrip()
+    {
+        testSerializationWithSrid("POINT (1 2)", 4326);
+    }
+
+    @Test
+    public void testGeometryCollectionSridRoundTrip()
+    {
+        testSerializationWithSrid("GEOMETRYCOLLECTION (POINT (1 2), LINESTRING (0 0, 1 2, 3 4))", 3857);
+    }
+
+    @Test
+    public void testCrsToSridRejectsNonPositiveEpsgCodes()
+    {
+        assertThat(crsToSrid("EPSG:3857")).isEqualTo(3857);
+        assertThatThrownBy(() -> crsToSrid("EPSG:0"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid EPSG code: EPSG:0");
+        assertThatThrownBy(() -> crsToSrid("EPSG:-3857"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Invalid EPSG code: EPSG:-3857");
+    }
+
+    @Test
+    public void testWkbToEwkbRejectsEwkbInput()
+    {
+        Geometry geometry = createJtsGeometry("POINT (1 2)");
+        geometry.setSRID(3857);
+        Slice ewkb = serialize(geometry);
+
+        assertThat(ewkbToWkb(ewkb)).isNotEqualTo(ewkb);
+        assertThatThrownBy(() -> wkbToEwkb(ewkb, 3857))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Input already has SRID flag set (expected WKB, got EWKB)");
+    }
+
+    @Test
+    public void testRejectsWkbWithMoreThanTwoCoordinateDimensions()
+    {
+        Geometry geometry = createJtsGeometry("POINT Z (1 2 3)");
+
+        Slice wkb = Slices.wrappedBuffer(new WKBWriter(3, false).write(geometry));
+        assertThatThrownBy(() -> wkbToEwkb(wkb, 4326))
+                .hasMessage("Geospatial values with more than 2 coordinate dimensions are not supported");
+
+        Slice ewkb = Slices.wrappedBuffer(new WKBWriter(3, true).write(geometry));
+        assertThatThrownBy(() -> ewkbToWkb(ewkb))
+                .hasMessage("Geospatial values with more than 2 coordinate dimensions are not supported");
+    }
+
+    @Test
     public void testEnvelope()
     {
-        testEnvelopeSerialization(new Envelope(0, 0, 1, 1));
-        testEnvelopeSerialization(new Envelope(1, 2, 3, 4));
-        testEnvelopeSerialization(new Envelope(10101, -2.05, -3e5, 0));
+        testEnvelopeSerialization(new Envelope(0, 1, 0, 1));
+        testEnvelopeSerialization(new Envelope(1, 3, 2, 4));
+        testEnvelopeSerialization(new Envelope(-3e5, 10101, -2.05, 0));
     }
 
     private void testEnvelopeSerialization(Envelope envelope)
     {
-        assertThat(deserialize(serialize(envelope))).isEqualTo(createFromEsriGeometry(envelope, null));
-        assertThat(deserializeEnvelope(serialize(envelope))).isEqualTo(envelope);
-        assertThat(JtsGeometrySerde.serialize(JtsGeometrySerde.deserialize(serialize(envelope)))).isEqualTo(serialize(createFromEsriGeometry(envelope, null)));
+        Slice serialized = serialize(envelope);
+        Geometry deserialized = deserialize(serialized);
+
+        assertThat(deserialized.getGeometryType()).isEqualTo("Polygon");
+        assertThat(deserialized.getEnvelopeInternal()).isEqualTo(envelope);
+        assertThat(deserializeType(serialized)).isEqualTo(POLYGON);
+        assertThat(deserializeEnvelope(serialized)).isEqualTo(envelope);
     }
 
     @Test
     public void testDeserializeEnvelope()
     {
-        assertDeserializeEnvelope("MULTIPOINT (20 20, 25 25)", new Envelope(20, 20, 25, 25));
-        assertDeserializeEnvelope("MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))", new Envelope(1, 1, 5, 4));
-        assertDeserializeEnvelope("POLYGON ((0 0, 0 4, 4 0))", new Envelope(0, 0, 4, 4));
-        assertDeserializeEnvelope("MULTIPOLYGON (((0 0 , 0 2, 2 2, 2 0)), ((2 2, 2 4, 4 4, 4 2)))", new Envelope(0, 0, 4, 4));
-        assertDeserializeEnvelope("GEOMETRYCOLLECTION (POINT (3 7), LINESTRING (4 6, 7 10))", new Envelope(3, 6, 7, 10));
+        assertDeserializeEnvelope("MULTIPOINT ((20 20), (25 25))", new Envelope(20, 25, 20, 25));
+        assertDeserializeEnvelope("MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))", new Envelope(1, 5, 1, 4));
+        assertDeserializeEnvelope("POLYGON ((0 0, 0 4, 4 4, 4 0, 0 0))", new Envelope(0, 4, 0, 4));
+        assertDeserializeEnvelope("MULTIPOLYGON (((0 0, 0 2, 2 2, 2 0, 0 0)), ((2 2, 2 4, 4 4, 4 2, 2 2)))", new Envelope(0, 4, 0, 4));
+        assertDeserializeEnvelope("GEOMETRYCOLLECTION (POINT (3 7), LINESTRING (4 6, 7 10))", new Envelope(3, 7, 6, 10));
         assertDeserializeEnvelope("POLYGON EMPTY", new Envelope());
-        assertDeserializeEnvelope("POINT (1 2)", new Envelope(1, 2, 1, 2));
+        assertDeserializeEnvelope("POINT (1 2)", new Envelope(1, 1, 2, 2));
         assertDeserializeEnvelope("POINT EMPTY", new Envelope());
-        assertDeserializeEnvelope("GEOMETRYCOLLECTION (GEOMETRYCOLLECTION (POINT (2 7), LINESTRING (4 6, 7 10)), POINT (3 7), LINESTRING (4 6, 7 10))", new Envelope(2, 6, 7, 10));
+        assertDeserializeEnvelope("GEOMETRYCOLLECTION (GEOMETRYCOLLECTION (POINT (2 7), LINESTRING (4 6, 7 10)), POINT (3 7), LINESTRING (4 6, 7 10))", new Envelope(2, 7, 6, 10));
     }
 
     @Test
@@ -165,54 +226,71 @@ public class TestGeometrySerialization
     {
         assertDeserializeType("POINT (1 2)", POINT);
         assertDeserializeType("POINT EMPTY", POINT);
-        assertDeserializeType("MULTIPOINT (20 20, 25 25)", MULTI_POINT);
+        assertDeserializeType("MULTIPOINT ((20 20), (25 25))", MULTI_POINT);
         assertDeserializeType("MULTIPOINT EMPTY", MULTI_POINT);
-        assertDeserializeType("LINESTRING (1 1, 5 1, 6 2))", LINE_STRING);
+        assertDeserializeType("LINESTRING (1 1, 5 1, 6 2)", LINE_STRING);
         assertDeserializeType("LINESTRING EMPTY", LINE_STRING);
         assertDeserializeType("MULTILINESTRING ((1 1, 5 1), (2 4, 4 4))", MULTI_LINE_STRING);
         assertDeserializeType("MULTILINESTRING EMPTY", MULTI_LINE_STRING);
-        assertDeserializeType("POLYGON ((0 0, 0 4, 4 0))", POLYGON);
+        assertDeserializeType("POLYGON ((0 0, 0 4, 4 4, 4 0, 0 0))", POLYGON);
         assertDeserializeType("POLYGON EMPTY", POLYGON);
-        assertDeserializeType("MULTIPOLYGON (((0 0 , 0 2, 2 2, 2 0)), ((2 2, 2 4, 4 4, 4 2)))", MULTI_POLYGON);
+        assertDeserializeType("MULTIPOLYGON (((0 0, 0 2, 2 2, 2 0, 0 0)), ((2 2, 2 4, 4 4, 4 2, 2 2)))", MULTI_POLYGON);
         assertDeserializeType("MULTIPOLYGON EMPTY", MULTI_POLYGON);
         assertDeserializeType("GEOMETRYCOLLECTION (POINT (3 7), LINESTRING (4 6, 7 10))", GEOMETRY_COLLECTION);
         assertDeserializeType("GEOMETRYCOLLECTION EMPTY", GEOMETRY_COLLECTION);
 
-        assertThat(deserializeType(serialize(new Envelope(1, 2, 3, 4)))).isEqualTo(ENVELOPE);
+        assertThat(deserializeType(serialize(new Envelope(1, 3, 2, 4)))).isEqualTo(POLYGON);
+    }
+
+    @Test
+    public void testDeserializeTypeRejectsInvalidByteOrder()
+    {
+        assertThatThrownBy(() -> deserializeType(Slices.wrappedBuffer(new byte[] {2, 1, 0, 0, 0})))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("invalid WKB endianness: 2");
+    }
+
+    @Test
+    public void testSridHelpersRejectInvalidByteOrder()
+    {
+        Slice invalidEwkb = Slices.wrappedBuffer(new byte[] {2, 1, 0, 0, 0, 0, 0, 0, 0});
+        assertThatThrownBy(() -> extractSrid(invalidEwkb))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("invalid WKB endianness: 2");
+        assertThatThrownBy(() -> ewkbToWkb(invalidEwkb))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("invalid WKB endianness: 2");
+
+        Slice invalidWkb = Slices.wrappedBuffer(new byte[] {2, 1, 0, 0, 0});
+        assertThatThrownBy(() -> wkbToEwkb(invalidWkb, 4326))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("invalid WKB endianness: 2");
     }
 
     private static void testSerialization(String wkt)
     {
-        testEsriSerialization(wkt);
-        testJtsSerialization(wkt);
+        Geometry geometry = createJtsGeometry(wkt);
+        Slice serialized = serialize(geometry);
+        Geometry deserialized = deserialize(serialized);
+
+        assertThat(deserialized.norm()).isEqualTo(geometry.norm());
     }
 
-    private static void testEsriSerialization(String wkt)
+    private static void testSerializationWithSrid(String wkt, int srid)
     {
-        OGCGeometry expected = OGCGeometry.fromText(wkt);
-        OGCGeometry actual = deserialize(serialize(expected));
-        assertGeometryEquals(actual, expected);
-    }
+        Geometry geometry = createJtsGeometry(wkt);
+        geometry.setSRID(srid);
 
-    private static void testJtsSerialization(String wkt)
-    {
-        Geometry jtsGeometry = createJtsGeometry(wkt);
-        OGCGeometry esriGeometry = OGCGeometry.fromText(wkt);
+        Slice serialized = serialize(geometry);
+        Geometry deserialized = deserialize(serialized);
 
-        Slice jtsSerialized = JtsGeometrySerde.serialize(jtsGeometry);
-        Slice esriSerialized = GeometrySerde.serialize(esriGeometry);
-        assertThat(jtsSerialized).isEqualTo(esriSerialized);
-
-        Geometry jtsDeserialized = JtsGeometrySerde.deserialize(jtsSerialized);
-        assertGeometryEquals(jtsDeserialized, jtsGeometry);
-
-        OGCGeometry esriDeserialized = GeometrySerde.deserialize(esriSerialized);
-        assertGeometryEquals(esriDeserialized, esriGeometry);
+        assertThat(deserialized.norm()).isEqualTo(geometry.norm());
+        assertThat(deserialized.getSRID()).isEqualTo(srid);
     }
 
     private static Slice geometryFromText(String wkt)
     {
-        return serialize(OGCGeometry.fromText(wkt));
+        return serialize(createJtsGeometry(wkt));
     }
 
     private static Geometry createJtsGeometry(String wkt)
@@ -225,36 +303,13 @@ public class TestGeometrySerialization
         }
     }
 
-    private static void assertGeometryEquals(Geometry actual, Geometry expected)
+    private static void assertDeserializeEnvelope(String wkt, Envelope expectedEnvelope)
     {
-        assertThat(actual.norm()).isEqualTo(expected.norm());
+        assertThat(deserializeEnvelope(geometryFromText(wkt))).isEqualTo(expectedEnvelope);
     }
 
-    private static void assertDeserializeEnvelope(String geometry, Envelope expectedEnvelope)
-    {
-        assertThat(deserializeEnvelope(geometryFromText(geometry))).isEqualTo(expectedEnvelope);
-    }
-
-    private static void assertDeserializeType(String wkt, GeometrySerializationType expectedType)
+    private static void assertDeserializeType(String wkt, GeometryType expectedType)
     {
         assertThat(deserializeType(geometryFromText(wkt))).isEqualTo(expectedType);
-    }
-
-    private static void assertGeometryEquals(OGCGeometry actual, OGCGeometry expected)
-    {
-        actual.setSpatialReference(null);
-        expected.setSpatialReference(null);
-        ensureEnvelopeLoaded(actual);
-        ensureEnvelopeLoaded(expected);
-        assertThat(actual).isEqualTo(expected);
-    }
-
-    /**
-     * There is a weird bug in geometry comparison. If a geometry envelope is not loaded it may return
-     * false for two empty line strings or multiline strings
-     */
-    private static void ensureEnvelopeLoaded(OGCGeometry geometry)
-    {
-        geometry.envelope();
     }
 }

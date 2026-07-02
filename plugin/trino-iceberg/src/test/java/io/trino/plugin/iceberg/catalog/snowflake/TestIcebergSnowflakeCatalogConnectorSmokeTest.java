@@ -100,7 +100,7 @@ public class TestIcebergSnowflakeCatalogConnectorSmokeTest
         }
 
         Map<String, String> properties = ImmutableMap.<String, String>builder()
-                .put("fs.native-s3.enabled", "true")
+                .put("fs.s3.enabled", "true")
                 .put("s3.aws-access-key", S3_ACCESS_KEY)
                 .put("s3.aws-secret-key", S3_SECRET_KEY)
                 .put("s3.region", S3_REGION)
@@ -279,6 +279,14 @@ public class TestIcebergSnowflakeCatalogConnectorSmokeTest
     public void testCreateOrReplaceTableChangeColumnNamesAndTypes()
     {
         assertThatThrownBy(super::testCreateOrReplaceTableChangeColumnNamesAndTypes)
+                .hasMessageContaining("Snowflake managed Iceberg tables do not support modifications");
+    }
+
+    @Test
+    @Override
+    public void testRecreateTableWithSameName()
+    {
+        assertThatThrownBy(super::testRecreateTableWithSameName)
                 .hasMessageContaining("Snowflake managed Iceberg tables do not support modifications");
     }
 
@@ -523,6 +531,14 @@ public class TestIcebergSnowflakeCatalogConnectorSmokeTest
     }
 
     @Test
+    @Override
+    public void testAnalyze()
+    {
+        assertThatThrownBy(super::testAnalyze)
+                .hasMessageMatching("Snowflake managed Iceberg tables do not support modifications");
+    }
+
+    @Test
     public void testNation()
     {
         assertQuery("SELECT count(*) FROM " + TpchTable.NATION.getTableName(), "VALUES 25");
@@ -729,7 +745,7 @@ public class TestIcebergSnowflakeCatalogConnectorSmokeTest
     }
 
     @Override
-    protected void dropTableFromMetastore(String tableName)
+    protected void dropTableFromCatalog(String tableName)
     {
         // used for register table, which is not supported for Iceberg Snowflake catalogs
         throw new UnsupportedOperationException("dropTableFromMetastore is not supported for Iceberg snowflake catalog");

@@ -14,7 +14,7 @@
 package io.trino.server.security.oauth2;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -92,7 +92,7 @@ public class TestingHydraIdentityProvider
             .withStartupCheckStrategy(new OneShotStartupCheckStrategy().withTimeout(Duration.ofMinutes(5)));
 
     private final AutoCloseableCloser closer = AutoCloseableCloser.create();
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final JsonMapper mapper = new JsonMapper();
     private final Duration ttlAccessToken;
     private final boolean useJwt;
     private final boolean exposeFixedPorts;
@@ -168,19 +168,24 @@ public class TestingHydraIdentityProvider
             String callbackUrl,
             String logoutCallbackUrl)
     {
+        String[] command = ImmutableList.<String>builder()
+                .add("clients", "create")
+                .add("--endpoint", "https://hydra:4445")
+                .add("--skip-tls-verify")
+                .add("--id", clientId)
+                .add("--secret", clientSecret)
+                .add("--audience", String.join(",", audiences))
+                .add("--grant-types", "authorization_code,refresh_token,client_credentials")
+                .add("--response-types", "token,code,id_token")
+                .add("--scope", "openid,offline")
+                .add("--token-endpoint-auth-method", tokenEndpointAuthMethod.getValue())
+                .add("--callbacks", callbackUrl)
+                .add("--post-logout-callbacks", logoutCallbackUrl)
+                .build()
+                .toArray(String[]::new);
+
         createHydraContainer()
-                .withCommand("clients", "create",
-                        "--endpoint", "https://hydra:4445",
-                        "--skip-tls-verify",
-                        "--id", clientId,
-                        "--secret", clientSecret,
-                        "--audience", String.join(",", audiences),
-                        "--grant-types", "authorization_code,refresh_token,client_credentials",
-                        "--response-types", "token,code,id_token",
-                        "--scope", "openid,offline",
-                        "--token-endpoint-auth-method", tokenEndpointAuthMethod.getValue(),
-                        "--callbacks", callbackUrl,
-                        "--post-logout-callbacks", logoutCallbackUrl)
+                .withCommand(command)
                 .withStartupCheckStrategy(new OneShotStartupCheckStrategy().withTimeout(Duration.ofSeconds(30)))
                 .start();
     }
@@ -232,13 +237,12 @@ public class TestingHydraIdentityProvider
                 .setNodeInternalAddress(InetAddresses.toAddrString(InetAddress.getLocalHost())));
         HttpServerConfig config = new HttpServerConfig().setHttpPort(0);
         HttpServerInfo httpServerInfo = new HttpServerInfo(config, nodeInfo);
-        return new TestingHttpServer(httpServerInfo, nodeInfo, config, new AcceptAllLoginsAndConsentsServlet());
+        return new TestingHttpServer("testing-login-and-consent-server", httpServerInfo, nodeInfo, config, new AcceptAllLoginsAndConsentsServlet());
     }
 
     private class AcceptAllLoginsAndConsentsServlet
             extends HttpServlet
     {
-        private final ObjectMapper mapper = new ObjectMapper();
         private final OkHttpClient httpClient;
 
         public AcceptAllLoginsAndConsentsServlet()
@@ -380,7 +384,7 @@ public class TestingHydraIdentityProvider
         }
     }
 
-    public static void main(String[] args)
+    static void main()
             throws Exception
     {
         Logging logging = Logging.initialize();

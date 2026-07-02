@@ -20,8 +20,10 @@ import com.google.common.collect.ImmutableSet;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
 import io.trino.operator.BlockedReason;
+import io.trino.operator.MergeWriterOperator;
 import io.trino.operator.OperatorStats;
 import io.trino.operator.TableWriterOperator;
+import io.trino.server.DynamicFilterService.DynamicFiltersStats;
 import io.trino.spi.eventlistener.QueryPlanOptimizerStatistics;
 import io.trino.spi.eventlistener.StageGcStatistics;
 import io.trino.spi.metrics.Metrics;
@@ -35,11 +37,12 @@ import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.units.DataSize.succinctBytes;
-import static io.trino.server.DynamicFilterService.DynamicFiltersStats;
 import static java.util.Objects.requireNonNull;
 
 public class QueryStats
 {
+    private static final Set<String> WRITER_OPERATORS = Set.of(TableWriterOperator.class.getSimpleName(), MergeWriterOperator.class.getSimpleName());
+
     private final Instant createTime;
 
     private final Instant executionStartTime;
@@ -129,6 +132,7 @@ public class QueryStats
     private final DynamicFiltersStats dynamicFiltersStats;
 
     private final Map<String, Metrics> catalogMetadataMetrics;
+    private final Map<String, Metrics> exchangeMetrics;
     private final List<OperatorStats> operatorSummaries;
     private final List<QueryPlanOptimizerStatistics> optimizerRulesSummaries;
 
@@ -221,6 +225,7 @@ public class QueryStats
 
             @JsonProperty("dynamicFiltersStats") DynamicFiltersStats dynamicFiltersStats,
             @JsonProperty("catalogMetadataMetrics") Map<String, Metrics> catalogMetadataMetrics,
+            @JsonProperty("exchangeMetrics") Map<String, Metrics> exchangeMetrics,
             @JsonProperty("operatorSummaries") List<OperatorStats> operatorSummaries,
             @JsonProperty("optimizerRulesSummaries") List<QueryPlanOptimizerStatistics> optimizerRulesSummaries)
     {
@@ -326,6 +331,7 @@ public class QueryStats
 
         this.dynamicFiltersStats = requireNonNull(dynamicFiltersStats, "dynamicFiltersStats is null");
         this.catalogMetadataMetrics = requireNonNull(catalogMetadataMetrics, "catalogMetadataMetrics is null");
+        this.exchangeMetrics = requireNonNull(exchangeMetrics, "exchangeMetrics is null");
         this.operatorSummaries = ImmutableList.copyOf(operatorSummaries);
         this.optimizerRulesSummaries = ImmutableList.copyOf(requireNonNull(optimizerRulesSummaries, "optimizerRulesSummaries is null"));
     }
@@ -743,7 +749,7 @@ public class QueryStats
     public long getWrittenPositions()
     {
         return operatorSummaries.stream()
-                .filter(stats -> stats.getOperatorType().equals(TableWriterOperator.class.getSimpleName()))
+                .filter(stats -> WRITER_OPERATORS.contains(stats.getOperatorType()))
                 .mapToLong(OperatorStats::getInputPositions)
                 .sum();
     }
@@ -753,7 +759,7 @@ public class QueryStats
     {
         return succinctBytes(
                 operatorSummaries.stream()
-                        .filter(stats -> stats.getOperatorType().equals(TableWriterOperator.class.getSimpleName()))
+                        .filter(stats -> WRITER_OPERATORS.contains(stats.getOperatorType()))
                         .mapToLong(stats -> stats.getInputDataSize().toBytes())
                         .sum());
     }
@@ -774,6 +780,12 @@ public class QueryStats
     public Map<String, Metrics> getCatalogMetadataMetrics()
     {
         return catalogMetadataMetrics;
+    }
+
+    @JsonProperty
+    public Map<String, Metrics> getExchangeMetrics()
+    {
+        return exchangeMetrics;
     }
 
     @JsonProperty

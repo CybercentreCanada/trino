@@ -94,13 +94,12 @@ public class TestIcebergGcsConnectorSmokeTest
         return IcebergQueryRunner.builder()
                 .setIcebergProperties(ImmutableMap.<String, String>builder()
                         .put("iceberg.catalog.type", "hive_metastore")
-                        .put("fs.native-gcs.enabled", "true")
+                        .put("fs.gcs.enabled", "true")
                         .put("gcs.json-key", gcpCredentials)
                         .put("hive.metastore.uri", hiveHadoop.getHiveMetastoreEndpoint().toString())
                         .put("iceberg.file-format", format.name())
                         .put("iceberg.register-table-procedure.enabled", "true")
                         .put("iceberg.writer-sort-buffer-size", "1MB")
-                        .put("iceberg.allowed-extra-properties", "write.metadata.delete-after-commit.enabled,write.metadata.previous-versions-max")
                         .buildOrThrow())
                 .setSchemaInitializer(
                         SchemaInitializer.builder()
@@ -126,14 +125,11 @@ public class TestIcebergGcsConnectorSmokeTest
     @Override
     protected boolean hasBehavior(TestingConnectorBehavior connectorBehavior)
     {
-        switch (connectorBehavior) {
-            case SUPPORTS_RENAME_SCHEMA:
-                // GCS tests use the Hive Metastore catalog which does not support renaming schemas
-                return false;
-
-            default:
-                return super.hasBehavior(connectorBehavior);
-        }
+        // GCS tests use the Hive Metastore catalog which does not support renaming schemas
+        return switch (connectorBehavior) {
+            case SUPPORTS_RENAME_SCHEMA -> false;
+            default -> super.hasBehavior(connectorBehavior);
+        };
     }
 
     @Override
@@ -170,7 +166,7 @@ public class TestIcebergGcsConnectorSmokeTest
     }
 
     @Override
-    protected void dropTableFromMetastore(String tableName)
+    protected void dropTableFromCatalog(String tableName)
     {
         HiveMetastore metastore = new BridgingHiveMetastore(
                 testingThriftHiveMetastoreBuilder()

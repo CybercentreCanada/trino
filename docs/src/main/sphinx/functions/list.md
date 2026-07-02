@@ -36,8 +36,11 @@
 - {func}`array_agg`
 - {func}`array_distinct`
 - {func}`array_except`
+- {func}`array_first`
+- {func}`array_histogram`
 - {func}`array_intersect`
 - {func}`array_join`
+- {func}`array_last`
 - {func}`array_max`
 - {func}`array_min`
 - {func}`array_position`
@@ -140,6 +143,7 @@
 - {func}`e`
 - {func}`element_at`
 - {func}`empty_approx_set`
+- {func}`ends_with`
 - `evaluate_classifier_predictions`
 - {func}`every`
 - {func}`exclude_columns`
@@ -360,6 +364,7 @@
 - {func}`reverse`
 - {func}`rgb`
 - {func}`round`
+- {func}`ROW::fields`
 - {func}`row_number`
 - {func}`rpad`
 - {func}`rtrim`
@@ -461,6 +466,8 @@
 - {func}`tan`
 - {func}`tanh`
 - {func}`tdigest_agg`
+- {func}`theta_sketch_cardinality`
+- {func}`theta_sketch_union`
 - {func}`timestamp_objectid`
 - {func}`timezone`
 - {func}`timezone_hour`

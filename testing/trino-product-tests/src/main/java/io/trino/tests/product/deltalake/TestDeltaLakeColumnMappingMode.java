@@ -15,7 +15,6 @@ package io.trino.tests.product.deltalake;
 
 import com.google.common.collect.ImmutableList;
 import io.trino.tempto.assertions.QueryAssert.Row;
-import io.trino.testng.services.Flaky;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
@@ -26,15 +25,8 @@ import java.util.function.Consumer;
 import static io.trino.tempto.assertions.QueryAssert.Row.row;
 import static io.trino.tempto.assertions.QueryAssert.assertQueryFailure;
 import static io.trino.testing.TestingNames.randomNameSuffix;
-import static io.trino.tests.product.TestGroups.DELTA_LAKE_DATABRICKS;
-import static io.trino.tests.product.TestGroups.DELTA_LAKE_DATABRICKS_133;
-import static io.trino.tests.product.TestGroups.DELTA_LAKE_DATABRICKS_143;
-import static io.trino.tests.product.TestGroups.DELTA_LAKE_DATABRICKS_154;
-import static io.trino.tests.product.TestGroups.DELTA_LAKE_EXCLUDE_164;
 import static io.trino.tests.product.TestGroups.DELTA_LAKE_OSS;
 import static io.trino.tests.product.TestGroups.PROFILE_SPECIFIC_TESTS;
-import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.DATABRICKS_COMMUNICATION_FAILURE_ISSUE;
-import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.DATABRICKS_COMMUNICATION_FAILURE_MATCH;
 import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.dropDeltaTableWithRetry;
 import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.getColumnCommentOnDelta;
 import static io.trino.tests.product.deltalake.util.DeltaLakeTestUtils.getColumnCommentOnTrino;
@@ -53,8 +45,7 @@ import static org.assertj.core.api.Assertions.entry;
 public class TestDeltaLakeColumnMappingMode
         extends BaseTestDeltaLakeS3Storage
 {
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_DATABRICKS_133, DELTA_LAKE_DATABRICKS_143, DELTA_LAKE_DATABRICKS_154, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS})
     public void testColumnMappingModeNone()
     {
         String tableName = "test_dl_column_mapping_mode_none" + randomNameSuffix();
@@ -120,13 +111,14 @@ public class TestDeltaLakeColumnMappingMode
     @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
     public void testTrinoColumnMappingModeReaderAndWriterVersion(String mode)
     {
-        testColumnMappingModeReaderAndWriterVersion(tableName -> onTrino().executeQuery("" +
-                "CREATE TABLE delta.default." + tableName +
-                "(x INT) " +
-                "WITH (" +
-                " location = 's3://" + bucketName + "/databricks-compatibility-test-" + tableName + "'," +
-                " column_mapping_mode = '" + mode + "'" +
-                ")"),
+        testColumnMappingModeReaderAndWriterVersion(
+                tableName -> onTrino().executeQuery("" +
+                        "CREATE TABLE delta.default." + tableName +
+                        "(x INT) " +
+                        "WITH (" +
+                        " location = 's3://" + bucketName + "/databricks-compatibility-test-" + tableName + "'," +
+                        " column_mapping_mode = '" + mode + "'" +
+                        ")"),
                 5);
     }
 
@@ -206,12 +198,13 @@ public class TestDeltaLakeColumnMappingMode
     @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
     public void testDeltaColumnMappingModeReaderAndWriterVersion(String mode)
     {
-        testColumnMappingModeReaderAndWriterVersion(tableName -> onDelta().executeQuery("" +
-                "CREATE TABLE default." + tableName +
-                "(x INT) " +
-                "USING delta " +
-                "LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + tableName + "'" +
-                "TBLPROPERTIES ('delta.columnMapping.mode'='" + mode + "')"),
+        testColumnMappingModeReaderAndWriterVersion(
+                tableName -> onDelta().executeQuery("" +
+                        "CREATE TABLE default." + tableName +
+                        "(x INT) " +
+                        "USING delta " +
+                        "LOCATION 's3://" + bucketName + "/databricks-compatibility-test-" + tableName + "'" +
+                        "TBLPROPERTIES ('delta.columnMapping.mode'='" + mode + "')"),
                 7);
     }
 
@@ -226,8 +219,7 @@ public class TestDeltaLakeColumnMappingMode
         onTrino().executeQuery("DROP TABLE delta.default." + tableName);
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_DATABRICKS_133, DELTA_LAKE_DATABRICKS_143, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
     public void testTrinoColumnMappingMode(String mode)
     {
         testColumnMappingMode(tableName -> onTrino().executeQuery("" +
@@ -240,10 +232,9 @@ public class TestDeltaLakeColumnMappingMode
                 ")"));
     }
 
-    // When setting the table property `delta.columnMapping.mode` on Databricks 16.4, it will enable the `delta.feature.generatedColumns`
+    // When setting the table property `delta.columnMapping.mode` on Databricks >= 16.x, it will enable the `delta.feature.generatedColumns`
     // feature, which is not supported by Trino.
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_EXCLUDE_164, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
     public void testDeltaColumnMappingMode(String mode)
     {
         testColumnMappingMode(tableName -> onDelta().executeQuery("" +
@@ -297,8 +288,8 @@ public class TestDeltaLakeColumnMappingMode
             assertThat(onTrino().executeQuery("DESCRIBE delta.default." + tableName))
                     .containsOnly(ImmutableList.of(
                             row("new_a_column", "integer", "", ""),
-                            row("array_col", "array(row(array_struct_element varchar))", "", ""),
-                            row("nested", "row(field2 varchar)", "", ""),
+                            row("array_col", "array(row(\"array_struct_element\" varchar))", "", ""),
+                            row("nested", "row(\"field2\" varchar)", "", ""),
                             row("a_string", "varchar", "", ""),
                             row("new_part", "varchar", "", "")));
 
@@ -509,7 +500,7 @@ public class TestDeltaLakeColumnMappingMode
                             row("another_varchar", "varchar", "", ""),
                             row("a_array", "array(integer)", "", ""),
                             row("a_map", "map(varchar, integer)", "", ""),
-                            row("a_row", "row(x integer)", "", ""));
+                            row("a_row", "row(\"x\" integer)", "", ""));
 
             onDelta().executeQuery("INSERT INTO default." + tableName + " VALUES (3, 'new column', array(3), map('key', 4), named_struct('x', 5))");
             expectedRows = ImmutableList.of(
@@ -659,8 +650,7 @@ public class TestDeltaLakeColumnMappingMode
         }
     }
 
-    @Test(groups = {DELTA_LAKE_DATABRICKS, DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
-    @Flaky(issue = DATABRICKS_COMMUNICATION_FAILURE_ISSUE, match = DATABRICKS_COMMUNICATION_FAILURE_MATCH)
+    @Test(groups = {DELTA_LAKE_OSS, PROFILE_SPECIFIC_TESTS}, dataProvider = "columnMappingDataProvider")
     public void testProjectionPushdownDmlWithColumnMappingMode(String mode)
     {
         String sourceTableName = "test_projection_pushdown_source_column_mapping_mode_" + randomNameSuffix();
@@ -1226,7 +1216,7 @@ public class TestDeltaLakeColumnMappingMode
         return new Object[][] {
                 {"none"},
                 {"name"},
-                {"id"}
+                {"id"},
         };
     }
 }

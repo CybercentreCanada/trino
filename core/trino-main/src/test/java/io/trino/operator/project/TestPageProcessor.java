@@ -14,6 +14,7 @@
 package io.trino.operator.project;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import io.airlift.slice.Slices;
 import io.airlift.testing.TestingTicker;
@@ -31,7 +32,10 @@ import io.trino.spi.connector.SourcePage;
 import io.trino.sql.gen.ExpressionProfiler;
 import io.trino.sql.gen.PageFunctionCompiler;
 import io.trino.sql.gen.columnar.PageFilterEvaluator;
-import io.trino.sql.relational.CallExpression;
+import io.trino.sql.ir.Constant;
+import io.trino.sql.ir.Expression;
+import io.trino.sql.ir.Reference;
+import io.trino.sql.planner.Symbol;
 import org.assertj.core.data.Offset;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
@@ -42,11 +46,13 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
 
+import static com.google.common.collect.Iterables.getOnlyElement;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.airlift.slice.SizeOf.instanceSize;
 import static io.trino.block.BlockAssertions.createLongSequenceBlock;
@@ -62,9 +68,7 @@ import static io.trino.operator.project.SelectedPositions.positionsRange;
 import static io.trino.spi.function.OperatorType.ADD;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
-import static io.trino.sql.relational.Expressions.call;
-import static io.trino.sql.relational.Expressions.constant;
-import static io.trino.sql.relational.Expressions.field;
+import static io.trino.sql.ir.IrExpressions.call;
 import static io.trino.testing.TestingConnectorSession.SESSION;
 import static java.lang.String.join;
 import static java.util.Collections.nCopies;
@@ -98,8 +102,7 @@ public class TestPageProcessor
         Iterator<Optional<Page>> output = processAndAssertRetainedPageSize(pageProcessor, inputPage);
 
         List<Optional<Page>> outputPages = ImmutableList.copyOf(output);
-        assertThat(outputPages).hasSize(1);
-        Page outputPage = outputPages.get(0).orElse(null);
+        Page outputPage = getOnlyElement(outputPages).orElseThrow();
         assertThat(outputPage.getChannelCount()).isEqualTo(0);
         assertThat(outputPage.getPositionCount()).isEqualTo(inputPage.getPositionCount());
     }
@@ -116,8 +119,7 @@ public class TestPageProcessor
         assertThat(memoryContext.getBytes()).isEqualTo(0);
 
         List<Optional<Page>> outputPages = ImmutableList.copyOf(output);
-        assertThat(outputPages).hasSize(1);
-        Page outputPage = outputPages.get(0).orElse(null);
+        Page outputPage = getOnlyElement(outputPages).orElseThrow();
         assertThat(outputPage.getChannelCount()).isEqualTo(0);
         assertThat(outputPage.getPositionCount()).isEqualTo(50);
     }
@@ -136,8 +138,8 @@ public class TestPageProcessor
         Iterator<Optional<Page>> output = processAndAssertRetainedPageSize(pageProcessor, inputPage);
 
         List<Optional<Page>> outputPages = ImmutableList.copyOf(output);
-        assertThat(outputPages).hasSize(1);
-        assertPageEquals(ImmutableList.of(BIGINT), outputPages.get(0).orElse(null), new Page(createLongSequenceBlock(25, 75)));
+        Page outputPage = getOnlyElement(outputPages).orElseThrow();
+        assertPageEquals(ImmutableList.of(BIGINT), outputPage, new Page(createLongSequenceBlock(25, 75)));
     }
 
     @Test
@@ -154,8 +156,8 @@ public class TestPageProcessor
         Iterator<Optional<Page>> output = processAndAssertRetainedPageSize(pageProcessor, inputPage);
 
         List<Optional<Page>> outputPages = ImmutableList.copyOf(output);
-        assertThat(outputPages).hasSize(1);
-        assertPageEquals(ImmutableList.of(BIGINT), outputPages.get(0).orElse(null), new Page(createLongSequenceBlock(0, 100)));
+        Page outputPage = getOnlyElement(outputPages).orElseThrow();
+        assertPageEquals(ImmutableList.of(BIGINT), outputPage, new Page(createLongSequenceBlock(0, 100)));
     }
 
     @Test
@@ -220,8 +222,8 @@ public class TestPageProcessor
         Iterator<Optional<Page>> output = pageProcessor.process(SESSION, new DriverYieldSignal(), memoryContext, inputPage);
 
         List<Optional<Page>> outputPages = ImmutableList.copyOf(output);
-        assertThat(outputPages).hasSize(1);
-        assertPageEquals(ImmutableList.of(BIGINT), outputPages.get(0).orElse(null), new Page(createLongSequenceBlock(0, 100)));
+        Page outputPage = getOnlyElement(outputPages).orElseThrow();
+        assertPageEquals(ImmutableList.of(BIGINT), outputPage, new Page(createLongSequenceBlock(0, 100)));
     }
 
     @Test
@@ -411,16 +413,20 @@ public class TestPageProcessor
     public void testExpressionProfiler()
     {
         TestingFunctionResolution functionResolution = new TestingFunctionResolution();
-        CallExpression add10Expression = call(
+        Expression add10Expression = call(
                 functionResolution.resolveOperator(ADD, ImmutableList.of(BIGINT, BIGINT)),
-                field(0, BIGINT),
-                constant(10L, BIGINT));
+                new Reference(BIGINT, "$col_0"),
+                new Constant(BIGINT, 10L));
+        Map<Symbol, Integer> layout = ImmutableMap.of(new Symbol(BIGINT, "$col_0"), 2);
 
         TestingTicker testingTicker = new TestingTicker();
         PageFunctionCompiler functionCompiler = functionResolution.getPageFunctionCompiler();
-        Supplier<PageProjection> projectionSupplier = functionCompiler.compileProjection(add10Expression, Optional.empty());
+        Supplier<PageProjection> projectionSupplier = functionCompiler.compileProjection(add10Expression, layout, Optional.empty());
         PageProjection projection = projectionSupplier.get();
-        SourcePage page = SourcePage.create(createLongSequenceBlock(1, 11));
+        SourcePage page = SourcePage.create(new Page(
+                createLongSequenceBlock(0, 10),
+                createLongSequenceBlock(0, 10),
+                createLongSequenceBlock(1, 11)));
         ExpressionProfiler profiler = new ExpressionProfiler(testingTicker, SPLIT_RUN_QUANTA);
         for (int i = 0; i < 100; i++) {
             profiler.start();

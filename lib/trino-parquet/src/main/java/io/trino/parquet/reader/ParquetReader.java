@@ -31,6 +31,8 @@ import io.trino.parquet.ParquetCorruptionException;
 import io.trino.parquet.ParquetDataSource;
 import io.trino.parquet.ParquetReaderOptions;
 import io.trino.parquet.ParquetWriteValidation;
+import io.trino.parquet.ParquetWriteValidation.StatisticsValidation;
+import io.trino.parquet.ParquetWriteValidation.WriteChecksumBuilder;
 import io.trino.parquet.PrimitiveField;
 import io.trino.parquet.VariantField;
 import io.trino.parquet.crypto.FileDecryptionContext;
@@ -48,13 +50,13 @@ import io.trino.spi.block.DictionaryBlock;
 import io.trino.spi.block.LongArrayBlock;
 import io.trino.spi.block.RowBlock;
 import io.trino.spi.block.RunLengthEncodedBlock;
+import io.trino.spi.block.VariantBlock;
 import io.trino.spi.connector.SourcePage;
 import io.trino.spi.metrics.Metric;
 import io.trino.spi.metrics.Metrics;
 import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.RowType;
-import io.trino.spi.type.Type;
 import jakarta.annotation.Nullable;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.filter2.compat.FilterCompat;
@@ -76,6 +78,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.ObjLongConsumer;
+import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -85,14 +88,13 @@ import static io.airlift.slice.SizeOf.instanceSize;
 import static io.airlift.slice.SizeOf.sizeOf;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.parquet.ParquetValidationUtils.validateParquet;
-import static io.trino.parquet.ParquetWriteValidation.StatisticsValidation;
 import static io.trino.parquet.ParquetWriteValidation.StatisticsValidation.createStatisticsValidationBuilder;
-import static io.trino.parquet.ParquetWriteValidation.WriteChecksumBuilder;
 import static io.trino.parquet.ParquetWriteValidation.WriteChecksumBuilder.createWriteChecksumBuilder;
 import static io.trino.parquet.reader.ListColumnReader.calculateCollectionOffsets;
 import static io.trino.parquet.reader.PageReader.createPageReader;
 import static io.trino.spi.type.VarbinaryType.VARBINARY;
 import static io.trino.spi.type.VarcharType.VARCHAR;
+import static io.trino.spi.type.VariantType.VARIANT;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.Math.toIntExact;
@@ -222,14 +224,14 @@ public class ParquetReader
                 }
                 if (filteredOffsetIndex == null) {
                     DiskRange range = new DiskRange(startingPosition, totalLength);
-                    totalDataSize = range.getLength();
+                    totalDataSize = range.length();
                     ranges.put(new ChunkKey(columnId, rowGroup), range);
                 }
                 else {
                     List<OffsetRange> offsetRanges = filteredOffsetIndex.calculateOffsetRanges(startingPosition);
                     for (OffsetRange offsetRange : offsetRanges) {
                         DiskRange range = new DiskRange(offsetRange.getOffset(), offsetRange.getLength());
-                        totalDataSize += range.getLength();
+                        totalDataSize += range.length();
                         ranges.put(new ChunkKey(columnId, rowGroup), range);
                     }
                     // Initialize columnIndexRowsFiltered only when column indexes are found and used
@@ -520,6 +522,37 @@ public class ParquetReader
             throws IOException
     {
         ColumnChunk metadataChunk = readColumnChunk(field.getMetadata());
+        ColumnChunk valueChunk = readColumnChunk(field.getValue());
+
+        // position count and nulls are derived from metadata def levels
+        int positionsCount = metadataChunk.getDefinitionLevels().length;
+        int variantDefLevel = field.getDefinitionLevel();
+        boolean[] isNull = null;
+        for (int i = 0; i < positionsCount; i++) {
+            if (metadataChunk.getDefinitionLevels()[i] < variantDefLevel) {
+                if (isNull == null) {
+                    isNull = new boolean[positionsCount];
+                }
+                isNull[i] = true;
+            }
+        }
+
+        // if isNull is present, we need to convert the blocks to not-null-suppressed blocks
+        Block metadataBlock = metadataChunk.getBlock();
+        Block valueBlock = valueChunk.getBlock();
+        if (isNull != null) {
+            metadataBlock = toNotNullSupressedBlock(positionsCount, isNull, metadataBlock);
+            valueBlock = toNotNullSupressedBlock(positionsCount, isNull, valueBlock);
+        }
+
+        Block variantBlock = VariantBlock.create(positionsCount, metadataBlock, valueBlock, Optional.ofNullable(isNull));
+        return new ColumnChunk(variantBlock, metadataChunk.getDefinitionLevels(), metadataChunk.getRepetitionLevels());
+    }
+
+    private ColumnChunk readVariantAsJson(VariantField field)
+            throws IOException
+    {
+        ColumnChunk metadataChunk = readColumnChunk(field.getMetadata());
 
         int positionCount = metadataChunk.getBlock().getPositionCount();
         BlockBuilder variantBlock = VARCHAR.createBlockBuilder(null, max(1, positionCount));
@@ -540,8 +573,7 @@ public class ParquetReader
     private ColumnChunk readArray(GroupField field)
             throws IOException
     {
-        List<Type> parameters = field.getType().getTypeParameters();
-        checkArgument(parameters.size() == 1, "Arrays must have a single type parameter, found %s", parameters.size());
+        checkArgument(field.getType() instanceof ArrayType, "Expected array type, found: %s", field.getType());
         Optional<Field> children = field.getChildren().get(0);
         if (children.isEmpty()) {
             return new ColumnChunk(field.getType().createNullBlock(), new int[] {}, new int[] {});
@@ -558,14 +590,16 @@ public class ParquetReader
     private ColumnChunk readMap(GroupField field)
             throws IOException
     {
-        List<Type> parameters = field.getType().getTypeParameters();
-        checkArgument(parameters.size() == 2, "Maps must have two type parameters, found %s", parameters.size());
-        Block[] blocks = new Block[parameters.size()];
+        if (!(field.getType() instanceof MapType mapType)) {
+            throw new ParquetCorruptionException(dataSource.getId(), "Expected map type, found: %s", field.getType());
+        }
+
+        Block[] blocks = new Block[2];
 
         ColumnChunk columnChunk = readColumnChunk(field.getChildren().get(0).get());
         blocks[0] = columnChunk.getBlock();
         Optional<Field> valueField = field.getChildren().get(1);
-        blocks[1] = valueField.isPresent() ? readColumnChunk(valueField.get()).getBlock() : parameters.get(1).createNullBlock();
+        blocks[1] = valueField.isPresent() ? readColumnChunk(valueField.get()).getBlock() : mapType.getValueType().createNullBlock();
         ListColumnReader.BlockPositions collectionPositions = calculateCollectionOffsets(field, columnChunk.getDefinitionLevels(), columnChunk.getRepetitionLevels());
         Block mapBlock = ((MapType) field.getType()).createBlockFromKeyValue(collectionPositions.isNull(), collectionPositions.offsets(), blocks[0], blocks[1]);
         return new ColumnChunk(mapBlock, columnChunk.getDefinitionLevels(), columnChunk.getRepetitionLevels());
@@ -574,7 +608,8 @@ public class ParquetReader
     private ColumnChunk readStruct(GroupField field)
             throws IOException
     {
-        Block[] blocks = new Block[field.getType().getTypeParameters().size()];
+        RowType rowType = (RowType) field.getType();
+        Block[] blocks = new Block[rowType.getFields().size()];
         ColumnChunk columnChunk = null;
         List<Optional<Field>> parameters = field.getChildren();
         for (int i = 0; i < blocks.length; i++) {
@@ -593,7 +628,7 @@ public class ParquetReader
         Optional<boolean[]> isNull = structIsNull.isNull();
         for (int i = 0; i < blocks.length; i++) {
             if (blocks[i] == null) {
-                blocks[i] = RunLengthEncodedBlock.create(field.getType().getTypeParameters().get(i), null, structIsNull.positionsCount());
+                blocks[i] = RunLengthEncodedBlock.create(rowType.getFields().get(i).getType(), null, structIsNull.positionsCount());
             }
             else if (isNull.isPresent()) {
                 blocks[i] = toNotNullSupressedBlock(structIsNull.positionsCount(), isNull.get(), blocks[i]);
@@ -667,7 +702,15 @@ public class ParquetReader
             }
             ChunkedInputStream columnChunkInputStream = chunkReaders.get(new ChunkKey(fieldId, currentRowGroup));
             columnReader.setPageReader(
-                    createPageReader(dataSource.getId(), columnChunkInputStream, metadata, columnDescriptor, offsetIndex, fileCreatedBy, decryptionContext),
+                    createPageReader(
+                            dataSource.getId(),
+                            columnChunkInputStream,
+                            metadata,
+                            columnDescriptor,
+                            offsetIndex,
+                            fileCreatedBy,
+                            decryptionContext,
+                            options.getMaxPageReadSize().toBytes()),
                     Optional.ofNullable(rowRanges));
         }
         ColumnChunk columnChunk = columnReader.readPrimitive();
@@ -745,7 +788,13 @@ public class ParquetReader
     {
         ColumnChunk columnChunk;
         if (field instanceof VariantField variantField) {
-            columnChunk = readVariant(variantField);
+            if (variantField.getType() == VARIANT) {
+                // Directly read VARIANT as a single block
+                columnChunk = readVariant(variantField);
+            }
+            else {
+                columnChunk = readVariantAsJson(variantField);
+            }
         }
         else if (field.getType() instanceof RowType) {
             columnChunk = readStruct((GroupField) field);
@@ -822,7 +871,7 @@ public class ParquetReader
 
     @SuppressWarnings("FormatStringAnnotation")
     @FormatMethod
-    private void validateWrite(java.util.function.Predicate<ParquetWriteValidation> test, String messageFormat, Object... args)
+    private void validateWrite(Predicate<ParquetWriteValidation> test, String messageFormat, Object... args)
             throws ParquetCorruptionException
     {
         if (writeValidation.isPresent() && !test.test(writeValidation.get())) {

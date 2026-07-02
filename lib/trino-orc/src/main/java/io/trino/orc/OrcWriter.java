@@ -142,7 +142,7 @@ public final class OrcWriter
             OrcWriterStats stats)
     {
         this.validationBuilder = validate ? new OrcWriteValidationBuilder(validationMode, types)
-                .setStringStatisticsLimitInBytes(toIntExact(options.getMaxStringStatisticsLimit().toBytes())) : null;
+                                            .setStringStatisticsLimitInBytes(toIntExact(options.getMaxStringStatisticsLimit().toBytes())) : null;
 
         this.orcDataSink = requireNonNull(orcDataSink, "orcDataSink is null");
         this.types = ImmutableList.copyOf(requireNonNull(types, "types is null"));
@@ -172,7 +172,7 @@ public final class OrcWriter
         // create column writers
         OrcType rootType = orcTypes.get(ROOT_COLUMN);
         checkArgument(rootType.getFieldCount() == types.size());
-        ImmutableList.Builder<ColumnWriter> columnWriters = ImmutableList.builder();
+        ImmutableList.Builder<ColumnWriter> columnWriters = ImmutableList.builderWithExpectedSize(types.size());
         ImmutableSet.Builder<SliceDictionaryColumnWriter> sliceColumnWriters = ImmutableSet.builder();
         for (int fieldId = 0; fieldId < types.size(); fieldId++) {
             OrcColumnId fieldColumnIndex = rootType.getFieldTypeIndex(fieldId);
@@ -200,6 +200,7 @@ public final class OrcWriter
             }
         }
         this.columnWriters = columnWriters.build();
+        this.columnWritersRetainedBytes = this.columnWriters.stream().mapToLong(ColumnWriter::getRetainedBytes).sum();
         this.dictionaryCompressionOptimizer = new DictionaryCompressionOptimizer(
                 sliceColumnWriters.build(),
                 stripeMinBytes,

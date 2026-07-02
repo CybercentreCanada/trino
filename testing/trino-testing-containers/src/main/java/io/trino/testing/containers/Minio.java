@@ -50,8 +50,8 @@ public class Minio
     public static final int MINIO_CONSOLE_PORT = 4567;
 
     // defaults
-    public static final String MINIO_ACCESS_KEY = "accesskey";
-    public static final String MINIO_SECRET_KEY = "secretkey";
+    public static final String MINIO_ROOT_USER = "accesskey";
+    public static final String MINIO_ROOT_PASSWORD = "secretkey";
     public static final String MINIO_REGION = "us-east-1";
 
     public static Builder builder()
@@ -68,8 +68,7 @@ public class Minio
             Optional<Network> network,
             int retryLimit)
     {
-        super(
-                image,
+        super(image,
                 hostName,
                 exposePorts,
                 filesToMount,
@@ -86,8 +85,10 @@ public class Minio
         withRunCommand(
                 ImmutableList.of(
                         "server",
-                        "--address", "0.0.0.0:" + MINIO_API_PORT,
-                        "--console-address", "0.0.0.0:" + MINIO_CONSOLE_PORT,
+                        "--address",
+                        "0.0.0.0:" + MINIO_API_PORT,
+                        "--console-address",
+                        "0.0.0.0:" + MINIO_CONSOLE_PORT,
                         "/data"));
     }
 
@@ -157,7 +158,7 @@ public class Minio
 
     public MinioClient createMinioClient()
     {
-        return new MinioClient(getMinioAddress(), MINIO_ACCESS_KEY, MINIO_SECRET_KEY);
+        return new MinioClient(getMinioAddress(), MINIO_ROOT_USER, MINIO_ROOT_PASSWORD);
     }
 
     public static class Builder
@@ -172,8 +173,8 @@ public class Minio
                             MINIO_API_PORT,
                             MINIO_CONSOLE_PORT);
             this.envVars = ImmutableMap.<String, String>builder()
-                    .put("MINIO_ACCESS_KEY", MINIO_ACCESS_KEY)
-                    .put("MINIO_SECRET_KEY", MINIO_SECRET_KEY)
+                    .put("MINIO_ROOT_USER", MINIO_ROOT_USER)
+                    .put("MINIO_ROOT_PASSWORD", MINIO_ROOT_PASSWORD)
                     .buildOrThrow();
         }
 

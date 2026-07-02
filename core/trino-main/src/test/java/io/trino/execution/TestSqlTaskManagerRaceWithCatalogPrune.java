@@ -25,7 +25,6 @@ import io.airlift.tracing.Tracing;
 import io.airlift.units.Duration;
 import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.api.trace.Span;
-import io.trino.Session;
 import io.trino.connector.CatalogConnector;
 import io.trino.connector.CatalogFactory;
 import io.trino.connector.CatalogHandle;
@@ -36,6 +35,7 @@ import io.trino.connector.ConnectorServicesProvider;
 import io.trino.connector.MockConnectorFactory;
 import io.trino.connector.TestingLocalCatalogPruneTask;
 import io.trino.connector.WorkerDynamicCatalogManager;
+import io.trino.exchange.ExchangeManagerConfig;
 import io.trino.exchange.ExchangeManagerRegistry;
 import io.trino.execution.buffer.PipelinedOutputBuffers;
 import io.trino.execution.executor.RunningSplitInfo;
@@ -86,6 +86,7 @@ import static io.trino.execution.TaskTestUtils.TABLE_SCAN_NODE_ID;
 import static io.trino.execution.TaskTestUtils.createTestingPlanner;
 import static io.trino.execution.buffer.PipelinedOutputBuffers.BufferType.PARTITIONED;
 import static io.trino.metadata.CatalogManager.NO_CATALOGS;
+import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 import static org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD;
@@ -101,10 +102,16 @@ public class TestSqlTaskManagerRaceWithCatalogPrune
         public void loadInitialCatalogs() {}
 
         @Override
-        public void ensureCatalogsLoaded(Session session, List<CatalogProperties> catalogs) {}
+        public void ensureCatalogsLoaded(List<CatalogProperties> catalogs) {}
 
         @Override
-        public void pruneCatalogs(Set<CatalogHandle> catalogsInUse) {}
+        public PrunableState getPrunableState()
+        {
+            return PrunableState.empty();
+        }
+
+        @Override
+        public void pruneCatalogs(PrunableState prunableState, Set<CatalogHandle> catalogsInUse) {}
 
         @Override
         public ConnectorServices getConnectorServices(CatalogHandle catalogHandle)
@@ -141,11 +148,13 @@ public class TestSqlTaskManagerRaceWithCatalogPrune
             throw new UnsupportedOperationException("Only implement what is needed by worker catalog manager");
         }
     };
-    private static final TaskExecutor NOOP_TASK_EXECUTOR = new TaskExecutor() {
+    private static final TaskExecutor NOOP_TASK_EXECUTOR = new TaskExecutor()
+    {
         @Override
         public TaskHandle addTask(TaskId taskId, DoubleSupplier utilizationSupplier, int initialSplitConcurrency, Duration splitConcurrencyAdjustFrequency, OptionalInt maxDriversPerTask)
         {
-            return new TaskHandle() {
+            return new TaskHandle()
+            {
                 @Override
                 public boolean isDestroyed()
                 {
@@ -198,8 +207,7 @@ public class TestSqlTaskManagerRaceWithCatalogPrune
                 new CatalogPruneTaskConfig(),
                 workerTaskManager);
 
-        Future<Void> catalogTaskFuture = Futures.submit(() ->
-        {
+        Future<Void> catalogTaskFuture = Futures.submit(() -> {
             for (int i = 0; i < NUM_TASKS; i++) {
                 CatalogName catalogName = new CatalogName("catalog_" + i);
                 CatalogHandle catalogHandle = createRootCatalogHandle(catalogName, new CatalogVersion(UUID.randomUUID().toString()));
@@ -209,6 +217,7 @@ public class TestSqlTaskManagerRaceWithCatalogPrune
                         taskId,
                         Span.getInvalid(),
                         Optional.of(fragmentWithCatalog(catalogHandle)),
+                        ImmutableMap.of(),
                         ImmutableList.of(new SplitAssignment(TABLE_SCAN_NODE_ID, ImmutableSet.of(), true)),
                         PipelinedOutputBuffers.createInitial(PARTITIONED).withBuffer(OUT, 0).withNoMoreBufferIds(),
                         ImmutableMap.of(),
@@ -228,10 +237,9 @@ public class TestSqlTaskManagerRaceWithCatalogPrune
             }
         }, threadPoolExecutor);
 
-        Future<Void> pruneCatalogsFuture = Futures.submit(() ->
-        {
+        Future<Void> pruneCatalogsFuture = Futures.submit(() -> {
             for (int i = 0; i < NUM_TASKS; i++) {
-                catalogPruneTask.pruneWorkerCatalogs();
+                catalogPruneTask.pruneCatalogs();
                 try {
                     Thread.sleep(0, ThreadLocalRandom.current().nextInt(25, 75));
                 }
@@ -258,7 +266,7 @@ public class TestSqlTaskManagerRaceWithCatalogPrune
                 new EmbedVersion("testversion"),
                 workerConnectorServiceProvider,
                 createTestingPlanner(),
-                new WorkerLanguageFunctionProvider(new LanguageFunctionEngineManager()),
+                new WorkerLanguageFunctionProvider(new LanguageFunctionEngineManager(), PLANNER_CONTEXT.getMetadata(), PLANNER_CONTEXT.getTypeManager()),
                 new BaseTestSqlTaskManager.MockLocationFactory(),
                 NOOP_TASK_EXECUTOR,
                 new NodeInfo("testversion"),
@@ -270,8 +278,8 @@ public class TestSqlTaskManagerRaceWithCatalogPrune
                 new NodeSpillConfig(),
                 new TestingGcMonitor(),
                 noopTracer(),
-                new ExchangeManagerRegistry(OpenTelemetry.noop(), Tracing.noopTracer(), new SecretsResolver(ImmutableMap.of())),
-                ignore -> true);
+                new ExchangeManagerRegistry(OpenTelemetry.noop(), Tracing.noopTracer(), new SecretsResolver(ImmutableMap.of()), new ExchangeManagerConfig()),
+                _ -> true);
     }
 
     private static PlanFragment fragmentWithCatalog(CatalogHandle catalogHandle)

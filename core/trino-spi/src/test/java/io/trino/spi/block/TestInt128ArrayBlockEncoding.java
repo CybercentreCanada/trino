@@ -14,12 +14,14 @@
 package io.trino.spi.block;
 
 import io.trino.spi.type.DecimalType;
+import io.trino.spi.type.Decimals;
 import io.trino.spi.type.Int128;
 import io.trino.spi.type.Type;
 
+import java.math.BigInteger;
 import java.util.Random;
 
-public class TestInt128ArrayBlockEncoding
+final class TestInt128ArrayBlockEncoding
         extends BaseBlockEncodingTest<Int128>
 {
     private static final DecimalType TYPE = DecimalType.createDecimalType(30);
@@ -39,6 +41,8 @@ public class TestInt128ArrayBlockEncoding
     @Override
     protected Int128 randomValue(Random random)
     {
-        return Int128.valueOf(random.nextLong(), random.nextLong());
+        BigInteger bound = Decimals.bigIntegerTenToNth(TYPE.getPrecision());
+        BigInteger magnitude = new BigInteger(128, random).mod(bound);
+        return Int128.valueOf(random.nextBoolean() ? magnitude : magnitude.negate());
     }
 }

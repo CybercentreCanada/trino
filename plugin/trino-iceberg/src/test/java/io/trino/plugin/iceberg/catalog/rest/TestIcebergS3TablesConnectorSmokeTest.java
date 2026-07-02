@@ -75,8 +75,7 @@ final class TestIcebergS3TablesConnectorSmokeTest
                 .addIcebergProperty("iceberg.rest-catalog.security", "sigv4")
                 .addIcebergProperty("iceberg.rest-catalog.signing-name", "glue")
                 .addIcebergProperty("iceberg.writer-sort-buffer-size", "1MB")
-                .addIcebergProperty("iceberg.allowed-extra-properties", "write.metadata.delete-after-commit.enabled,write.metadata.previous-versions-max")
-                .addIcebergProperty("fs.native-s3.enabled", "true")
+                .addIcebergProperty("fs.s3.enabled", "true")
                 .addIcebergProperty("s3.region", AWS_REGION)
                 .addIcebergProperty("s3.aws-access-key", AWS_ACCESS_KEY_ID)
                 .addIcebergProperty("s3.aws-secret-key", AWS_SECRET_ACCESS_KEY)
@@ -118,9 +117,15 @@ final class TestIcebergS3TablesConnectorSmokeTest
     }
 
     @Override
-    protected void dropTableFromMetastore(String tableName)
+    protected void dropTableFromCatalog(String tableName)
     {
         throw new UnsupportedOperationException();
+    }
+
+    @Override
+    protected void verifyAnalyzeFailurePermissible(Exception e)
+    {
+        assertThat(e).hasMessageContaining("S3 Tables do not support analyze");
     }
 
     @Test
@@ -175,7 +180,7 @@ final class TestIcebergS3TablesConnectorSmokeTest
     public void testRenameTable()
     {
         assertThatThrownBy(super::testRenameTable)
-                .hasStackTraceContaining("Unable to process: RenameTable endpoint is not supported for Glue Catalog");
+                .hasStackTraceContaining("RenameTable endpoint is not supported for Glue Catalog");
     }
 
     @Test

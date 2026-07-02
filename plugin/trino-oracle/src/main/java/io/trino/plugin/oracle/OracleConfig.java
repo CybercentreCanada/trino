@@ -34,12 +34,12 @@ public class OracleConfig
     private boolean synonymsEnabled;
     private boolean remarksReportingEnabled;
     private Integer defaultNumberScale;
-    private RoundingMode numberRoundingMode = RoundingMode.UNNECESSARY;
+    private Optional<RoundingMode> numberRoundingMode = Optional.empty();
     private boolean connectionPoolEnabled = true;
     private int connectionPoolMinSize = 1;
     private int connectionPoolMaxSize = 30;
     private Duration inactiveConnectionTimeout = new Duration(20, MINUTES);
-    private Duration connectionWaitTimeout = new Duration(5, SECONDS);
+    private Duration connectionPoolWaitDuration = new Duration(3, SECONDS);
     private Integer fetchSize;
 
     public boolean isSynonymsEnabled()
@@ -66,11 +66,13 @@ public class OracleConfig
         return this;
     }
 
+    @Deprecated
     public Optional<@Min(0) @Max(38) Integer> getDefaultNumberScale()
     {
         return Optional.ofNullable(defaultNumberScale);
     }
 
+    @Deprecated
     @Config("oracle.number.default-scale")
     @ConfigDescription("Default Trino DECIMAL scale for Oracle NUMBER data type")
     public OracleConfig setDefaultNumberScale(Integer defaultNumberScale)
@@ -79,16 +81,18 @@ public class OracleConfig
         return this;
     }
 
+    @Deprecated
     @NotNull
-    public RoundingMode getNumberRoundingMode()
+    public Optional<RoundingMode> getNumberRoundingMode()
     {
         return numberRoundingMode;
     }
 
+    @Deprecated
     @Config("oracle.number.rounding-mode")
     public OracleConfig setNumberRoundingMode(RoundingMode numberRoundingMode)
     {
-        this.numberRoundingMode = numberRoundingMode;
+        this.numberRoundingMode = Optional.ofNullable(numberRoundingMode);
         return this;
     }
 
@@ -144,6 +148,20 @@ public class OracleConfig
         return this;
     }
 
+    @NotNull
+    public Duration getConnectionPoolWaitDuration()
+    {
+        return connectionPoolWaitDuration;
+    }
+
+    @Config("oracle.connection-pool.wait-duration")
+    @ConfigDescription("Maximum amount of time a request will wait to obtain an available connection from the pool if all connections are currently in use")
+    public OracleConfig setConnectionPoolWaitDuration(Duration connectionPoolWaitDuration)
+    {
+        this.connectionPoolWaitDuration = connectionPoolWaitDuration;
+        return this;
+    }
+
     public Optional<@Min(0) Integer> getFetchSize()
     {
         return Optional.ofNullable(fetchSize);
@@ -161,19 +179,5 @@ public class OracleConfig
     public boolean isPoolSizedProperly()
     {
         return getConnectionPoolMaxSize() >= getConnectionPoolMinSize();
-    }
-
-    @NotNull
-    public Duration getConnectionWaitTimeout()
-    {
-        return connectionWaitTimeout;
-    }
-
-    @Config("oracle.connection-pool.wait-timeout")
-    @ConfigDescription("How long to wait for a used connection to be released by a client")
-    public OracleConfig setConnectionWaitTimeout(Duration connectionWaitTimeout)
-    {
-        this.connectionWaitTimeout = connectionWaitTimeout;
-        return this;
     }
 }

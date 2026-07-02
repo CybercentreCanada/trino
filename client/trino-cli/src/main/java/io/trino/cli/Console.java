@@ -16,12 +16,12 @@ package io.trino.cli;
 import com.google.common.base.CharMatcher;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.io.ByteStreams;
 import io.airlift.units.Duration;
 import io.trino.cli.ClientOptions.OutputFormat;
 import io.trino.cli.ClientOptions.PropertyMapping;
 import io.trino.cli.Trino.VersionProvider;
 import io.trino.cli.lexer.StatementSplitter;
+import io.trino.cli.lexer.StatementSplitter.Statement;
 import io.trino.client.ClientSelectedRole;
 import io.trino.client.ClientSession;
 import io.trino.client.uri.PropertyName;
@@ -42,7 +42,6 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.lang.reflect.Field;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.AbstractMap;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -66,7 +65,6 @@ import static io.trino.cli.TerminalUtils.getTerminal;
 import static io.trino.cli.TerminalUtils.isRealTerminal;
 import static io.trino.cli.TerminalUtils.terminalEncoding;
 import static io.trino.cli.Trino.formatCliErrorMessage;
-import static io.trino.cli.lexer.StatementSplitter.Statement;
 import static io.trino.cli.lexer.StatementSplitter.isEmptyStatement;
 import static io.trino.client.ClientSession.stripTransactionId;
 import static java.lang.String.format;
@@ -149,7 +147,7 @@ public class Console
         if (!hasQuery && !isRealTerminal()) {
             try {
                 if (System.in.available() > 0) {
-                    query = new String(ByteStreams.toByteArray(System.in), terminalEncoding()) + ";";
+                    query = new String(System.in.readAllBytes(), terminalEncoding()) + ";";
 
                     if (query.length() > 1) {
                         hasQuery = true;
@@ -168,8 +166,8 @@ public class Console
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             exiting.set(true);
             interruptor.interrupt();
-            @SuppressWarnings("CheckReturnValue")
-            boolean ignored = awaitUninterruptibly(exited, EXIT_DELAY.toMillis(), MILLISECONDS);
+            @SuppressWarnings("UnusedLocalVariable")
+            var ignored = awaitUninterruptibly(exited, EXIT_DELAY.toMillis(), MILLISECONDS);
             // Terminal closing restores terminal settings and releases underlying system resources
             closeTerminal();
         }));
@@ -457,6 +455,6 @@ public class Console
         if (isNullOrEmpty(path)) {
             return Optional.empty();
         }
-        return Optional.of(Paths.get(path));
+        return Optional.of(Path.of(path));
     }
 }

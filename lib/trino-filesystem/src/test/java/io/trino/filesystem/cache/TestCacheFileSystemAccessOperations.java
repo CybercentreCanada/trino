@@ -27,13 +27,14 @@ import io.trino.filesystem.memory.MemoryFileSystemCache;
 import io.trino.filesystem.memory.MemoryFileSystemCacheConfig;
 import io.trino.filesystem.memory.MemoryFileSystemFactory;
 import io.trino.filesystem.tracing.TracingFileSystemFactory;
-import io.trino.spi.block.TestingSession;
 import io.trino.testing.TestingTelemetry;
+import io.trino.testing.connector.TestingConnectorSession;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.TestInstance.Lifecycle;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -44,7 +45,6 @@ import static io.trino.filesystem.tracing.FileSystemAttributes.FILE_LOCATION;
 import static io.trino.testing.MultisetAssertions.assertMultisetsEqual;
 import static java.util.concurrent.TimeUnit.HOURS;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.TestInstance.Lifecycle;
 
 @TestInstance(Lifecycle.PER_CLASS)
 public class TestCacheFileSystemAccessOperations
@@ -59,7 +59,7 @@ public class TestCacheFileSystemAccessOperations
         tracingFileSystemFactory = new TracingFileSystemFactory(telemetry.getTracer(), new MemoryFileSystemFactory());
         MemoryFileSystemCacheConfig configuration = new MemoryFileSystemCacheConfig()
                 .setCacheTtl(new Duration(24, HOURS));
-        fileSystem = new CacheFileSystem(tracingFileSystemFactory.create(TestingSession.SESSION), new MemoryFileSystemCache(configuration), new DefaultCacheKeyProvider());
+        fileSystem = new CacheFileSystem(tracingFileSystemFactory.create(TestingConnectorSession.SESSION), new MemoryFileSystemCache(configuration), new DefaultCacheKeyProvider());
     }
 
     @AfterAll

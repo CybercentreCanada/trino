@@ -14,7 +14,7 @@
 package io.trino.plugin.opensearch.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -23,7 +23,7 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.inject.Inject;
 import io.airlift.json.JsonCodec;
-import io.airlift.json.ObjectMapperProvider;
+import io.airlift.json.JsonMapperProvider;
 import io.airlift.log.Logger;
 import io.airlift.stats.TimeStat;
 import io.airlift.units.Duration;
@@ -79,6 +79,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -113,7 +114,7 @@ public class OpenSearchClient
     private static final JsonCodec<SearchShardsResponse> SEARCH_SHARDS_RESPONSE_CODEC = jsonCodec(SearchShardsResponse.class);
     private static final JsonCodec<NodesResponse> NODES_RESPONSE_CODEC = jsonCodec(NodesResponse.class);
     private static final JsonCodec<CountResponse> COUNT_RESPONSE_CODEC = jsonCodec(CountResponse.class);
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapperProvider().get();
+    private static final JsonMapper JSON_MAPPER = new JsonMapperProvider().get();
 
     private static final Pattern ADDRESS_PATTERN = Pattern.compile("((?<cname>[^/]+)/)?(?<ip>.+):(?<port>\\d+)");
     private static final Set<String> NODE_ROLES = ImmutableSet.of("data", "data_content", "data_hot", "data_warm", "data_cold", "data_frozen");
@@ -299,7 +300,7 @@ public class OpenSearchClient
         NodesResponse nodesResponse = doRequest("/_nodes/http", NODES_RESPONSE_CODEC::fromJson);
 
         ImmutableSet.Builder<OpenSearchNode> result = ImmutableSet.builder();
-        for (Map.Entry<String, NodesResponse.Node> entry : nodesResponse.getNodes().entrySet()) {
+        for (Entry<String, NodesResponse.Node> entry : nodesResponse.getNodes().entrySet()) {
             String nodeId = entry.getKey();
             NodesResponse.Node node = entry.getValue();
 
@@ -390,7 +391,7 @@ public class OpenSearchClient
         return doRequest("/_cat/indices?h=index,docs.count,docs.deleted&format=json&s=index:asc", body -> {
             try {
                 ImmutableList.Builder<String> result = ImmutableList.builder();
-                JsonNode root = OBJECT_MAPPER.readTree(body);
+                JsonNode root = JSON_MAPPER.readTree(body);
                 for (int i = 0; i < root.size(); i++) {
                     String index = root.get(i).get("index").asText();
                     // make sure the index has mappings we can use to derive the schema
@@ -428,9 +429,9 @@ public class OpenSearchClient
         return doRequest("/_aliases", body -> {
             try {
                 ImmutableMap.Builder<String, List<String>> result = ImmutableMap.builder();
-                JsonNode root = OBJECT_MAPPER.readTree(body);
+                JsonNode root = JSON_MAPPER.readTree(body);
 
-                for (Map.Entry<String, JsonNode> element : root.properties()) {
+                for (Entry<String, JsonNode> element : root.properties()) {
                     JsonNode aliases = element.getValue().get("aliases");
                     Iterator<String> aliasNames = aliases.fieldNames();
                     if (aliasNames.hasNext()) {
@@ -451,7 +452,7 @@ public class OpenSearchClient
 
         return doRequest(path, body -> {
             try {
-                JsonNode mappings = OBJECT_MAPPER.readTree(body)
+                JsonNode mappings = JSON_MAPPER.readTree(body)
                         .elements().next()
                         .get("mappings");
 
@@ -473,7 +474,7 @@ public class OpenSearchClient
 
                 JsonNode metaProperties = nullSafeNode(metaNode, "trino");
 
-                //stay backwards compatible with _meta.presto namespace for meta properties for some releases
+                // stay backwards compatible with _meta.presto namespace for meta properties for some releases
                 if (metaProperties.isNull()) {
                     metaProperties = nullSafeNode(metaNode, "presto");
                 }
@@ -489,11 +490,11 @@ public class OpenSearchClient
     private IndexMetadata.ObjectType parseType(JsonNode properties, JsonNode metaProperties)
     {
         ImmutableList.Builder<IndexMetadata.Field> result = ImmutableList.builder();
-        for (Map.Entry<String, JsonNode> field : properties.properties()) {
+        for (Entry<String, JsonNode> field : properties.properties()) {
             String name = field.getKey();
             JsonNode value = field.getValue();
 
-            //default type is object
+            // default type is object
             String type = "object";
             if (value.has("type")) {
                 type = value.get("type").asText();
@@ -506,33 +507,29 @@ public class OpenSearchClient
             // this route, as it will likely lead to confusion in dealing with array syntax in Trino and potentially nested array and other
             // syntax when parsing the raw json.
             if (isArray && asRawJson) {
-                throw new TrinoException(OPENSEARCH_INVALID_METADATA,
+                throw new TrinoException(
+                        OPENSEARCH_INVALID_METADATA,
                         format("A column, (%s) cannot be declared as a Trino array and also be rendered as json.", name));
             }
 
             switch (type) {
-                case "date":
+                case "date" -> {
                     List<String> formats = ImmutableList.of();
                     if (value.has("format")) {
                         formats = Arrays.asList(value.get("format").asText().split("\\|\\|"));
                     }
                     result.add(new IndexMetadata.Field(asRawJson, isArray, name, new IndexMetadata.DateTimeType(formats)));
-                    break;
-                case "scaled_float":
-                    result.add(new IndexMetadata.Field(asRawJson, isArray, name, new IndexMetadata.ScaledFloatType(value.get("scaling_factor").asDouble())));
-                    break;
-                case "nested":
-                case "object":
+                }
+                case "scaled_float" -> result.add(new IndexMetadata.Field(asRawJson, isArray, name, new IndexMetadata.ScaledFloatType(value.get("scaling_factor").asDouble())));
+                case "nested", "object" -> {
                     if (value.has("properties")) {
                         result.add(new IndexMetadata.Field(asRawJson, isArray, name, parseType(value.get("properties"), metaNode)));
                     }
                     else {
                         LOG.debug("Ignoring empty object field: %s", name);
                     }
-                    break;
-
-                default:
-                    result.add(new IndexMetadata.Field(asRawJson, isArray, name, new IndexMetadata.PrimitiveType(type)));
+                }
+                default -> result.add(new IndexMetadata.Field(asRawJson, isArray, name, new IndexMetadata.PrimitiveType(type)));
             }
         }
 
@@ -758,7 +755,7 @@ public class OpenSearchClient
 
         if (entity != null && entity.getContentType() != null) {
             try {
-                JsonNode reason = OBJECT_MAPPER.readTree(entity.getContent()).path("error")
+                JsonNode reason = JSON_MAPPER.readTree(entity.getContent()).path("error")
                         .path("root_cause")
                         .path(0)
                         .path("reason");

@@ -114,8 +114,9 @@ The connector supports accessing the following file systems:
 * [](/object-storage/file-system-s3)
 * [](/object-storage/file-system-hdfs)
 
-You must enable and configure the specific file system access. [Legacy
-support](file-system-legacy) is not recommended and will be removed.
+Enable and configure the file system that your catalog uses. Use
+`fs.hadoop.enabled` only for HDFS; see [legacy file system
+support](file-system-legacy) for migration details.
 
 ## SQL support
 
@@ -186,6 +187,22 @@ table displays a support matrix of tables types and query types for the connecto
   - Snapshot queries
 * - Merge on read
   - Read-optimized queries
+:::
+
+#### Table properties
+
+The following table properties are available for use:
+
+:::{list-table} Hudi table properties
+:widths: 40, 60
+:header-rows: 1
+
+* - Property name
+  - Description
+* - `location`
+  - File system location URI for the table.
+* - `partitioned_by`
+  - Partition columns for the table.
 :::
 
 (hudi-metadata-tables)=

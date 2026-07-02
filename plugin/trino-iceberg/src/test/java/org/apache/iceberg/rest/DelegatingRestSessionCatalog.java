@@ -15,6 +15,7 @@ package org.apache.iceberg.rest;
 
 import io.airlift.http.server.HttpServerConfig;
 import io.airlift.http.server.HttpServerInfo;
+import io.airlift.http.server.ServerFeature;
 import io.airlift.http.server.testing.TestingHttpServer;
 import io.airlift.node.NodeInfo;
 import org.apache.iceberg.catalog.Catalog;
@@ -35,7 +36,7 @@ public class DelegatingRestSessionCatalog
 
     DelegatingRestSessionCatalog(RESTCatalogAdapter adapter, Catalog delegate)
     {
-        super(properties -> adapter, null);
+        super(_ -> adapter, null);
         this.adapter = requireNonNull(adapter, "adapter is null");
         this.delegate = requireNonNull(delegate, "delegate catalog is null");
     }
@@ -64,9 +65,12 @@ public class DelegatingRestSessionCatalog
                 .setHttpAcceptQueueSize(10)
                 .setHttpEnabled(true);
         HttpServerInfo httpServerInfo = new HttpServerInfo(config, nodeInfo);
-        RestCatalogServlet servlet = new RestCatalogServlet(adapter);
+        RESTCatalogServlet servlet = new RESTCatalogServlet(adapter);
 
-        return new TestingHttpServer(httpServerInfo, nodeInfo, config, servlet, false, true, false);
+        return new TestingHttpServer("rest-catalog", httpServerInfo, nodeInfo, config, servlet, ServerFeature.builder()
+                // Required due to URIs like: HEAD /v1/namespaces/level_1%1Flevel_2
+                .withLegacyUriCompliance(true)
+                .build());
     }
 
     public static Builder builder()

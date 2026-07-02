@@ -22,6 +22,7 @@ import io.trino.spi.block.Block;
 import io.trino.spi.block.LongArrayBlock;
 import io.trino.spi.block.RunLengthEncodedBlock;
 import io.trino.spi.block.ValueBlock;
+import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.Type;
 import jakarta.annotation.Nullable;
 
@@ -91,8 +92,9 @@ public final class TrinoThriftBigintArray
     @Override
     public ValueBlock toBlock(Type desiredType)
     {
-        checkArgument(desiredType.getTypeParameters().size() == 1 && BIGINT.equals(desiredType.getTypeParameters().get(0)),
-                "type doesn't match: %s", desiredType);
+        checkArgument(desiredType instanceof ArrayType arrayType && BIGINT.equals(arrayType.getElementType()),
+                "type doesn't match: %s",
+                desiredType);
         int numberOfRecords = numberOfRecords();
         return ArrayBlock.fromElementBlock(
                 numberOfRecords,
@@ -169,11 +171,11 @@ public final class TrinoThriftBigintArray
                 if (sizes == null) {
                     sizes = new int[positions];
                 }
-                sizes[position] = arrayBlock.apply((valuesBlock, startPosition, length) -> length, position);
+                sizes[position] = arrayBlock.apply((_, _, length) -> length, position);
             }
         }
         TrinoThriftBigint values = arrayBlock
-                .apply((valuesBlock, startPosition, length) -> TrinoThriftBigint.fromBlock(valuesBlock), 0)
+                .apply((valuesBlock, _, _) -> TrinoThriftBigint.fromBlock(valuesBlock), 0)
                 .getBigintData();
         checkState(values != null, "values must be present");
         checkState(totalSize(nulls, sizes) == values.numberOfRecords(), "unexpected number of values");

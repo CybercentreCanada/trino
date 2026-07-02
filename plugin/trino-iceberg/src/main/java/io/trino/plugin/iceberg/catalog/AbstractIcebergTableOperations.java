@@ -84,12 +84,13 @@ public abstract class AbstractIcebergTableOperations
     protected final String tableName;
     protected final Optional<String> owner;
     protected final Optional<String> location;
-    protected final FileIO fileIo;
+    private final FileIO fileIo;
 
     protected TableMetadata currentMetadata;
     protected String currentMetadataLocation;
     protected boolean shouldRefresh = true;
     protected OptionalInt version = OptionalInt.empty();
+    protected Optional<MaterializedViewCommitData> materializedViewCommitData = Optional.empty();
 
     protected AbstractIcebergTableOperations(
             FileIO fileIo,
@@ -158,7 +159,7 @@ public abstract class AbstractIcebergTableOperations
         }
 
         if (isMaterializedViewStorage(tableName)) {
-            commitMaterializedViewRefresh(base, metadata);
+            commitMaterializedView(base, metadata);
             return;
         }
 
@@ -175,7 +176,7 @@ public abstract class AbstractIcebergTableOperations
         }
         else {
             commitToExistingTable(base, metadata);
-            deleteRemovedMetadataFiles(fileIo, base, metadata);
+            deleteRemovedMetadataFiles(io(), base, metadata);
         }
 
         shouldRefresh = true;
@@ -187,7 +188,12 @@ public abstract class AbstractIcebergTableOperations
 
     protected abstract void commitToExistingTable(TableMetadata base, TableMetadata metadata);
 
-    protected abstract void commitMaterializedViewRefresh(TableMetadata base, TableMetadata metadata);
+    protected abstract void commitMaterializedView(TableMetadata base, TableMetadata metadata);
+
+    public void applyMaterializedViewCommitData(Optional<MaterializedViewCommitData> materializedViewCommitData)
+    {
+        this.materializedViewCommitData = requireNonNull(materializedViewCommitData, "materializedViewCommitData is null");
+    }
 
     @Override
     public FileIO io()
@@ -228,7 +234,7 @@ public abstract class AbstractIcebergTableOperations
     protected String writeNewMetadata(TableMetadata metadata, int newVersion)
     {
         String newTableMetadataFilePath = newTableMetadataFilePath(metadata, newVersion);
-        OutputFile newMetadataLocation = fileIo.newOutputFile(newTableMetadataFilePath);
+        OutputFile newMetadataLocation = io().newOutputFile(newTableMetadataFilePath);
 
         // write the new metadata
         TableMetadataParser.write(metadata, newMetadataLocation);
@@ -240,7 +246,7 @@ public abstract class AbstractIcebergTableOperations
     {
         refreshFromMetadataLocation(
                 newLocation,
-                metadataLocation -> TableMetadataParser.read(fileIo.newInputFile(metadataLocation)));
+                metadataLocation -> TableMetadataParser.read(io().newInputFile(metadataLocation)));
     }
 
     protected void refreshFromMetadataLocation(String newLocation, Function<String, TableMetadata> metadataLoader)
@@ -277,7 +283,9 @@ public abstract class AbstractIcebergTableOperations
         String newUUID = newMetadata.uuid();
         if (currentMetadata != null) {
             checkState(newUUID == null || newUUID.equals(currentMetadata.uuid()),
-                    "Table UUID does not match: current=%s != refreshed=%s", currentMetadata.uuid(), newUUID);
+                    "Table UUID does not match: current=%s != refreshed=%s",
+                    currentMetadata.uuid(),
+                    newUUID);
         }
 
         currentMetadata = newMetadata;

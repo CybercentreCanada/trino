@@ -42,7 +42,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import static io.trino.SystemSessionProperties.isOmitDateTimeTypePrecision;
 import static io.trino.execution.ParameterExtractor.extractParameters;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
@@ -55,8 +54,7 @@ import static io.trino.sql.QueryUtil.selectList;
 import static io.trino.sql.QueryUtil.simpleQuery;
 import static io.trino.sql.QueryUtil.values;
 import static io.trino.sql.analyzer.QueryType.DESCRIBE;
-import static io.trino.sql.analyzer.TypeSignatureTranslator.toSqlType;
-import static io.trino.type.TypeUtils.getDisplayLabel;
+import static io.trino.sql.analyzer.TypeDescriptorTranslator.toSqlType;
 import static io.trino.type.UnknownType.UNKNOWN;
 import static java.util.Objects.requireNonNull;
 
@@ -88,9 +86,10 @@ public final class DescribeInputRewrite
             extends AstVisitor<Node, Void>
     {
         private static final Query EMPTY_INPUT = createDescribeInputQuery(
-                new Row[] {row(
-                        new Cast(new NullLiteral(), toSqlType(BIGINT)),
-                        new Cast(new NullLiteral(), toSqlType(VARCHAR)))},
+                new Row[] {
+                        row(new Cast(new NullLiteral(), toSqlType(BIGINT)),
+                                new Cast(new NullLiteral(), toSqlType(VARCHAR))),
+                },
                 Optional.of(new Limit(new LongLiteral("0"))));
 
         private final Session session;
@@ -134,7 +133,7 @@ public final class DescribeInputRewrite
 
             ImmutableList.Builder<Row> builder = ImmutableList.builder();
             for (int i = 0; i < parameters.size(); i++) {
-                builder.add(createDescribeInputRow(session, i, parameters.get(i), analysis));
+                builder.add(createDescribeInputRow(i, parameters.get(i), analysis));
             }
 
             // return the positions and types of all parameters
@@ -163,7 +162,7 @@ public final class DescribeInputRewrite
                     limit);
         }
 
-        private static Row createDescribeInputRow(Session session, int position, Parameter parameter, Analysis queryAnalysis)
+        private static Row createDescribeInputRow(int position, Parameter parameter, Analysis queryAnalysis)
         {
             Type type = queryAnalysis.getCoercion(parameter);
             if (type == null) {
@@ -172,7 +171,7 @@ public final class DescribeInputRewrite
 
             return row(
                     new LongLiteral(Integer.toString(position)),
-                    new StringLiteral(getDisplayLabel(type, isOmitDateTimeTypePrecision(session))));
+                    new StringLiteral(type.getDisplayName()));
         }
 
         @Override

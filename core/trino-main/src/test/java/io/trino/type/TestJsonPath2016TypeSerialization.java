@@ -13,10 +13,16 @@
  */
 package io.trino.type;
 
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.databind.node.BooleanNode;
 import com.fasterxml.jackson.databind.node.IntNode;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import io.airlift.json.JsonCodec;
+import io.airlift.json.JsonCodecFactory;
+import io.airlift.json.JsonMapperProvider;
+import io.trino.block.BlockJsonSerde;
 import io.trino.json.ir.IrAbsMethod;
 import io.trino.json.ir.IrArithmeticBinary;
 import io.trino.json.ir.IrArithmeticUnary;
@@ -32,6 +38,7 @@ import io.trino.json.ir.IrFloorMethod;
 import io.trino.json.ir.IrJsonPath;
 import io.trino.json.ir.IrKeyValueMethod;
 import io.trino.json.ir.IrLastIndexVariable;
+import io.trino.json.ir.IrLikeRegexPredicate;
 import io.trino.json.ir.IrMemberAccessor;
 import io.trino.json.ir.IrNamedJsonVariable;
 import io.trino.json.ir.IrNamedValueVariable;
@@ -39,8 +46,8 @@ import io.trino.json.ir.IrSizeMethod;
 import io.trino.json.ir.IrTypeMethod;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.BlockBuilder;
-import io.trino.spi.block.TestingBlockEncodingSerde;
 import io.trino.spi.type.Type;
+import io.trino.spi.type.TypeDescriptor;
 import org.assertj.core.api.AssertProvider;
 import org.assertj.core.api.RecursiveComparisonAssert;
 import org.assertj.core.api.recursive.comparison.RecursiveComparisonConfiguration;
@@ -56,6 +63,7 @@ import static io.trino.json.ir.IrArithmeticUnary.Sign.PLUS;
 import static io.trino.json.ir.IrConstantJsonSequence.EMPTY_SEQUENCE;
 import static io.trino.json.ir.IrConstantJsonSequence.singletonSequence;
 import static io.trino.json.ir.IrJsonNull.JSON_NULL;
+import static io.trino.metadata.InternalBlockEncodingSerde.TESTING_BLOCK_ENCODING_SERDE;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DecimalType.createDecimalType;
@@ -71,7 +79,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestJsonPath2016TypeSerialization
 {
-    public static final Type JSON_PATH_2016 = new JsonPath2016Type(new TypeDeserializer(TESTING_TYPE_MANAGER), new TestingBlockEncodingSerde());
+    private static final JsonMapper OBJECT_MAPPER = new JsonMapperProvider()
+            .withJsonDeserializers(ImmutableMap.of(
+                    Type.class, new TypeDeserializer(TESTING_TYPE_MANAGER),
+                    TypeDescriptor.class, new TypeDescriptorDeserializer(),
+                    Block.class, new BlockJsonSerde.Deserializer(TESTING_BLOCK_ENCODING_SERDE)))
+            .withJsonSerializers(ImmutableMap.of(
+                    Block.class, new BlockJsonSerde.Serializer(TESTING_BLOCK_ENCODING_SERDE)))
+            .get();
+    public static final JsonCodec<IrJsonPath> JSON_PATH_CODEC = new JsonCodecFactory(OBJECT_MAPPER).jsonCodec(IrJsonPath.class);
+    public static final Type JSON_PATH_2016 = new JsonPath2016Type(JSON_PATH_CODEC);
     private static final RecursiveComparisonConfiguration COMPARISON_CONFIGURATION = RecursiveComparisonConfiguration.builder().withStrictTypeChecking(true).build();
 
     @Test
@@ -195,6 +212,13 @@ public class TestJsonPath2016TypeSerialization
         assertJsonRoundTrip(new IrJsonPath(true, new IrConstantJsonSequence(
                 ImmutableList.of(IntNode.valueOf(1), IntNode.valueOf(2), IntNode.valueOf(3)),
                 Optional.of(INTEGER))));
+    }
+
+    @Test
+    public void testPredicates()
+    {
+        assertJsonRoundTrip(new IrJsonPath(true, new IrLikeRegexPredicate(JSON_NULL, "^a+$")));
+        assertJsonRoundTrip(new IrJsonPath(true, new IrLikeRegexPredicate(JSON_NULL, "(?im)^a+$")));
     }
 
     @Test

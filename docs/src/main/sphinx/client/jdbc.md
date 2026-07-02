@@ -235,6 +235,12 @@ may not be specified using both methods.
     list of key-value pairs. For example, `abc:xyz;example.foo:bar` sets the
     system property `abc` to the value `xyz` and the `foo` property for catalog
     `example` to the value `bar`.
+* - `extraHeaders`
+  - HTTP headers to add to the authenticated HTTP requests, specified as a
+    list of key-value pairs. For example, `X-Trino-Foo:xyz;X-Trino-Bar:bar` 
+    sends the `X-Trino-Foo` header with the value `xyz` and the `X-Trino-Bar`
+    header with the value `bar`. Protocol headers such as `X-Trino-User` cannot be
+    overridden using this parameter.
 * - `externalAuthentication`
   - Set to true if you want to use external authentication via
     [](/security/oauth2). Use a local web browser to authenticate with an
@@ -243,10 +249,12 @@ may not be specified using both methods.
   - Allows the sharing of external authentication tokens between different
     connections for the same authenticated user until the cache is invalidated,
     such as when a client is restarted or when the classloader reloads the JDBC
-    driver. This is disabled by default, with a value of `NONE`. To enable, set
-    the value to `MEMORY`. If the JDBC driver is used in a shared mode by
-    different users, the first registered token is stored and authenticates all
-    users.
+    driver. This is disabled by default, with a value of `NONE`. Set the value
+    to `MEMORY` to cache the token in memory within the same process. Set the
+    value to `SYSTEM` to persist the token to the filesystem (`~/.trino/`),
+    allowing it to be reused across separate CLI or JDBC processes. If the JDBC
+    driver is used in a shared mode by different users, the first registered
+    token is stored and authenticates all users.
 * - `disableCompression`
   -  Whether HTTP compression should be disabled. Defaults to `false`.
 * - `disallowLocalRedirect`

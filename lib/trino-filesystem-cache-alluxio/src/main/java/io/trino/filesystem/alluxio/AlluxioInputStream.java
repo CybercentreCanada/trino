@@ -27,7 +27,6 @@ import java.io.EOFException;
 import java.io.IOException;
 
 import static com.google.common.base.Verify.verify;
-import static com.google.common.primitives.Ints.saturatedCast;
 import static io.trino.filesystem.tracing.CacheSystemAttributes.CACHE_FILE_LOCATION;
 import static io.trino.filesystem.tracing.CacheSystemAttributes.CACHE_FILE_READ_POSITION;
 import static io.trino.filesystem.tracing.CacheSystemAttributes.CACHE_FILE_READ_SIZE;
@@ -74,9 +73,10 @@ public class AlluxioInputStream
     public int available()
             throws IOException
     {
+        // Not needed per contract, but complies with AbstractTestTrinoFileSystem expectations easier.
+        // It's easer to just check "is open?" in available() than refactor that test.
         ensureOpen();
-
-        return saturatedCast(fileLength - position);
+        return super.available();
     }
 
     @Override
@@ -103,7 +103,7 @@ public class AlluxioInputStream
         int n = read(bytes, 0, 1);
         if (n == 1) {
             // Converts the byte to an unsigned byte, an integer in the range 0 to 255
-            return bytes[0] & 0xff;
+            return bytes[0] & 0xFF;
         }
         if (n == -1) {
             return -1;

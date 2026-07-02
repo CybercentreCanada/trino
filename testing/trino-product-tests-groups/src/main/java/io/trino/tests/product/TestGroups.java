@@ -59,19 +59,20 @@ public final class TestGroups
     public static final String HIVE_ALLUXIO_CACHING = "hive_alluxio_caching";
     public static final String HIVE_ICEBERG_REDIRECTIONS = "hive_iceberg_redirections";
     public static final String HIVE_HUDI_REDIRECTIONS = "hive_hudi_redirections";
-    public static final String HIVE_KERBEROS = "hive_kerberos";
     public static final String HIVE_FILE_HEADER = "hive_file_header";
     public static final String AUTHORIZATION = "authorization";
     public static final String AZURE = "azure";
     public static final String EXASOL = "exasol";
     public static final String CASSANDRA = "cassandra";
     public static final String POSTGRESQL = "postgresql";
+    public static final String POSTGRESQL_POSTGIS = "postgresql_postgis";
     public static final String SQLSERVER = "sqlserver";
     public static final String LDAP = "ldap";
     public static final String LDAP_AND_FILE = "ldap_and_file";
     public static final String LDAP_CLI = "ldap_cli";
     public static final String LDAP_AND_FILE_CLI = "ldap_and_file_cli";
     public static final String LDAP_MULTIPLE_BINDS = "ldap_multiple_binds";
+    public static final String LOKI = "loki";
     public static final String TLS = "tls";
     public static final String LARGE_QUERY = "large_query";
     public static final String KAFKA = "kafka";
@@ -94,12 +95,13 @@ public final class TestGroups
     public static final String DELTA_LAKE_MINIO = "delta-lake-minio";
     public static final String DELTA_LAKE_AZURE = "delta-lake-azure";
     public static final String DELTA_LAKE_GCS = "delta-lake-gcs";
+    // DELTA_LAKE_DATABRICKS runs tests against oldest and newest Databricks runtimes
     public static final String DELTA_LAKE_DATABRICKS = "delta-lake-databricks";
-    public static final String DELTA_LAKE_DATABRICKS_133 = "delta-lake-databricks-133";
     public static final String DELTA_LAKE_DATABRICKS_143 = "delta-lake-databricks-143";
     public static final String DELTA_LAKE_DATABRICKS_154 = "delta-lake-databricks-154";
+    public static final String DELTA_LAKE_DATABRICKS_164 = "delta-lake-databricks-164";
     // TODO: Remove it once we support generatedColumns, particularly for writes in Delta Lake
-    public static final String DELTA_LAKE_EXCLUDE_164 = "delta-lake-exclude-164";
+    public static final String DELTA_LAKE_EXCLUDE_173 = "delta-lake-exclude-173";
     public static final String DELTA_LAKE_ALLUXIO_CACHING = "delta-lake-alluxio-caching";
     public static final String HUDI = "hudi";
     public static final String PARQUET = "parquet";

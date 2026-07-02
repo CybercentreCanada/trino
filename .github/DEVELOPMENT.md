@@ -31,11 +31,9 @@ the client protocol, writing tests and other lower level details.
 
 ## Code Style
 
-We recommend you use IntelliJ as your IDE. The code style template for the
-project can be found in the [codestyle](https://github.com/airlift/codestyle)
-repository along with our general programming and Java guidelines. 
+We recommend you use IntelliJ as your IDE. Code style is managed through [airstyle](https://github.com/airlift/airstyle).
 
-To run checkstyle and other maven checks before opening a PR: `./mvnw validate`
+To run airstyle and other maven checks before opening a PR: `./mvnw validate`
 
 In addition to those you should also adhere to the following:
 
@@ -76,11 +74,11 @@ license by running `mvn license:format`.
 
 ### Prefer String formatting
 
-Consider using String formatting (printf style formatting using the Java
-`Formatter` class): `format("Session property %s is invalid: %s", name, value)`
-(note that `format()` should always be statically imported).  Sometimes, if you
-only need to append something, consider using the `+` operator.  Please avoid
-`format()` or concatenation in performance critical sections of code.
+Consider using String formatting with the `String.formatted` method:
+`"Session property %s is invalid: %s".formatted(name, value)`.
+Sometimes, if you only need to append something, consider using the `+` operator.
+Please avoid `formatted()` or concatenation in performance critical sections of
+code.
 
 ### Avoid ternary operator
 
@@ -116,9 +114,15 @@ Prefer AssertJ for complex assertions.
 For thing not easily expressible with AssertJ, use Airlift's `Assertions` class
 if there is one that covers your case.
 
-### Avoid `var`
+### Use `var` judiciously
 
-Using ``var`` is discouraged.
+Use `var` only when it improves readability. Prefer it when the type
+is obvious from the initializer, such as with `new` expressions, or
+when the explicit type is long or heavily generic and adds noise
+without improving clarity.
+
+Avoid `var` when the inferred type is unclear, surprising, or
+important to understanding the code.
 
 ### Prefer Guava immutable collections
 
@@ -143,6 +147,35 @@ the enum values. Handling the unknown option case after the switch statement
 allows static code analysis tools (e.g. Error Prone's `MissingCasesInEnumSwitch`
 check) report a problem when the enum definition is updated but the code using
 it is not.
+
+### Vector API
+It's safe to assume that the JVM has the Vector API
+([JEP 508](https://openjdk.org/jeps/508)) enabled and available at runtime, but
+not safe to assume that the Vector API implementation will perform faster than
+equivalent scalar code on whatever hardware the engine happens to be running on.
+
+Different CPU hardware can exhibit dramatically different performance
+characteristics, so it's important to use hardware feature detection to
+determine under which scenarios a vectorized approach will be faster for
+each implementation. Vectorized code should be tested on AMD, ARM, and Intel
+CPUs to verify the benefits hold on each of those platforms before deciding
+to enable a given code path on each of those platforms. Also note that ARM CPUs
+can exhibit significant differences from between hardware generations as well
+as between Apple Silicon and datacenter class CPUs.
+
+When adding implementations that use the Vector API, prefer the following
+approach unless the specifics of the situation dictate otherwise:
+* Provide an equivalent scalar implementation in code, if one does not already
+exist.
+* Use configuration flags and hardware support detection to ensure that
+vectorized implementation is only selected when running on hardware where it is
+expected to perform better than its scalar equivalent.
+* Add tests that ensure the behavior of the vectorized and scalar
+implementations match.
+* Include micro-benchmarks that demonstrate the performance benefits of the
+vectorized implementation compared to the scalar equivalent logic. Ensure that
+the benefits hold for all CPU architectures on which the vectorized
+implementation is enabled.
 
 ## Keep pom.xml clean and sorted
 

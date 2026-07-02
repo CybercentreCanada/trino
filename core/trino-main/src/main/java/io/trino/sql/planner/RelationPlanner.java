@@ -34,6 +34,7 @@ import io.trino.operator.table.json.JsonTablePlanUnion;
 import io.trino.operator.table.json.JsonTableQueryColumn;
 import io.trino.operator.table.json.JsonTableValueColumn;
 import io.trino.spi.connector.ColumnHandle;
+import io.trino.spi.connector.SortOrder;
 import io.trino.spi.function.table.TableArgument;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.RowType;
@@ -42,6 +43,7 @@ import io.trino.sql.PlannerContext;
 import io.trino.sql.analyzer.Analysis;
 import io.trino.sql.analyzer.Analysis.CorrespondingAnalysis;
 import io.trino.sql.analyzer.Analysis.JsonTableAnalysis;
+import io.trino.sql.analyzer.Analysis.NearestAnalysis;
 import io.trino.sql.analyzer.Analysis.TableArgumentAnalysis;
 import io.trino.sql.analyzer.Analysis.TableFunctionInvocationAnalysis;
 import io.trino.sql.analyzer.Analysis.UnnestAnalysis;
@@ -59,13 +61,13 @@ import io.trino.sql.ir.Booleans;
 import io.trino.sql.ir.Call;
 import io.trino.sql.ir.Cast;
 import io.trino.sql.ir.Coalesce;
-import io.trino.sql.ir.Comparison;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.IrUtils;
 import io.trino.sql.ir.Row;
 import io.trino.sql.planner.QueryPlanner.PlanAndMappings;
 import io.trino.sql.planner.TranslationMap.ParametersRow;
+import io.trino.sql.planner.plan.AssignUniqueId;
 import io.trino.sql.planner.plan.Assignments;
 import io.trino.sql.planner.plan.DataOrganizationSpecification;
 import io.trino.sql.planner.plan.ExceptNode;
@@ -85,6 +87,7 @@ import io.trino.sql.planner.plan.TableFunctionNode.PassThroughColumn;
 import io.trino.sql.planner.plan.TableFunctionNode.PassThroughSpecification;
 import io.trino.sql.planner.plan.TableFunctionNode.TableArgumentProperties;
 import io.trino.sql.planner.plan.TableScanNode;
+import io.trino.sql.planner.plan.TopNRankingNode;
 import io.trino.sql.planner.plan.UnionNode;
 import io.trino.sql.planner.plan.UnnestNode;
 import io.trino.sql.planner.plan.ValuesNode;
@@ -102,7 +105,8 @@ import io.trino.sql.planner.rowpattern.ir.IrLabel;
 import io.trino.sql.planner.rowpattern.ir.IrRowPattern;
 import io.trino.sql.tree.AliasedRelation;
 import io.trino.sql.tree.AstVisitor;
-import io.trino.sql.tree.ComparisonExpression;
+import io.trino.sql.tree.BooleanLiteral;
+import io.trino.sql.tree.ComparisonPredicate;
 import io.trino.sql.tree.DereferenceExpression;
 import io.trino.sql.tree.Except;
 import io.trino.sql.tree.Identifier;
@@ -123,6 +127,7 @@ import io.trino.sql.tree.LambdaArgumentDeclaration;
 import io.trino.sql.tree.Lateral;
 import io.trino.sql.tree.MeasureDefinition;
 import io.trino.sql.tree.NaturalJoin;
+import io.trino.sql.tree.Nearest;
 import io.trino.sql.tree.NestedColumns;
 import io.trino.sql.tree.Node;
 import io.trino.sql.tree.NodeRef;
@@ -132,6 +137,7 @@ import io.trino.sql.tree.PatternSearchMode;
 import io.trino.sql.tree.PlanLeaf;
 import io.trino.sql.tree.PlanParentChild;
 import io.trino.sql.tree.PlanSiblings;
+import io.trino.sql.tree.Predicated;
 import io.trino.sql.tree.QualifiedName;
 import io.trino.sql.tree.Query;
 import io.trino.sql.tree.QueryColumn;
@@ -180,15 +186,14 @@ import static io.trino.sql.NodeUtils.getSortItemsFromOrderBy;
 import static io.trino.sql.analyzer.PatternRecognitionAnalysis.NavigationAnchor.LAST;
 import static io.trino.sql.analyzer.PatternRecognitionAnalysis.NavigationMode.RUNNING;
 import static io.trino.sql.analyzer.SemanticExceptions.semanticException;
-import static io.trino.sql.ir.Comparison.Operator.EQUAL;
-import static io.trino.sql.ir.Comparison.Operator.GREATER_THAN;
-import static io.trino.sql.ir.Comparison.Operator.GREATER_THAN_OR_EQUAL;
-import static io.trino.sql.ir.Comparison.Operator.IDENTICAL;
-import static io.trino.sql.ir.Comparison.Operator.LESS_THAN;
-import static io.trino.sql.ir.Comparison.Operator.LESS_THAN_OR_EQUAL;
-import static io.trino.sql.ir.Comparison.Operator.NOT_EQUAL;
+import static io.trino.sql.ir.ComparisonOperator.EQUAL;
+import static io.trino.sql.ir.ComparisonOperator.GREATER_THAN;
+import static io.trino.sql.ir.ComparisonOperator.GREATER_THAN_OR_EQUAL;
+import static io.trino.sql.ir.ComparisonOperator.LESS_THAN;
+import static io.trino.sql.ir.ComparisonOperator.LESS_THAN_OR_EQUAL;
+import static io.trino.sql.ir.ComparisonOperator.NOT_EQUAL;
+import static io.trino.sql.ir.IrExpressions.comparison;
 import static io.trino.sql.ir.IrExpressions.ifExpression;
-import static io.trino.sql.ir.IrExpressions.not;
 import static io.trino.sql.planner.LogicalPlanner.failFunction;
 import static io.trino.sql.planner.PlanBuilder.newPlanBuilder;
 import static io.trino.sql.planner.QueryPlanner.coerce;
@@ -377,7 +382,7 @@ class RelationPlanner
             return plan;
         }
 
-        PlanBuilder planBuilder = newPlanBuilder(plan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext)
+        PlanBuilder planBuilder = newPlanBuilder(plan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator)
                 .withScope(accessControlScope.apply(node), plan.getFieldMappings()); // The fields in the access control scope has the same layout as those for the table scope
 
         for (io.trino.sql.tree.Expression filter : filters) {
@@ -400,7 +405,7 @@ class RelationPlanner
             return plan;
         }
 
-        PlanBuilder planBuilder = newPlanBuilder(plan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext)
+        PlanBuilder planBuilder = newPlanBuilder(plan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator)
                 .withScope(accessControlScope.apply(node), plan.getFieldMappings()); // The fields in the access control scope has the same layout as those for the table scope
 
         for (io.trino.sql.tree.Expression constraint : constraints) {
@@ -432,7 +437,7 @@ class RelationPlanner
             return plan;
         }
 
-        PlanBuilder planBuilder = newPlanBuilder(plan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext)
+        PlanBuilder planBuilder = newPlanBuilder(plan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator)
                 .withScope(analysis.getAccessControlScope(table), plan.getFieldMappings()); // The fields in the access control scope has the same layout as those for the table scope
 
         Assignments.Builder assignments = Assignments.builder();
@@ -485,7 +490,7 @@ class RelationPlanner
         // process sources in order of argument declarations
         for (TableArgumentAnalysis tableArgument : functionAnalysis.getTableArgumentAnalyses()) {
             RelationPlan sourcePlan = process(tableArgument.getRelation(), context);
-            PlanBuilder sourcePlanBuilder = newPlanBuilder(sourcePlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext);
+            PlanBuilder sourcePlanBuilder = newPlanBuilder(sourcePlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator);
 
             // required columns are a subset of visible columns of the source. remap required column indexes to field indexes in source relation type.
             RelationType sourceRelationType = sourcePlan.getScope().getRelationType();
@@ -616,7 +621,7 @@ class RelationPlanner
                         .collect(toImmutableList()))
                 .build();
 
-        PlanBuilder planBuilder = newPlanBuilder(subPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext);
+        PlanBuilder planBuilder = newPlanBuilder(subPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator);
 
         // no handleSubqueries because subqueries are not allowed here
         planBuilder = planBuilder.appendProjections(inputs, symbolAllocator, idAllocator);
@@ -760,7 +765,7 @@ class RelationPlanner
         ImmutableList.Builder<Assignment> assignments = ImmutableList.builder();
         for (PatternInputAnalysis accessor : analysis.getPatternInputsAnalysis(expression)) {
             ValuePointer pointer = switch (accessor.descriptor()) {
-                case MatchNumberDescriptor descriptor -> new MatchNumberValuePointer();
+                case MatchNumberDescriptor _ -> new MatchNumberValuePointer();
                 case ClassifierDescriptor descriptor -> new ClassifierValuePointer(
                         planValuePointer(descriptor.label(), descriptor.navigation(), subsets));
                 case ScalarInputDescriptor descriptor -> new ScalarValuePointer(
@@ -857,7 +862,8 @@ class RelationPlanner
         RelationPlan subPlan = process(node.getRelation(), context);
 
         double ratio = analysis.getSampleRatio(node);
-        PlanNode planNode = new SampleNode(idAllocator.getNextId(),
+        PlanNode planNode = new SampleNode(
+                idAllocator.getNextId(),
                 subPlan.getRoot(),
                 ratio,
                 mapSampleType(node.getType()));
@@ -872,10 +878,21 @@ class RelationPlanner
     }
 
     @Override
+    protected RelationPlan visitNearest(Nearest node, Void context)
+    {
+        throw semanticException(NOT_SUPPORTED, node, "NEAREST is only supported on the right side of CROSS JOIN, INNER JOIN, LEFT JOIN, or an implicit join");
+    }
+
+    @Override
     protected RelationPlan visitJoin(Join node, Void context)
     {
         // TODO: translate the RIGHT join into a mirrored LEFT join when we refactor (@martint)
         RelationPlan leftPlan = process(node.getLeft(), context);
+
+        Optional<Nearest> nearest = getNearest(node.getRight());
+        if (nearest.isPresent()) {
+            return planJoinNearest(node, leftPlan, nearest.get());
+        }
 
         Optional<Unnest> unnest = getUnnest(node.getRight());
         if (unnest.isPresent()) {
@@ -885,7 +902,7 @@ class RelationPlanner
         Optional<JsonTable> jsonTable = getJsonTable(node.getRight());
         if (jsonTable.isPresent()) {
             return planJoinJsonTable(
-                    newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext),
+                    newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator),
                     leftPlan.getFieldMappings(),
                     node.getType(),
                     jsonTable.get(),
@@ -914,9 +931,9 @@ class RelationPlanner
                 .addAll(rightPlan.getFieldMappings())
                 .build();
 
-        PlanBuilder leftPlanBuilder = newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext)
+        PlanBuilder leftPlanBuilder = newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator)
                 .withScope(scope, outputSymbols);
-        PlanBuilder rightPlanBuilder = newPlanBuilder(rightPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext)
+        PlanBuilder rightPlanBuilder = newPlanBuilder(rightPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator)
                 .withScope(scope, outputSymbols);
 
         ImmutableList.Builder<JoinNode.EquiJoinClause> equiClauses = ImmutableList.builder();
@@ -929,7 +946,7 @@ class RelationPlanner
         if (type != CROSS && type != IMPLICIT) {
             List<io.trino.sql.tree.Expression> leftComparisonExpressions = new ArrayList<>();
             List<io.trino.sql.tree.Expression> rightComparisonExpressions = new ArrayList<>();
-            List<io.trino.sql.tree.ComparisonExpression.Operator> joinConditionComparisonOperators = new ArrayList<>();
+            List<ComparisonPredicate.Operator> joinConditionComparisonOperators = new ArrayList<>();
 
             for (io.trino.sql.tree.Expression conjunct : AstUtils.extractConjuncts(criteria)) {
                 if (!isEqualComparisonExpression(conjunct) && type != INNER) {
@@ -944,10 +961,10 @@ class RelationPlanner
                     // it to the list complex expressions and let the optimizers figure out how to push it down later.
                     complexJoinExpressions.add(conjunct);
                 }
-                else if (conjunct instanceof io.trino.sql.tree.ComparisonExpression comparisonExpression) {
-                    io.trino.sql.tree.Expression firstExpression = comparisonExpression.getLeft();
-                    io.trino.sql.tree.Expression secondExpression = comparisonExpression.getRight();
-                    io.trino.sql.tree.ComparisonExpression.Operator comparisonOperator = comparisonExpression.getOperator();
+                else if (conjunct instanceof Predicated predicated && predicated.getPredicate() instanceof ComparisonPredicate comparison) {
+                    io.trino.sql.tree.Expression firstExpression = predicated.getValue();
+                    io.trino.sql.tree.Expression secondExpression = comparison.getRight();
+                    ComparisonPredicate.Operator comparisonOperator = comparison.getOperator();
                     Set<QualifiedName> firstDependencies = NamesExtractor.extractNames(firstExpression, analysis.getColumnReferences());
                     Set<QualifiedName> secondDependencies = NamesExtractor.extractNames(secondExpression, analysis.getColumnReferences());
 
@@ -984,7 +1001,7 @@ class RelationPlanner
             rightPlanBuilder = rightCoercions.getSubPlan();
 
             for (int i = 0; i < leftComparisonExpressions.size(); i++) {
-                if (joinConditionComparisonOperators.get(i) == io.trino.sql.tree.ComparisonExpression.Operator.EQUAL) {
+                if (joinConditionComparisonOperators.get(i) == ComparisonPredicate.Operator.EQUAL) {
                     Symbol leftSymbol = leftCoercions.get(leftComparisonExpressions.get(i));
                     Symbol rightSymbol = rightCoercions.get(rightComparisonExpressions.get(i));
 
@@ -999,7 +1016,8 @@ class RelationPlanner
             }
         }
 
-        PlanNode root = new JoinNode(idAllocator.getNextId(),
+        PlanNode root = new JoinNode(
+                idAllocator.getNextId(),
                 mapJoinType(type),
                 leftPlanBuilder.getRoot(),
                 rightPlanBuilder.getRoot(),
@@ -1032,12 +1050,15 @@ class RelationPlanner
                 }
             }
         }
-        TranslationMap translationMap = new TranslationMap(outerContext, scope, analysis, lambdaDeclarationToSymbolMap, outputSymbols, session, plannerContext)
+        TranslationMap translationMap = new TranslationMap(outerContext, scope, analysis, lambdaDeclarationToSymbolMap, outputSymbols, session, plannerContext, symbolAllocator)
                 .withAdditionalMappings(leftPlanBuilder.getTranslations().getMappings())
-                .withAdditionalMappings(rightPlanBuilder.getTranslations().getMappings());
+                .withAdditionalMappings(rightPlanBuilder.getTranslations().getMappings())
+                .withAdditionalPredicateMappings(leftPlanBuilder.getTranslations().getPredicateMappings())
+                .withAdditionalPredicateMappings(rightPlanBuilder.getTranslations().getPredicateMappings());
 
         if (type != INNER && !complexJoinExpressions.isEmpty()) {
-            root = new JoinNode(idAllocator.getNextId(),
+            root = new JoinNode(
+                    idAllocator.getNextId(),
                     mapJoinType(type),
                     leftPlanBuilder.getRoot(),
                     rightPlanBuilder.getRoot(),
@@ -1074,16 +1095,15 @@ class RelationPlanner
         return new RelationPlan(root, scope, outputSymbols, outerContext);
     }
 
-    private Expression translateComparison(ComparisonExpression.Operator operator, Symbol left, Symbol right)
+    private Expression translateComparison(ComparisonPredicate.Operator operator, Symbol left, Symbol right)
     {
         return switch (operator) {
-            case EQUAL -> new Comparison(EQUAL, left.toSymbolReference(), right.toSymbolReference());
-            case NOT_EQUAL -> new Comparison(NOT_EQUAL, left.toSymbolReference(), right.toSymbolReference());
-            case LESS_THAN -> new Comparison(LESS_THAN, left.toSymbolReference(), right.toSymbolReference());
-            case LESS_THAN_OR_EQUAL -> new Comparison(LESS_THAN_OR_EQUAL, left.toSymbolReference(), right.toSymbolReference());
-            case GREATER_THAN -> new Comparison(GREATER_THAN, left.toSymbolReference(), right.toSymbolReference());
-            case GREATER_THAN_OR_EQUAL -> new Comparison(GREATER_THAN_OR_EQUAL, left.toSymbolReference(), right.toSymbolReference());
-            case IS_DISTINCT_FROM -> not(plannerContext.getMetadata(), new Comparison(IDENTICAL, left.toSymbolReference(), right.toSymbolReference()));
+            case EQUAL -> comparison(plannerContext.getMetadata(), EQUAL, left.toSymbolReference(), right.toSymbolReference());
+            case NOT_EQUAL -> comparison(plannerContext.getMetadata(), NOT_EQUAL, left.toSymbolReference(), right.toSymbolReference());
+            case LESS_THAN -> comparison(plannerContext.getMetadata(), LESS_THAN, left.toSymbolReference(), right.toSymbolReference());
+            case LESS_THAN_OR_EQUAL -> comparison(plannerContext.getMetadata(), LESS_THAN_OR_EQUAL, left.toSymbolReference(), right.toSymbolReference());
+            case GREATER_THAN -> comparison(plannerContext.getMetadata(), GREATER_THAN, left.toSymbolReference(), right.toSymbolReference());
+            case GREATER_THAN_OR_EQUAL -> comparison(plannerContext.getMetadata(), GREATER_THAN_OR_EQUAL, left.toSymbolReference(), right.toSymbolReference());
         };
     }
 
@@ -1219,6 +1239,17 @@ class RelationPlanner
         return Optional.empty();
     }
 
+    private static Optional<Nearest> getNearest(Relation relation)
+    {
+        if (relation instanceof AliasedRelation aliasedRelation) {
+            return getNearest(aliasedRelation.getRelation());
+        }
+        if (relation instanceof Nearest nearest) {
+            return Optional.of(nearest);
+        }
+        return Optional.empty();
+    }
+
     private static Optional<Lateral> getLateral(Relation relation)
     {
         if (relation instanceof AliasedRelation aliasedRelation) {
@@ -1230,20 +1261,131 @@ class RelationPlanner
         return Optional.empty();
     }
 
-    private RelationPlan planCorrelatedJoin(Join join, RelationPlan leftPlan, Lateral lateral)
+    private RelationPlan planJoinNearest(Join join, RelationPlan leftPlan, Nearest nearest)
     {
-        PlanBuilder leftPlanBuilder = newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext);
+        checkArgument(join.getType() == CROSS || join.getType() == IMPLICIT || join.getType() == Join.Type.INNER || join.getType() == LEFT, "Unsupported join type for NEAREST: %s", join.getType());
 
-        RelationPlan rightPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, Optional.of(leftPlanBuilder.getTranslations()), session, recursiveSubqueries)
-                .process(lateral.getQuery(), null);
+        Symbol uniqueSymbol = symbolAllocator.newSymbol("nearest_left_row", BIGINT);
+        RelationPlan leftPlanWithId = new RelationPlan(
+                new AssignUniqueId(idAllocator.getNextId(), leftPlan.getRoot(), uniqueSymbol),
+                leftPlan.getScope(),
+                leftPlan.getFieldMappings(),
+                outerContext);
 
-        PlanBuilder rightPlanBuilder = newPlanBuilder(rightPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext);
+        RelationPlan rightPlan = process(nearest.getRelation(), null);
+        List<io.trino.sql.tree.Expression> predicates = ImmutableList.<io.trino.sql.tree.Expression>builder()
+                .addAll(nearest.getWhere().stream().toList())
+                .add(nearest.getMatch())
+                .build();
+
+        List<Symbol> candidateOutputs = ImmutableList.<Symbol>builder()
+                .addAll(leftPlanWithId.getFieldMappings())
+                .addAll(rightPlan.getFieldMappings())
+                .build();
+
+        // WHERE and MATCH were analyzed in the NEAREST scope, which exposes the FROM relation fields locally and
+        // the left join input through the parent scope. Scope both side builders to that combined scope before
+        // planning subqueries so that handleSubqueries can rewrite a subquery's operand against the correct
+        // mappings — e.g. an IN-subquery whose left-hand side is a NEAREST relation column, which planInPredicate
+        // rewrites eagerly against the side builder rather than via candidateTranslations.
+        PlanBuilder leftPlanBuilder = newPlanBuilder(leftPlanWithId, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator)
+                .withScope(analysis.getScope(nearest), candidateOutputs);
+        PlanBuilder rightPlanBuilder = newPlanBuilder(rightPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator)
+                .withScope(analysis.getScope(nearest), candidateOutputs);
+        Analysis.SubqueryAnalysis subqueries = analysis.getSubqueries(nearest);
+        for (io.trino.sql.tree.Expression predicate : predicates) {
+            Set<QualifiedName> dependencies = NamesExtractor.extractNamesNoSubqueries(predicate, analysis.getColumnReferences());
+            if (dependencies.stream().allMatch(leftPlan.getScope().getRelationType()::canResolve)) {
+                leftPlanBuilder = subqueryPlanner.handleSubqueries(leftPlanBuilder, predicate, subqueries);
+            }
+            else {
+                // Correlated subqueries in NEAREST predicates are rejected during analysis.
+                // Any subquery reaching this mixed-predicate path is therefore uncorrelated and can be planned
+                // on one side before building the combined candidate join, so the rewritten predicate can still
+                // be attached to the join condition, which matters for LEFT JOIN NEAREST semantics.
+                rightPlanBuilder = subqueryPlanner.handleSubqueries(rightPlanBuilder, predicate, subqueries);
+            }
+        }
+
+        TranslationMap candidateTranslations = new TranslationMap(
+                outerContext,
+                analysis.getScope(nearest),
+                analysis,
+                lambdaDeclarationToSymbolMap,
+                candidateOutputs,
+                session,
+                plannerContext,
+                symbolAllocator)
+                .withAdditionalMappings(leftPlanBuilder.getTranslations().getMappings())
+                .withAdditionalMappings(rightPlanBuilder.getTranslations().getMappings())
+                .withAdditionalPredicateMappings(leftPlanBuilder.getTranslations().getPredicateMappings())
+                .withAdditionalPredicateMappings(rightPlanBuilder.getTranslations().getPredicateMappings());
+
+        PlanNode candidateRoot = new JoinNode(
+                idAllocator.getNextId(),
+                join.getType() == Join.Type.LEFT ? JoinType.LEFT : JoinType.INNER,
+                leftPlanBuilder.getRoot(),
+                rightPlanBuilder.getRoot(),
+                ImmutableList.of(),
+                leftPlanBuilder.getRoot().getOutputSymbols(),
+                rightPlanBuilder.getRoot().getOutputSymbols(),
+                false,
+                Optional.of(IrUtils.and(predicates.stream()
+                        .map(expression -> coerceIfNecessary(analysis, expression, candidateTranslations.rewrite(expression)))
+                        .collect(toImmutableList()))),
+                Optional.empty(),
+                Optional.empty(),
+                ImmutableMap.of(),
+                Optional.empty());
+        RelationPlan candidatePlan = new RelationPlan(candidateRoot, analysis.getScope(nearest), candidateOutputs, outerContext);
+
+        NearestAnalysis nearestAnalysis = analysis.getNearest(nearest);
+        PlanBuilder candidateBuilder = newPlanBuilder(candidatePlan, analysis, lambdaDeclarationToSymbolMap, candidateTranslations.getMappings(), session, plannerContext, symbolAllocator)
+                .appendProjections(ImmutableList.of(nearestAnalysis.candidateExpression()), symbolAllocator, idAllocator);
+
+        Symbol orderingSymbol = candidateBuilder.translate(nearestAnalysis.candidateExpression());
+        SortOrder sortOrder = switch (nearestAnalysis.operator()) {
+            case LESS_THAN, LESS_THAN_OR_EQUAL -> SortOrder.DESC_NULLS_LAST;
+            case GREATER_THAN, GREATER_THAN_OR_EQUAL -> SortOrder.ASC_NULLS_LAST;
+            default -> throw new IllegalArgumentException("Unsupported NEAREST operator: " + nearestAnalysis.operator());
+        };
+        PlanNode rankedCandidates = new TopNRankingNode(
+                idAllocator.getNextId(),
+                candidateBuilder.getRoot(),
+                new DataOrganizationSpecification(
+                        ImmutableList.of(uniqueSymbol),
+                        Optional.of(new OrderingScheme(ImmutableList.of(orderingSymbol), ImmutableMap.of(orderingSymbol, sortOrder)))),
+                TopNRankingNode.RankingType.ROW_NUMBER,
+                symbolAllocator.newSymbol("nearest_ranking", BIGINT),
+                1,
+                false);
 
         List<Symbol> outputSymbols = ImmutableList.<Symbol>builder()
                 .addAll(leftPlan.getFieldMappings())
                 .addAll(rightPlan.getFieldMappings())
                 .build();
-        TranslationMap translationMap = new TranslationMap(outerContext, analysis.getScope(join), analysis, lambdaDeclarationToSymbolMap, outputSymbols, session, plannerContext)
+
+        return new RelationPlan(
+                new ProjectNode(idAllocator.getNextId(), rankedCandidates, Assignments.identity(outputSymbols)),
+                analysis.getScope(join),
+                outputSymbols,
+                outerContext);
+    }
+
+    private RelationPlan planCorrelatedJoin(Join join, RelationPlan leftPlan, Lateral lateral)
+    {
+        PlanBuilder leftPlanBuilder = newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator);
+
+        RelationPlan rightPlan = new RelationPlanner(analysis, symbolAllocator, idAllocator, lambdaDeclarationToSymbolMap, plannerContext, Optional.of(leftPlanBuilder.getTranslations()), session, recursiveSubqueries)
+                .process(lateral.getQuery(), null);
+
+        PlanBuilder rightPlanBuilder = newPlanBuilder(rightPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator);
+
+        List<Symbol> outputSymbols = ImmutableList.<Symbol>builder()
+                .addAll(leftPlan.getFieldMappings())
+                .addAll(rightPlan.getFieldMappings())
+                .build();
+        TranslationMap translationMap = new TranslationMap(outerContext, analysis.getScope(join), analysis, lambdaDeclarationToSymbolMap, outputSymbols, session, plannerContext, symbolAllocator)
                 .withAdditionalMappings(leftPlanBuilder.getTranslations().getMappings())
                 .withAdditionalMappings(rightPlanBuilder.getTranslations().getMappings());
 
@@ -1274,7 +1416,9 @@ class RelationPlanner
 
     private static boolean isEqualComparisonExpression(io.trino.sql.tree.Expression conjunct)
     {
-        return conjunct instanceof io.trino.sql.tree.ComparisonExpression comparison && comparison.getOperator() == io.trino.sql.tree.ComparisonExpression.Operator.EQUAL;
+        return conjunct instanceof Predicated predicated
+                && predicated.getPredicate() instanceof ComparisonPredicate comparison
+                && comparison.getOperator() == ComparisonPredicate.Operator.EQUAL;
     }
 
     private RelationPlan planJoinUnnest(RelationPlan leftPlan, Join joinNode, Unnest node)
@@ -1288,13 +1432,13 @@ class RelationPlanner
                 throw semanticException(NOT_SUPPORTED, joinNode, "USING for join involving UNNEST is not supported");
             }
             io.trino.sql.tree.Expression filter = (io.trino.sql.tree.Expression) getOnlyElement(criteria.getNodes());
-            if (!filter.equals(io.trino.sql.tree.BooleanLiteral.TRUE_LITERAL)) {
+            if (!filter.equals(BooleanLiteral.TRUE_LITERAL)) {
                 throw semanticException(NOT_SUPPORTED, joinNode, "JOIN involving UNNEST on condition other than TRUE is not supported");
             }
         }
 
         return planUnnest(
-                newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext),
+                newPlanBuilder(leftPlan, analysis, lambdaDeclarationToSymbolMap, session, plannerContext, symbolAllocator),
                 node,
                 leftPlan.getFieldMappings(),
                 joinNode.getType(),
@@ -1341,16 +1485,15 @@ class RelationPlanner
         PlanBuilder planBuilder = leftPlan;
 
         // extract input expressions
-        ImmutableList.Builder<io.trino.sql.tree.Expression> builder = ImmutableList.builder();
         io.trino.sql.tree.Expression inputExpression = jsonTable.getJsonPathInvocation().getInputExpression();
-        builder.add(inputExpression);
         List<JsonPathParameter> pathParameters = jsonTable.getJsonPathInvocation().getPathParameters();
-        pathParameters.stream()
-                .map(JsonPathParameter::getParameter)
-                .forEach(builder::add);
         List<io.trino.sql.tree.Expression> defaultExpressions = getDefaultExpressions(jsonTable.getColumns());
-        builder.addAll(defaultExpressions);
-        List<io.trino.sql.tree.Expression> inputExpressions = builder.build();
+        List<io.trino.sql.tree.Expression> inputExpressions = ImmutableList.<io.trino.sql.tree.Expression>builder()
+                .add(inputExpression)
+                .addAll(pathParameters.stream()
+                        .map(JsonPathParameter::getParameter)
+                        .collect(toImmutableList()))
+                .build();
 
         planBuilder = subqueryPlanner.handleSubqueries(planBuilder, inputExpressions, analysis.getSubqueries(jsonTable));
         planBuilder = planBuilder.appendProjections(inputExpressions, symbolAllocator, idAllocator);
@@ -1374,7 +1517,7 @@ class RelationPlanner
         JsonTableAnalysis jsonTableAnalysis = analysis.getJsonTableAnalysis(jsonTable);
         RowType parametersType = jsonTableAnalysis.parametersType();
         ParametersRow orderedParameters = planBuilder.getTranslations().getParametersRow(pathParameters, coercedParameters, parametersType, failOnError);
-        Expression parametersRow = orderedParameters.getParametersRow();
+        Expression parametersRow = orderedParameters.parametersRow();
 
         // append projections for inputJson and parametersRow
         // cannot use the 'appendProjections()' method because the projected expressions include resolved input functions, so they are not pure AST expressions
@@ -1391,24 +1534,26 @@ class RelationPlanner
         planBuilder = planBuilder.withNewRoot(appended);
 
         // identify the required symbols
+        Map<NodeRef<io.trino.sql.tree.Expression>, Expression> rewrittenDefaultExpressions = new HashMap<>();
+        ImmutableList.Builder<Symbol> defaultSymbolsBuilder = ImmutableList.builder();
+        for (io.trino.sql.tree.Expression defaultExpression : defaultExpressions) {
+            Expression rewritten = coerceIfNecessary(analysis, defaultExpression, planBuilder.rewrite(defaultExpression));
+            rewrittenDefaultExpressions.put(NodeRef.of(defaultExpression), rewritten);
+            defaultSymbolsBuilder.addAll(SymbolsExtractor.extractUnique(rewritten));
+        }
+
         ImmutableList.Builder<Symbol> requiredSymbolsBuilder = ImmutableList.<Symbol>builder()
                 .add(inputJsonSymbol)
                 .add(parametersRowSymbol);
-        defaultExpressions.stream()
-                .map(coerced::get)
+        defaultSymbolsBuilder.build().stream()
                 .distinct()
                 .forEach(requiredSymbolsBuilder::add);
         List<Symbol> requiredSymbols = requiredSymbolsBuilder.build();
 
-        // map the default expressions of value columns to indexes in the required columns list
-        // use a HashMap because there might be duplicate expressions
-        Map<io.trino.sql.tree.Expression, Integer> defaultExpressionsMapping = new HashMap<>();
-        for (io.trino.sql.tree.Expression defaultExpression : defaultExpressions) {
-            defaultExpressionsMapping.put(defaultExpression, requiredSymbols.indexOf(coerced.get(defaultExpression)));
-        }
+        Map<NodeRef<io.trino.sql.tree.Expression>, Expression> defaultExpressionsMapping = rewrittenDefaultExpressions;
 
         // rewrite the root JSON path to IR using parameters
-        IrJsonPath rootPath = new JsonPathTranslator(session, plannerContext).rewriteToIr(analysis.getJsonPathAnalysis(jsonTable), orderedParameters.getParametersOrder());
+        IrJsonPath rootPath = new JsonPathTranslator(session, plannerContext).rewriteToIr(analysis.getJsonPathAnalysis(jsonTable), orderedParameters.parametersOrder());
 
         // create json_table execution plan
         List<NodeRef<JsonTableColumnDefinition>> orderedColumns = jsonTableAnalysis.orderedOutputColumns();
@@ -1418,13 +1563,13 @@ class RelationPlanner
         JsonTablePlanNode executionPlan;
         boolean defaultErrorOnError = jsonTable.getErrorBehavior().map(errorBehavior -> errorBehavior == JsonTable.ErrorBehavior.ERROR).orElse(false);
         if (jsonTable.getPlan().isEmpty()) {
-            executionPlan = getPlanFromDefaults(rootPath, jsonTable.getColumns(), OUTER, UNION, defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping);
+            executionPlan = getPlanFromDefaults(rootPath, jsonTable.getColumns(), OUTER, UNION, defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping, requiredSymbols);
         }
         else if (jsonTable.getPlan().orElseThrow() instanceof JsonTableDefaultPlan defaultPlan) {
-            executionPlan = getPlanFromDefaults(rootPath, jsonTable.getColumns(), defaultPlan.getParentChild(), defaultPlan.getSiblings(), defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping);
+            executionPlan = getPlanFromDefaults(rootPath, jsonTable.getColumns(), defaultPlan.getParentChild(), defaultPlan.getSiblings(), defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping, requiredSymbols);
         }
         else {
-            executionPlan = getPlanFromSpecification(rootPath, jsonTable.getColumns(), (JsonTableSpecificPlan) jsonTable.getPlan().orElseThrow(), defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping);
+            executionPlan = getPlanFromSpecification(rootPath, jsonTable.getColumns(), (JsonTableSpecificPlan) jsonTable.getPlan().orElseThrow(), defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping, requiredSymbols);
         }
 
         // create new symbols for json_table function's proper columns
@@ -1544,7 +1689,8 @@ class RelationPlanner
             SiblingsPlanType siblingsPlanType,
             boolean defaultErrorOnError,
             Map<NodeRef<JsonTableColumnDefinition>, Integer> outputIndexMapping,
-            Map<io.trino.sql.tree.Expression, Integer> defaultExpressionsMapping)
+            Map<NodeRef<io.trino.sql.tree.Expression>, Expression> defaultExpressionsMapping,
+            List<Symbol> defaultInputLayout)
     {
         ImmutableList.Builder<JsonTableColumn> columns = ImmutableList.builder();
         ImmutableList.Builder<JsonTablePlanNode> childrenBuilder = ImmutableList.builder();
@@ -1559,10 +1705,11 @@ class RelationPlanner
                         siblingsPlanType,
                         defaultErrorOnError,
                         outputIndexMapping,
-                        defaultExpressionsMapping));
+                        defaultExpressionsMapping,
+                        defaultInputLayout));
             }
             else {
-                columns.add(getColumn(columnDefinition, defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping));
+                columns.add(getColumn(columnDefinition, defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping, defaultInputLayout));
             }
         }
 
@@ -1591,7 +1738,8 @@ class RelationPlanner
             JsonTableSpecificPlan specificPlan,
             boolean defaultErrorOnError,
             Map<NodeRef<JsonTableColumnDefinition>, Integer> outputIndexMapping,
-            Map<io.trino.sql.tree.Expression, Integer> defaultExpressionsMapping)
+            Map<NodeRef<io.trino.sql.tree.Expression>, Expression> defaultExpressionsMapping,
+            List<Symbol> defaultInputLayout)
     {
         ImmutableList.Builder<JsonTableColumn> columns = ImmutableList.builder();
         ImmutableMap.Builder<String, JsonTablePlanNode> childrenBuilder = ImmutableMap.builder();
@@ -1613,11 +1761,12 @@ class RelationPlanner
                         planSiblings.get(nestedPathName),
                         defaultErrorOnError,
                         outputIndexMapping,
-                        defaultExpressionsMapping);
+                        defaultExpressionsMapping,
+                        defaultInputLayout);
                 childrenBuilder.put(nestedPathName, child);
             }
             else {
-                columns.add(getColumn(columnDefinition, defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping));
+                columns.add(getColumn(columnDefinition, defaultErrorOnError, outputIndexMapping, defaultExpressionsMapping, defaultInputLayout));
             }
         }
 
@@ -1652,7 +1801,8 @@ class RelationPlanner
             JsonTableColumnDefinition columnDefinition,
             boolean defaultErrorOnError,
             Map<NodeRef<JsonTableColumnDefinition>, Integer> outputIndexMapping,
-            Map<io.trino.sql.tree.Expression, Integer> defaultExpressionsMapping)
+            Map<NodeRef<io.trino.sql.tree.Expression>, Expression> defaultExpressionsMapping,
+            List<Symbol> defaultInputLayout)
     {
         int index = outputIndexMapping.get(NodeRef.of(columnDefinition));
 
@@ -1671,12 +1821,14 @@ class RelationPlanner
                     queryColumn.getErrorBehavior().orElse(defaultErrorOnError ? JsonQuery.EmptyOrErrorBehavior.ERROR : JsonQuery.EmptyOrErrorBehavior.NULL).ordinal());
         }
         if (columnDefinition instanceof ValueColumn valueColumn) {
-            int emptyDefault = valueColumn.getEmptyDefault()
+            Expression emptyDefault = valueColumn.getEmptyDefault()
+                    .map(NodeRef::of)
                     .map(defaultExpressionsMapping::get)
-                    .orElse(-1);
-            int errorDefault = valueColumn.getErrorDefault()
+                    .orElse(null);
+            Expression errorDefault = valueColumn.getErrorDefault()
+                    .map(NodeRef::of)
                     .map(defaultExpressionsMapping::get)
-                    .orElse(-1);
+                    .orElse(null);
             return new JsonTableValueColumn(
                     index,
                     columnFunction.get(),
@@ -1684,7 +1836,8 @@ class RelationPlanner
                     valueColumn.getEmptyBehavior().ordinal(),
                     emptyDefault,
                     valueColumn.getErrorBehavior().orElse(defaultErrorOnError ? JsonValue.EmptyOrErrorBehavior.ERROR : JsonValue.EmptyOrErrorBehavior.NULL).ordinal(),
-                    errorDefault);
+                    errorDefault,
+                    defaultInputLayout);
         }
         throw new IllegalStateException("unexpected column definition: " + columnDefinition.getClass().getSimpleName());
     }
@@ -1754,21 +1907,15 @@ class RelationPlanner
             outputSymbolsBuilder.add(symbol);
         }
         List<Symbol> outputSymbols = outputSymbolsBuilder.build();
-        TranslationMap translationMap = new TranslationMap(outerContext, analysis.getScope(node), analysis, lambdaDeclarationToSymbolMap, outputSymbols, session, plannerContext);
+        TranslationMap translationMap = new TranslationMap(outerContext, analysis.getScope(node), analysis, lambdaDeclarationToSymbolMap, outputSymbols, session, plannerContext, symbolAllocator);
 
         ImmutableList.Builder<Expression> rows = ImmutableList.builder();
         for (io.trino.sql.tree.Expression row : node.getRows()) {
-            if (row instanceof io.trino.sql.tree.Row value) {
-                rows.add(new Row(value.getItems().stream()
-                        .map(item -> coerceIfNecessary(analysis, item, translationMap.rewrite(item)))
-                        .collect(toImmutableList())));
+            Expression rewritten = coerceIfNecessary(analysis, row, translationMap.rewrite(row));
+            if (!(analysis.getType(row) instanceof RowType)) {
+                rewritten = new Row(ImmutableList.of(rewritten));
             }
-            else if (analysis.getType(row) instanceof RowType) {
-                rows.add(coerceIfNecessary(analysis, row, translationMap.rewrite(row)));
-            }
-            else {
-                rows.add(new Row(ImmutableList.of(coerceIfNecessary(analysis, row, translationMap.rewrite(row)))));
-            }
+            rows.add(rewritten);
         }
 
         ValuesNode valuesNode = new ValuesNode(idAllocator.getNextId(), outputSymbols, rows.build());
@@ -1794,7 +1941,7 @@ class RelationPlanner
         parent.ifPresent(scope::withOuterQueryParent);
 
         PlanNode values = new ValuesNode(idAllocator.getNextId(), 1);
-        TranslationMap translations = new TranslationMap(outerContext, scope.build(), analysis, lambdaDeclarationToSymbolMap, ImmutableList.of(), session, plannerContext);
+        TranslationMap translations = new TranslationMap(outerContext, scope.build(), analysis, lambdaDeclarationToSymbolMap, ImmutableList.of(), session, plannerContext, symbolAllocator);
         return new PlanBuilder(translations, values);
     }
 
@@ -1907,7 +2054,8 @@ class RelationPlanner
 
     private PlanNode distinct(PlanNode node)
     {
-        return singleAggregation(idAllocator.getNextId(),
+        return singleAggregation(
+                idAllocator.getNextId(),
                 node,
                 ImmutableMap.of(),
                 singleGroupingSet(node.getOutputSymbols()));

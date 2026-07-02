@@ -48,6 +48,7 @@ public class QueryStatistics
     private final Optional<Duration> outputBlockedTime;
     private final Optional<Duration> failedOutputBlockedTime;
     private final Optional<Duration> physicalInputReadTime;
+    private final Optional<Duration> finishingTime;
 
     private final long peakUserMemoryBytes;
     private final long peakTaskUserMemory;
@@ -85,6 +86,7 @@ public class QueryStatistics
     private final Supplier<List<String>> operatorSummariesProvider;
     private final List<QueryPlanOptimizerStatistics> optimizerRulesSummaries;
     private final Map<String, Metrics> catalogMetadataMetrics;
+    private final Map<String, Metrics> exchangeMetrics;
     /**
      * Plan node stats and costs serialized to JSON. Serialization format and structure
      * can change without preserving backward compatibility.
@@ -111,6 +113,7 @@ public class QueryStatistics
             Optional<Duration> outputBlockedTime,
             Optional<Duration> failedOutputBlockedTime,
             Optional<Duration> physicalInputReadTime,
+            Optional<Duration> finishingTime,
             long peakUserMemoryBytes,
             long peakTaskUserMemory,
             long peakTaskTotalMemory,
@@ -138,10 +141,10 @@ public class QueryStatistics
             List<String> operatorSummaries,
             List<QueryPlanOptimizerStatistics> optimizerRulesSummaries,
             Map<String, Metrics> catalogMetadataMetrics,
+            Map<String, Metrics> exchangeMetrics,
             Optional<String> planNodeStatsAndCosts)
     {
-        this(
-                cpuTime,
+        this(cpuTime,
                 failedCpuTime,
                 wallTime,
                 queuedTime,
@@ -158,6 +161,7 @@ public class QueryStatistics
                 outputBlockedTime,
                 failedOutputBlockedTime,
                 physicalInputReadTime,
+                finishingTime,
                 peakUserMemoryBytes,
                 peakTaskUserMemory,
                 peakTaskTotalMemory,
@@ -185,6 +189,7 @@ public class QueryStatistics
                 () -> operatorSummaries,
                 optimizerRulesSummaries,
                 catalogMetadataMetrics,
+                exchangeMetrics,
                 planNodeStatsAndCosts);
     }
 
@@ -206,6 +211,7 @@ public class QueryStatistics
             Optional<Duration> outputBlockedTime,
             Optional<Duration> failedOutputBlockedTime,
             Optional<Duration> physicalInputReadTime,
+            Optional<Duration> finishingTime,
             long peakUserMemoryBytes,
             long peakTaskUserMemory,
             long peakTaskTotalMemory,
@@ -233,6 +239,7 @@ public class QueryStatistics
             Supplier<List<String>> operatorSummariesProvider,
             List<QueryPlanOptimizerStatistics> optimizerRulesSummaries,
             Map<String, Metrics> catalogMetadataMetrics,
+            Map<String, Metrics> exchangeMetrics,
             Optional<String> planNodeStatsAndCosts)
     {
         this.cpuTime = requireNonNull(cpuTime, "cpuTime is null");
@@ -252,6 +259,7 @@ public class QueryStatistics
         this.outputBlockedTime = requireNonNull(outputBlockedTime, "outputBlockedTime is null");
         this.failedOutputBlockedTime = requireNonNull(failedOutputBlockedTime, "failedOutputBlockedTime is null");
         this.physicalInputReadTime = requireNonNull(physicalInputReadTime, "physicalInputReadTime is null");
+        this.finishingTime = requireNonNull(finishingTime, "finishingTime is null");
         this.peakUserMemoryBytes = peakUserMemoryBytes;
         this.peakTaskUserMemory = peakTaskUserMemory;
         this.peakTaskTotalMemory = peakTaskTotalMemory;
@@ -279,6 +287,7 @@ public class QueryStatistics
         this.operatorSummariesProvider = requireNonNull(operatorSummariesProvider, "operatorSummariesProvider is null");
         this.optimizerRulesSummaries = requireNonNull(optimizerRulesSummaries, "optimizerRulesSummaries is null");
         this.catalogMetadataMetrics = requireNonNull(catalogMetadataMetrics, "catalogMetadataMetrics is null");
+        this.exchangeMetrics = requireNonNull(exchangeMetrics, "exchangeMetrics is null");
         this.planNodeStatsAndCosts = requireNonNull(planNodeStatsAndCosts, "planNodeStatsAndCosts is null");
     }
 
@@ -382,6 +391,12 @@ public class QueryStatistics
     public Optional<Duration> getPhysicalInputReadTime()
     {
         return physicalInputReadTime;
+    }
+
+    @JsonProperty
+    public Optional<Duration> getFinishingTime()
+    {
+        return finishingTime;
     }
 
     @JsonProperty
@@ -544,6 +559,12 @@ public class QueryStatistics
     public Map<String, Metrics> getCatalogMetadataMetrics()
     {
         return catalogMetadataMetrics;
+    }
+
+    @JsonProperty
+    public Map<String, Metrics> getExchangeMetrics()
+    {
+        return exchangeMetrics;
     }
 
     @JsonProperty

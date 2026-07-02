@@ -20,6 +20,7 @@ import io.trino.spi.SplitWeight;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorSplitSource;
+import io.trino.spi.connector.DynamicFilterSnapshot;
 import io.trino.spi.type.DateTimeEncoding;
 import org.apache.iceberg.AddedRowsScanTask;
 import org.apache.iceberg.ChangelogScanTask;
@@ -67,7 +68,7 @@ public class TableChangesSplitSource
     }
 
     @Override
-    public CompletableFuture<ConnectorSplitBatch> getNextBatch(int maxSize)
+    public CompletableFuture<List<ConnectorSplit>> getNextBatch(int maxSize, DynamicFilterSnapshot dynamicFilterSnapshot)
     {
         if (changelogScanIterable == null) {
             try {
@@ -90,7 +91,7 @@ public class TableChangesSplitSource
             ChangelogScanTask next = fileTasksIterator.next();
             splits.add(toIcebergSplit(next));
         }
-        return completedFuture(new ConnectorSplitBatch(splits, isFinished()));
+        return completedFuture(splits);
     }
 
     @Override
@@ -153,8 +154,7 @@ public class TableChangesSplitSource
                 IcebergFileFormat.fromIceberg(task.file().format()),
                 PartitionSpecParser.toJson(task.spec()),
                 PartitionData.toJson(task.file().partition()),
-                SplitWeight.standard(),
-                icebergTable.io().properties());
+                SplitWeight.standard());
     }
 
     private TableChangesSplit toSplit(DeletedDataFileScanTask task)
@@ -172,7 +172,6 @@ public class TableChangesSplitSource
                 IcebergFileFormat.fromIceberg(task.file().format()),
                 PartitionSpecParser.toJson(task.spec()),
                 PartitionData.toJson(task.file().partition()),
-                SplitWeight.standard(),
-                icebergTable.io().properties());
+                SplitWeight.standard());
     }
 }

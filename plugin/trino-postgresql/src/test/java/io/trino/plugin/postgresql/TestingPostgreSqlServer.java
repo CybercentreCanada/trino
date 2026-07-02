@@ -53,7 +53,12 @@ import static org.testcontainers.postgresql.PostgreSQLContainer.POSTGRESQL_PORT;
 public class TestingPostgreSqlServer
         implements AutoCloseable
 {
-    public static final String DEFAULT_IMAGE_NAME = "postgres:12";
+    // the oldest supported PostgreSQL version
+    public static final DockerImageName DEFAULT_IMAGE_NAME = DockerImageName.parse("postgres:12");
+    // first PostgreSQL version that expanded PostgreSQL numeric type
+    public static final DockerImageName IMAGE_15_NAME = DockerImageName.parse("postgres:15");
+    // newest tested PostgreSQL version
+    public static final DockerImageName LATEST_IMAGE_NAME = DockerImageName.parse("postgres:18");
 
     private static final String USER = "test";
     private static final String PASSWORD = "test";
@@ -63,7 +68,7 @@ public class TestingPostgreSqlServer
     private static final String LOG_RUNNING_STATEMENT_PREFIX = "LOG:  execute <unnamed>";
     private static final String LOG_CANCELLATION_EVENT = "ERROR:  canceling statement due to user request";
 
-    private static final Pattern SQL_QUERY_FIND_PATTERN = Pattern.compile("^(: |/C_\\d: )(.*)"); //In PgSQL cursor queries and non-cursor queries are logged differently
+    private static final Pattern SQL_QUERY_FIND_PATTERN = Pattern.compile("^(: |/C_\\d: )(.*)"); // In PgSQL cursor queries and non-cursor queries are logged differently
     private static final String LOG_CANCELLED_STATEMENT_PREFIX = "STATEMENT:  ";
 
     private final PostgreSQLContainer dockerContainer;
@@ -73,18 +78,12 @@ public class TestingPostgreSqlServer
 
     public TestingPostgreSqlServer()
     {
-        this(false);
+        this(DEFAULT_IMAGE_NAME);
     }
 
-    public TestingPostgreSqlServer(boolean shouldExposeFixedPorts)
+    public TestingPostgreSqlServer(DockerImageName dockerImageName)
     {
-        // Use the oldest supported PostgreSQL version
-        this(DEFAULT_IMAGE_NAME, shouldExposeFixedPorts);
-    }
-
-    public TestingPostgreSqlServer(String dockerImageName, boolean shouldExposeFixedPorts)
-    {
-        this(DockerImageName.parse(dockerImageName), shouldExposeFixedPorts);
+        this(dockerImageName, false);
     }
 
     public TestingPostgreSqlServer(DockerImageName dockerImageName, boolean shouldExposeFixedPorts)
