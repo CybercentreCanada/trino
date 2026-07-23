@@ -37,6 +37,7 @@ import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.RESTUtil;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -126,14 +127,14 @@ public class TrinoIcebergRestCatalogFactory
             Map<String, String> initProps = new HashMap<>(catalogPropertiesProvider.catalogProperties());
             Map<String, String> extras = identity.getExtraCredentials();
 
-            String assertion = extras.get("rest.auth.oauth2.jwt-bearer.assertion");
-            if (assertion != null && !assertion.isBlank()) {
-                initProps.put("rest.auth.oauth2.jwt-bearer.assertion", assertion);
-            }
-            else {
-                String token = extras.get("rest.auth.oauth2.token");
-                if (token != null && !token.isBlank()) {
-                    initProps.put("rest.auth.oauth2.token", token);
+            for (String property : List.of(
+                    "rest.auth.oauth2.jwt-bearer.assertion",
+                    "rest.auth.oauth2.token-exchange.subject-token",
+                    "rest.auth.oauth2.token")) {
+                String value = extras.get(property);
+                if (value != null && !value.isBlank()) {
+                    initProps.put(property, value);
+                    break;
                 }
             }
 
