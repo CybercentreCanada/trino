@@ -17,8 +17,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.util.concurrent.FluentFuture;
+import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.SettableFuture;
 import com.google.inject.Inject;
 import io.airlift.http.client.FullJsonResponseHandler;
 import io.airlift.http.client.HttpClient;
@@ -37,13 +39,17 @@ import io.trino.spi.connector.ColumnSchema;
 
 import java.net.URI;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
@@ -51,6 +57,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.net.MediaType.JSON_UTF_8;
+import static com.google.common.util.concurrent.Futures.addCallback;
 import static io.airlift.http.client.FullJsonResponseHandler.createFullJsonResponseHandler;
 import static io.airlift.http.client.HeaderNames.CONTENT_TYPE;
 import static io.airlift.http.client.JsonBodyGenerator.jsonBodyGenerator;
@@ -66,6 +73,7 @@ public class OpaHttpClient
     private final Executor executor;
     private final boolean logRequests;
     private final boolean logResponses;
+    private final int maxConcurrentRequests;
     private static final Logger log = Logger.get(OpaHttpClient.class);
 
     @Inject
@@ -80,6 +88,7 @@ public class OpaHttpClient
         this.executor = requireNonNull(executor, "executor is null");
         this.logRequests = config.getLogRequests();
         this.logResponses = config.getLogResponses();
+        this.maxConcurrentRequests = config.getMaxConcurrentRequests();
     }
 
     public <T> FluentFuture<T> submitOpaRequest(OpaQueryInput input, URI uri, JsonCodec<T> deserializer)
@@ -212,17 +221,71 @@ public class OpaHttpClient
         if (items.isEmpty()) {
             return ImmutableList.of();
         }
-        List<FluentFuture<Optional<X>>> allFutures = items.stream()
-                .map(item -> submitOpaRequest(requestBuilder.apply(item), uri, deserializer)
-                        .transform(result -> parser.apply(item, result), executor))
-                .collect(toImmutableList());
-        return consumeOpaResponse(
-                Futures.whenAllComplete(allFutures).call(
-                        () -> allFutures.stream()
-                                .map(this::consumeOpaResponse)
-                                .filter(Optional::isPresent)
-                                .map(Optional::get)
-                                .collect(toImmutableList()),
-                        executor));
+
+        log.debug("Submitting %d parallel OPA requests to %s with max concurrency %d", items.size(), uri, maxConcurrentRequests);
+
+        Iterator<T> iterator = items.iterator();
+        ConcurrentLinkedQueue<X> results = new ConcurrentLinkedQueue<>();
+        SettableFuture<List<X>> resultFuture = SettableFuture.create();
+        AtomicInteger remainingWorkers = new AtomicInteger(Math.min(maxConcurrentRequests, items.size()));
+        AtomicBoolean failed = new AtomicBoolean();
+
+        Object iteratorLock = new Object();
+
+        class Worker
+        {
+            void submitNext()
+            {
+                if (failed.get()) {
+                    return;
+                }
+
+                T item;
+                synchronized (iteratorLock) {
+                    if (!iterator.hasNext()) {
+                        if (remainingWorkers.decrementAndGet() == 0) {
+                            resultFuture.set(ImmutableList.copyOf(results));
+                        }
+                        return;
+                    }
+                    item = iterator.next();
+                }
+
+                FluentFuture<Optional<X>> future = submitOpaRequest(
+                        requestBuilder.apply(item),
+                        uri,
+                        deserializer)
+                        .transform(result -> parser.apply(item, result), executor);
+
+                addCallback(
+                        future,
+                        new FutureCallback<>()
+                        {
+                            @Override
+                            public void onSuccess(Optional<X> value)
+                            {
+                                value.ifPresent(results::add);
+                                submitNext();
+                            }
+
+                            @Override
+                            public void onFailure(Throwable throwable)
+                            {
+                                if (failed.compareAndSet(false, true)) {
+                                    resultFuture.setException(throwable);
+                                }
+                            }
+                        },
+                        executor);
+            }
+        }
+
+        Worker worker = new Worker();
+
+        for (int i = 0; i < remainingWorkers.get(); i++) {
+            worker.submitNext();
+        }
+
+        return consumeOpaResponse(resultFuture);
     }
 }
