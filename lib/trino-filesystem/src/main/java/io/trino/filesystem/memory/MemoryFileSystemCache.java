@@ -17,6 +17,7 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.cache.Cache;
 import com.google.common.cache.Weigher;
 import com.google.inject.Inject;
+import io.airlift.log.Logger;
 import io.airlift.slice.Slice;
 import io.airlift.units.DataSize;
 import io.airlift.units.Duration;
@@ -52,6 +53,7 @@ public final class MemoryFileSystemCache
     private final Cache<String, Optional<Slice>> cache;
     private final int maxContentLengthBytes;
     private final AtomicLong largeFileSkippedCount = new AtomicLong();
+    private static final Logger log = Logger.get(MemoryFileSystemCache.class);
 
     @Inject
     public MemoryFileSystemCache(MemoryFileSystemCacheConfig config)
@@ -176,6 +178,19 @@ public final class MemoryFileSystemCache
     private Optional<Slice> load(TrinoInputFile delegate)
             throws IOException
     {
+        log.debug("Loading %s", delegate.location());
+        log.debug("Declared length %d", delegate.length());
+        try (TrinoInputStream stream = delegate.newStream()) {
+            byte[] buffer = stream.readNBytes(maxContentLengthBytes + 1);
+
+            log.info(
+                    "actualRead=%d magic=%s",
+                    buffer.length,
+                    buffer.length >= 4
+                            ? HexFormat.of().formatHex(buffer, 0, 4)
+                            : "<short>");
+        }
+
         long fileSize = delegate.length();
         if (fileSize > maxContentLengthBytes) {
             return Optional.empty();
