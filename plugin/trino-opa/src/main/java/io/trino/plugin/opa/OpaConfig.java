@@ -16,6 +16,7 @@ package io.trino.plugin.opa;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.validation.FileExists;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
 import java.net.URI;
@@ -34,6 +35,7 @@ public class OpaConfig
     private Optional<URI> opaColumnMaskingUri = Optional.empty();
     private Optional<URI> opaBatchColumnMaskingUri = Optional.empty();
     private Optional<Path> additionalContextFile = Optional.empty();
+    private int maxConcurrentRequests = 300;
 
     @NotNull
     public URI getOpaUri()
@@ -154,6 +156,20 @@ public class OpaConfig
     public OpaConfig setAdditionalContextFile(Path additionalContextFile)
     {
         this.additionalContextFile = Optional.ofNullable(additionalContextFile);
+        return this;
+    }
+
+    @Min(1)
+    public int getMaxConcurrentRequests()
+    {
+        return maxConcurrentRequests;
+    }
+
+    @Config("opa.max-concurrent-requests")
+    @ConfigDescription("Maximum number of concurrent HTTP requests sent to OPA")
+    public OpaConfig setMaxConcurrentRequests(int maxConcurrentRequests)
+    {
+        this.maxConcurrentRequests = maxConcurrentRequests;
         return this;
     }
 }
