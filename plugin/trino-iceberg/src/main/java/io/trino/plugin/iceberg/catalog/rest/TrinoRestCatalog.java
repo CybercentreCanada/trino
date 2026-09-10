@@ -943,18 +943,20 @@ public class TrinoRestCatalog
                 yield new SessionCatalog.SessionContext(sessionId, null, credentials, ImmutableMap.of(), session.getIdentity());
             }
             case USER -> {
-                String sessionId;
                 String user = session.getUser();
                 String source = session.getSource().orElse("default");
-                String providedToken = session.getIdentity().getExtraCredentials().get("rest.auth.oauth2.token");
-
-                if (providedToken != null && !providedToken.isEmpty()) {
-                    // Use the token hash to force a new SessionContext when the token changes
-                    sessionId = hashCredentials(ImmutableMap.of("rest.auth.oauth2.token", providedToken));
-                }
-                else {
-                    // Fallback to existing behaviour if no token
-                    sessionId = format("%s-%s", user, source);
+                Map<String, String> extraCredentials = session.getIdentity().getExtraCredentials();
+                String sessionId = format("%s-%s", user, source);
+                for (String property : List.of(
+                        "rest.auth.oauth2.jwt-bearer.assertion",
+                        "rest.auth.oauth2.token-exchange.subject-token",
+                        "rest.auth.oauth2.token")) {
+                    String value = extraCredentials.get(property);
+                    if (value != null && !value.isBlank()) {
+                        // Force a new contextual auth session when the effective OAuth2 credential changes
+                        sessionId = hashCredentials(ImmutableMap.of(property, value));
+                        break;
+                    }
                 }
                 log.debug("Generated sessionId for %s with sessionType: %s", user, sessionId);
 
