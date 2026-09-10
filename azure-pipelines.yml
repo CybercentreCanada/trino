@@ -46,6 +46,7 @@ jobs:
       volumes:
         - "${{ variables.m2RepoNodePath }}:${{ variables.m2RepoContainerPath }}"
         - "/root/.m2/settings.xml:/root/.m2/settings.xml"
+        - "/var/run/docker.sock:/var/run/docker.sock"
     steps:
       - task: Bash@3
         displayName: Parse Source Control Branch Name
