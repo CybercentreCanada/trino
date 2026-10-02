@@ -14,6 +14,7 @@
 package io.trino.plugin.iceberg.catalog.rest;
 
 import com.google.common.collect.ImmutableMap;
+import io.airlift.log.Logger;
 import org.apache.iceberg.rest.credentials.Credential;
 
 import java.time.Instant;
@@ -31,6 +32,8 @@ import static org.apache.iceberg.azure.AzureProperties.ADLS_SAS_TOKEN_PREFIX;
 final class AzureVendedCredentialsProvider
         extends AbstractIcebergRestVendedCredentialsProvider<AzureVendedCredentials>
 {
+    private static final Logger log = Logger.get(AzureVendedCredentialsProvider.class);
+
     AzureVendedCredentialsProvider(Map<String, String> catalogProperties, Map<String, String> fileIoProperties)
     {
         super(catalogProperties,
@@ -38,6 +41,12 @@ final class AzureVendedCredentialsProvider
                 parseBoolean(fileIoProperties, ADLS_REFRESH_CREDENTIALS_ENABLED, true),
                 Optional.ofNullable(fileIoProperties.get(ADLS_REFRESH_CREDENTIALS_ENDPOINT)),
                 createVendedCredentials(fileIoProperties));
+        log.debug(
+                "Azure vended credentials: refreshEnabled=%s, endpointPresent=%s, expiryPresent=%s",
+                parseBoolean(fileIoProperties, ADLS_REFRESH_CREDENTIALS_ENABLED, true),
+                fileIoProperties.containsKey(ADLS_REFRESH_CREDENTIALS_ENDPOINT),
+                fileIoProperties.keySet().stream()
+                        .anyMatch(key -> key.startsWith(ADLS_SAS_TOKEN_EXPIRES_AT_MS_PREFIX)));
     }
 
     @Override
