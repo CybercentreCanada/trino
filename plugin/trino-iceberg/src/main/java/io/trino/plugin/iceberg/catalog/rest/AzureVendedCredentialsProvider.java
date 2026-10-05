@@ -78,6 +78,8 @@ final class AzureVendedCredentialsProvider
                 }
             }
         }
+        Optional<Instant> expirationTime = Optional.ofNullable(earliest);
+        log.debug("Azure vended SAS token expires at: %s", expirationTime.map(Instant::toString).orElse("not provided"));
         return new AzureVendedCredentials(sasTokensBuilder.buildOrThrow(), Optional.ofNullable(earliest));
     }
 }
