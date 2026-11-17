@@ -125,7 +125,7 @@ Hive connector documentation.
   - `false`
 * - `hive.storage-format`
   - The default file format used when creating new tables.
-  - `ORC`
+  - `PARQUET`
 * - `hive.orc.use-column-names`
   - Access ORC columns by name. By default, columns in ORC files are accessed by
     their ordinal position in the Hive table definition. The equivalent catalog
@@ -935,12 +935,12 @@ Newly added/renamed fields *must* have a default value in the Avro schema file.
 The schema evolution behavior is as follows:
 
 - Column added in new schema:
-  Data created with an older schema produces a *default* value when table is using the new schema.
+  Data created with an older schema produces a *default* value when the table is using the new schema.
 - Column removed in new schema:
   Data created with an older schema no longer outputs the data from the column that was removed.
 - Column is renamed in the new schema:
   This is equivalent to removing the column and adding a new one, and data created with an older schema
-  produces a *default* value when table is using the new schema.
+  produces a *default* value when the table is using the new schema.
 - Changing type of column in the new schema:
   If the type coercion is supported by Avro or the Hive connector, then the conversion happens.
   An error is thrown for incompatible types.
@@ -1040,6 +1040,11 @@ WITH (format='CSV',
     `RCBINARY`, `RCTEXT`, `SEQUENCEFILE`, `JSON`, `OPENX_JSON`, `TEXTFILE`,
     `CSV`, and `REGEX`. The catalog property `hive.storage-format` sets the
     default value and can change it to a different default.
+  -
+* - `last_column_takes_rest`
+  - Set this property to `true` so that the last column absorbs the remainder
+    of the line, including any further occurrences of the field separator.
+    Requires TextFile, RCText, or SequenceFile format.
   -
 * - `null_format`
   - The serialization format for `NULL` value. Requires TextFile, RCText, or
@@ -1209,7 +1214,7 @@ SELECT * FROM example.web."page_views$partitions";
     [projection.${columnName}.format](https://docs.aws.amazon.com/athena/latest/ug/partition-projection-supported-types.html).
   -
 * - `partition_projection_interval_unit`
-  - Used with `partition_projection_type=DATA`. The date column projection range
+  - Used with `partition_projection_type` set to `DATE`. The date column projection range
     interval unit given in `partition_projection_interval`. Mapped from the AWS
     Athena table property
     [projection.${columnName}.interval.unit](https://docs.aws.amazon.com/athena/latest/ug/partition-projection-supported-types.html).

@@ -15,7 +15,6 @@ package io.trino.parquet.writer;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
-import io.airlift.slice.Slices;
 import io.trino.parquet.ParquetMetadataConverter;
 import io.trino.parquet.writer.repdef.DefLevelWriterProvider;
 import io.trino.parquet.writer.repdef.DefLevelWriterProvider.DefinitionLevelWriter;
@@ -27,7 +26,9 @@ import io.trino.parquet.writer.valuewriter.ColumnDescriptorValuesWriter;
 import io.trino.parquet.writer.valuewriter.PrimitiveValueWriter;
 import io.trino.plugin.base.io.ChunkedSliceOutput;
 import jakarta.annotation.Nullable;
+import org.apache.parquet.bytes.ByteBufferReleaser;
 import org.apache.parquet.bytes.BytesInput;
+import org.apache.parquet.bytes.HeapByteBufferAllocator;
 import org.apache.parquet.column.ColumnDescriptor;
 import org.apache.parquet.column.Encoding;
 import org.apache.parquet.column.EncodingStats;
@@ -61,6 +62,8 @@ import static io.trino.parquet.writer.ParquetCompressor.getCompressor;
 import static io.trino.parquet.writer.ParquetDataOutput.createDataOutput;
 import static io.trino.parquet.writer.repdef.DefLevelWriterProvider.getRootDefinitionLevelWriter;
 import static io.trino.parquet.writer.repdef.RepLevelWriterProvider.getRootRepetitionLevelWriter;
+import static io.trino.parquet.writer.valuewriter.PrimitiveValueWriter.createStatistics;
+import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 import static org.apache.parquet.format.Util.writePageHeader;
 
@@ -71,6 +74,7 @@ public class PrimitiveColumnWriter
     private static final int MINIMUM_OUTPUT_BUFFER_CHUNK_SIZE = 8 * 1024;
     private static final int MAXIMUM_OUTPUT_BUFFER_CHUNK_SIZE = 2 * 1024 * 1024;
     private static final int MINIMUM_COMPRESSION_RATIO_SAMPLE_SIZE = 1024 * 1024;
+    private static final int MINIMUM_DICTIONARY_COMPRESSION_RATIO_SAMPLE_SIZE = 64 * 1024;
     private static final double MAX_COMPRESSION_EXPANSION_RATIO = 1.5;
     // ParquetMetadataConverter.MAX_STATS_SIZE is 4096, we need a value which would guarantee that min and max
     // don't add up to 4096 (so less than 2048). Using 1K as that is big enough for most use cases.
@@ -98,6 +102,8 @@ public class PrimitiveColumnWriter
     private final Optional<BloomFilter> bloomFilter;
     private long totalCompressedSize;
     private long totalUnCompressedSize;
+    private long dictionaryPageCompressedSize;
+    private long dictionaryPageUncompressedSize;
     private long totalValues;
 
     private final int maxDefinitionLevel;
@@ -132,7 +138,7 @@ public class PrimitiveColumnWriter
         this.compressor = getCompressor(compressionCodec);
         this.pageSizeThreshold = pageSizeThreshold;
         this.pageValueCountLimit = pageValueCountLimit;
-        this.columnStatistics = Statistics.createStats(columnDescriptor.getPrimitiveType());
+        this.columnStatistics = createStatistics(columnDescriptor.getPrimitiveType());
         this.compressedOutputStream = new ChunkedSliceOutput(MINIMUM_OUTPUT_BUFFER_CHUNK_SIZE, MAXIMUM_OUTPUT_BUFFER_CHUNK_SIZE);
         this.bloomFilter = requireNonNull(bloomFilter, "bloomFilter is null");
     }
@@ -228,15 +234,14 @@ public class PrimitiveColumnWriter
     private void flushCurrentPageToBuffer()
             throws IOException
     {
-        byte[] pageDataBytes = BytesInput.concat(
-                        repetitionLevelWriter.getBytes(),
-                        definitionLevelWriter.getBytes(),
-                        primitiveValueWriter.getBytes())
-                .toByteArray();
-        int uncompressedSize = pageDataBytes.length;
-        ParquetDataOutput pageData = (compressor != null)
-                ? compressor.compress(pageDataBytes)
-                : createDataOutput(Slices.wrappedBuffer(pageDataBytes));
+        BytesInput bytesInput = BytesInput.concat(
+                repetitionLevelWriter.getBytes(),
+                definitionLevelWriter.getBytes(),
+                primitiveValueWriter.getBytes());
+        int uncompressedSize = toIntExact(bytesInput.size());
+        ParquetDataOutput pageData = compressor != null
+                ? compress(bytesInput)
+                : createDataOutput(bytesInput);
         int compressedSize = pageData.size();
 
         Statistics<?> statistics = primitiveValueWriter.getStatistics();
@@ -291,10 +296,10 @@ public class PrimitiveColumnWriter
         OptionalInt dictionaryPageSize = OptionalInt.empty();
         if (dictionaryPage != null) {
             int uncompressedSize = dictionaryPage.getUncompressedSize();
-            byte[] pageBytes = dictionaryPage.getBytes().toByteArray();
+            BytesInput dictionaryBytes = dictionaryPage.getBytes();
             ParquetDataOutput pageData = compressor != null
-                    ? compressor.compress(pageBytes)
-                    : createDataOutput(Slices.wrappedBuffer(pageBytes));
+                    ? compress(dictionaryBytes)
+                    : createDataOutput(dictionaryBytes);
             int compressedSize = pageData.size();
 
             ByteArrayOutputStream dictStream = new ByteArrayOutputStream();
@@ -307,8 +312,10 @@ public class PrimitiveColumnWriter
             ParquetDataOutput pageHeader = createDataOutput(dictStream);
             outputs.add(pageHeader);
             outputs.add(pageData);
-            totalCompressedSize += pageHeader.size() + compressedSize;
-            totalUnCompressedSize += pageHeader.size() + uncompressedSize;
+            dictionaryPageCompressedSize = pageHeader.size() + compressedSize;
+            dictionaryPageUncompressedSize = pageHeader.size() + uncompressedSize;
+            totalCompressedSize += dictionaryPageCompressedSize;
+            totalUnCompressedSize += dictionaryPageUncompressedSize;
             dictionaryPagesWithEncoding.merge(getEncoding(dictionaryPage.getEncoding()), 1, Integer::sum);
             dictionaryPageSize = OptionalInt.of(pageHeader.size() + compressedSize);
 
@@ -320,19 +327,48 @@ public class PrimitiveColumnWriter
         return new DataStreams(outputs.build(), dictionaryPageSize, bloomFilter);
     }
 
+    private ParquetDataOutput compress(BytesInput bytesInput)
+            throws IOException
+    {
+        // toByteBuffer references the input data without copying when it is backed by a single buffer; the releaser frees
+        // the temporary buffer that is allocated only when the input has to be materialized (e.g. concatenated pages)
+        try (ByteBufferReleaser releaser = new ByteBufferReleaser(HeapByteBufferAllocator.getInstance())) {
+            return compressor.compress(bytesInput.toByteBuffer(releaser));
+        }
+    }
+
     @Override
     public long getEstimatedBufferedBytes(CompressionStats compressionStats)
     {
-        long pendingBufferedBytesEstimate = definitionLevelWriter.getBufferedSize() +
+        long pendingDataPageSize = definitionLevelWriter.getBufferedSize() +
                 repetitionLevelWriter.getBufferedSize() +
-                primitiveValueWriter.getEstimatedBufferedSize();
-        return pageBufferedBytes + estimateCompressedSize(pendingBufferedBytesEstimate, compressionStats);
+                primitiveValueWriter.getEstimatedDataPageSize();
+        long pendingDictionaryPageSize = primitiveValueWriter.getEstimatedDictionaryPageSize();
+        return pageBufferedBytes +
+                estimateCompressedSize(
+                        pendingDataPageSize,
+                        totalCompressedSize - dictionaryPageCompressedSize,
+                        totalUnCompressedSize - dictionaryPageUncompressedSize,
+                        compressionStats.dataPageCompressedSize(),
+                        compressionStats.dataPageUncompressedSize(),
+                        MINIMUM_COMPRESSION_RATIO_SAMPLE_SIZE) +
+                estimateCompressedSize(
+                        pendingDictionaryPageSize,
+                        dictionaryPageCompressedSize,
+                        dictionaryPageUncompressedSize,
+                        compressionStats.dictionaryPageCompressedSize(),
+                        compressionStats.dictionaryPageUncompressedSize(),
+                        MINIMUM_DICTIONARY_COMPRESSION_RATIO_SAMPLE_SIZE);
     }
 
     @Override
     public CompressionStats getCompressionStats()
     {
-        return new CompressionStats(totalCompressedSize, totalUnCompressedSize);
+        return new CompressionStats(
+                totalCompressedSize - dictionaryPageCompressedSize,
+                totalUnCompressedSize - dictionaryPageUncompressedSize,
+                dictionaryPageCompressedSize,
+                dictionaryPageUncompressedSize);
     }
 
     @Override
@@ -352,15 +388,21 @@ public class PrimitiveColumnWriter
                 primitiveValueWriter.getBufferedSize();
     }
 
-    private long estimateCompressedSize(long uncompressedSize, CompressionStats compressionStats)
+    private static long estimateCompressedSize(
+            long uncompressedSize,
+            long currentCompressedSize,
+            long currentUncompressedSize,
+            long aggregateCompressedSize,
+            long aggregateUncompressedSize,
+            long minimumSampleSize)
     {
         // If the current write has a reasonable compression sample size, use the compression ratio from the current
         // writer, otherwise use the compression stats from other columns in this file. Also, verify the overall
         // compression stats has a reasonable compression sample size before use.
-        if (totalUnCompressedSize >= MINIMUM_COMPRESSION_RATIO_SAMPLE_SIZE || compressionStats.uncompressedSize() < MINIMUM_COMPRESSION_RATIO_SAMPLE_SIZE) {
-            return estimateCompressedSize(uncompressedSize, totalCompressedSize, totalUnCompressedSize);
+        if (currentUncompressedSize >= minimumSampleSize || aggregateUncompressedSize < minimumSampleSize) {
+            return estimateCompressedSize(uncompressedSize, currentCompressedSize, currentUncompressedSize);
         }
-        return estimateCompressedSize(uncompressedSize, compressionStats.compressedSize(), compressionStats.uncompressedSize());
+        return estimateCompressedSize(uncompressedSize, aggregateCompressedSize, aggregateUncompressedSize);
     }
 
     @VisibleForTesting

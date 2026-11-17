@@ -82,6 +82,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.base.Strings.nullToEmpty;
 import static com.google.common.base.Suppliers.memoize;
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static io.trino.cost.StatsCalculator.noopStatsCalculator;
 import static io.trino.metadata.OperatorNameUtil.mangleOperatorName;
 import static io.trino.sql.ir.IrExpressions.mayFail;
@@ -91,6 +92,8 @@ import static io.trino.sql.query.QueryAssertions.QueryAssert.newQueryAssert;
 import static io.trino.testing.TestingHandles.TEST_CATALOG_NAME;
 import static io.trino.testing.TestingSession.testSessionBuilder;
 import static io.trino.testing.TransactionBuilder.transaction;
+import static io.trino.testing.assertions.Assert.assertContainsAll;
+import static io.trino.testing.assertions.Assert.assertEqualsIgnoreOrder;
 import static io.trino.testing.assertions.TrinoExceptionAssert.assertThatTrinoException;
 import static io.trino.testing.assertions.TrinoExceptionAssert.assertTrinoExceptionThrownBy;
 import static java.util.Objects.requireNonNull;
@@ -718,15 +721,14 @@ public class QueryAssertions
                     hasTypes(expected.getTypes());
                 }
 
-                ListAssert<MaterializedRow> assertion = assertThat(actual.getMaterializedRows())
-                        .as("Rows for query [%s]", description)
-                        .withRepresentation(ROWS_REPRESENTATION);
-
                 if (ordered) {
-                    assertion.containsExactlyElementsOf(expected.getMaterializedRows());
+                    assertThat(actual.getMaterializedRows())
+                            .as("Rows for query [%s]", description)
+                            .withRepresentation(ROWS_REPRESENTATION)
+                            .containsExactlyElementsOf(expected.getMaterializedRows());
                 }
                 else {
-                    assertion.containsExactlyInAnyOrderElementsOf(expected.getMaterializedRows());
+                    assertEqualsIgnoreOrder(actual.getMaterializedRows(), expected.getMaterializedRows(), "Rows for query [%s]".formatted(description));
                 }
             });
         }
@@ -739,10 +741,7 @@ public class QueryAssertions
                     hasTypes(expected.getTypes());
                 }
 
-                assertThat(actual.getMaterializedRows())
-                        .as("Rows for query [%s]", description)
-                        .withRepresentation(ROWS_REPRESENTATION)
-                        .containsAll(expected.getMaterializedRows());
+                assertContainsAll(actual.getMaterializedRows(), expected.getMaterializedRows(), "Rows for query [%s]".formatted(description));
             });
         }
 
@@ -1001,7 +1000,7 @@ public class QueryAssertions
         public ExpressionAssert neverFails()
         {
             Expression expression = outermostExpression();
-            assertThat(mayFail(runner.getPlannerContext(), expression))
+            assertThat(mayFail(runner.getPlannerContext(), getCharVarcharCoercion(session), expression))
                     .as("Expression %s may fail", expression)
                     .isFalse();
             return this;
@@ -1014,7 +1013,7 @@ public class QueryAssertions
         public ExpressionAssert couldFail()
         {
             Expression expression = outermostExpression();
-            assertThat(mayFail(runner.getPlannerContext(), expression))
+            assertThat(mayFail(runner.getPlannerContext(), getCharVarcharCoercion(session), expression))
                     .as("Expression %s may fail", expression)
                     .isTrue();
             return this;

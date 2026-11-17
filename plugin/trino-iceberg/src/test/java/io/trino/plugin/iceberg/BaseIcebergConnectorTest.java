@@ -53,8 +53,10 @@ import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.statistics.TableStatistics;
 import io.trino.sql.planner.Plan;
 import io.trino.sql.planner.optimizations.PlanNodeSearcher;
+import io.trino.sql.planner.plan.AssignUniqueId;
 import io.trino.sql.planner.plan.ExchangeNode;
 import io.trino.sql.planner.plan.FilterNode;
+import io.trino.sql.planner.plan.JoinNode;
 import io.trino.sql.planner.plan.OutputNode;
 import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.planner.plan.TableWriterNode;
@@ -126,6 +128,7 @@ import static io.trino.SystemSessionProperties.DETERMINE_PARTITION_COUNT_FOR_WRI
 import static io.trino.SystemSessionProperties.ENABLE_DYNAMIC_FILTERING;
 import static io.trino.SystemSessionProperties.IGNORE_STATS_CALCULATOR_FAILURES;
 import static io.trino.SystemSessionProperties.ITERATIVE_OPTIMIZER_TIMEOUT;
+import static io.trino.SystemSessionProperties.JOIN_DISTRIBUTION_TYPE;
 import static io.trino.SystemSessionProperties.MAX_HASH_PARTITION_COUNT;
 import static io.trino.SystemSessionProperties.MAX_WRITER_TASK_COUNT;
 import static io.trino.SystemSessionProperties.SCALE_WRITERS;
@@ -142,7 +145,6 @@ import static io.trino.plugin.iceberg.IcebergQueryRunner.ICEBERG_CATALOG;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.BUCKET_EXECUTION_ENABLED;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.COLLECT_EXTENDED_STATISTICS_ON_WRITE;
 import static io.trino.plugin.iceberg.IcebergSessionProperties.DYNAMIC_FILTERING_WAIT_TIMEOUT;
-import static io.trino.plugin.iceberg.IcebergSplitManager.ICEBERG_DOMAIN_COMPACTION_THRESHOLD;
 import static io.trino.plugin.iceberg.IcebergTableProperties.isCompressionCodecSupportedForFormat;
 import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
 import static io.trino.plugin.iceberg.IcebergTestUtils.getFileSystemFactory;
@@ -162,6 +164,7 @@ import static io.trino.spi.type.TimeZoneKey.getTimeZoneKey;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.sql.planner.assertions.PlanMatchPattern.node;
 import static io.trino.sql.planner.optimizations.PlanNodeSearcher.searchFrom;
+import static io.trino.sql.planner.plan.ExchangeNode.Scope.REMOTE;
 import static io.trino.testing.MaterializedResult.resultBuilder;
 import static io.trino.testing.QueryAssertions.assertEqualsIgnoreOrder;
 import static io.trino.testing.TestingConnectorSession.SESSION;
@@ -234,6 +237,8 @@ public abstract class BaseIcebergConnectorTest
                         .put("iceberg.allowed-extra-properties", "extra.property.one,extra.property.two,extra.property.three,sorted_by")
                         // Allows testing the sorting writer flushing to the file system with smaller tables
                         .put("iceberg.writer-sort-buffer-size", "1MB")
+                        // Some tests rely on the caching being disabled
+                        .put("iceberg.metadata-cache.enabled", "false")
                         .buildOrThrow())
                 .addIcebergProperty("fs.hadoop.enabled", "true")
                 .setInitialTables(REQUIRED_TPCH_TABLES);
@@ -291,7 +296,6 @@ public abstract class BaseIcebergConnectorTest
                  SUPPORTS_REPORTING_WRITTEN_BYTES -> true;
             case SUPPORTS_ADD_COLUMN_NOT_NULL_CONSTRAINT,
                  SUPPORTS_LIMIT_PUSHDOWN,
-                 SUPPORTS_REFRESH_VIEW,
                  SUPPORTS_RENAME_MATERIALIZED_VIEW_ACROSS_SCHEMAS,
                  SUPPORTS_TOPN_PUSHDOWN -> false;
             case SUPPORTS_DEFAULT_COLUMN_VALUE -> formatVersion >= 3;
@@ -397,11 +401,14 @@ public abstract class BaseIcebergConnectorTest
     public void testShowCreateSchema()
     {
         assertThat(computeActual("SHOW CREATE SCHEMA tpch").getOnlyValue().toString())
-                .matches("CREATE SCHEMA iceberg.tpch\n" +
-                        "AUTHORIZATION USER user\n" +
-                        "WITH \\(\n" +
-                        "\\s+location = '.*/tpch'\n" +
-                        "\\)");
+                .matches(
+                        """
+                        CREATE SCHEMA iceberg.tpch
+                        AUTHORIZATION USER user
+                        WITH \\(
+                        \\s+location = '.*/tpch'
+                        \\)\
+                        """);
     }
 
     @Override
@@ -1283,6 +1290,55 @@ public abstract class BaseIcebergConnectorTest
         assertUpdate("DROP TABLE " + targetTable);
     }
 
+    @Test // regression test for https://github.com/trinodb/trino/issues/30639
+    public void testMergeWithPartitionedJoinAndUnmodifiedRows()
+    {
+        // The join with a bucket-partitioned target is colocated with the table partitioning, so
+        // the target and source AssignUniqueId nodes execute in the same stage and must not
+        // assign the same id to different rows
+        try (TestTable target = newTrinoTable(
+                "test_merge_unique_id_target_",
+                "WITH (partitioning = ARRAY['bucket(k1, 16)', 'bucket(k2, 8)']) AS " +
+                        "SELECT 'a-' || CAST(i AS varchar) AS k1, 'b-' || CAST(i AS varchar) AS k2, " +
+                        "'UPDATED' AS value, TIMESTAMP '2026-01-01 00:00:00.000000' AS updated_at " +
+                        "FROM UNNEST(sequence(1, 20)) t(i)");
+                // Every fifth source row matches a target row, so matched and unmatched rows are
+                // interleaved and each AssignUniqueId driver assigns its first ids to both kinds
+                TestTable source = newTrinoTable(
+                        "test_merge_unique_id_source_",
+                        "AS SELECT " +
+                                "IF(i % 5 = 0, 'a-' || CAST(i / 5 AS varchar), 'x-' || CAST(i AS varchar)) AS k1, " +
+                                "IF(i % 5 = 0, 'b-' || CAST(i / 5 AS varchar), 'y-' || CAST(i AS varchar)) AS k2, " +
+                                "'DELETED' AS value, TIMESTAMP '2026-01-01 00:00:00.000000' AS updated_at " +
+                                "FROM UNNEST(sequence(1, 100)) t(i)")) {
+            Session session = Session.builder(getSession())
+                    .setSystemProperty(JOIN_DISTRIBUTION_TYPE, "PARTITIONED")
+                    .setCatalogSessionProperty(ICEBERG_CATALOG, BUCKET_EXECUTION_ENABLED, "true")
+                    .build();
+
+            // Every row is excluded by a WHEN condition, so the merge must change nothing
+            // instead of failing with MERGE_TARGET_ROW_MULTIPLE_MATCHES
+            assertUpdate(
+                    session,
+                    "MERGE INTO %s t USING %s s ".formatted(target.getName(), source.getName()) +
+                            "ON t.k1 = s.k1 AND t.k2 = s.k2 " +
+                            "WHEN MATCHED AND s.updated_at > t.updated_at THEN UPDATE SET value = s.value, updated_at = s.updated_at " +
+                            "WHEN NOT MATCHED AND s.value <> 'DELETED' THEN INSERT (k1, k2, value, updated_at) VALUES (s.k1, s.k2, s.value, s.updated_at)",
+                    0,
+                    // Both AssignUniqueId nodes must be reachable from the join without crossing a
+                    // remote exchange, otherwise the test no longer exercises a shared task
+                    plan -> {
+                        JoinNode join = (JoinNode) searchFrom(plan.getRoot()).where(JoinNode.class::isInstance).findOnlyElement();
+                        assertThat(searchFrom(join)
+                                .recurseOnlyWhen(planNode -> !(planNode instanceof ExchangeNode exchange && exchange.getScope() == REMOTE))
+                                .where(AssignUniqueId.class::isInstance)
+                                .count())
+                                .isEqualTo(2);
+                    });
+            assertQuery("SELECT count(*) FROM " + target.getName(), "VALUES 20");
+        }
+    }
+
     @Test
     public void testSchemaEvolutionWithNestedFieldPartitioning()
     {
@@ -1335,17 +1391,19 @@ public abstract class BaseIcebergConnectorTest
                 "SELECT count(*) from orders");
 
         assertThat(computeScalar("SHOW CREATE TABLE test_create_partitioned_table_as")).isEqualTo(format(
-                "CREATE TABLE %s.%s.%s (\n" +
-                        "   \"order key\" bigint,\n" +
-                        "   ship_priority integer,\n" +
-                        "   order_status varchar\n" +
-                        ")\n" +
-                        "WITH (\n" +
-                        "   format = '%s',\n" +
-                        "   format_version = 2,\n" +
-                        "   location = '%s',\n" +
-                        "   partitioning = ARRAY['order_status','ship_priority','bucket(\"order key\", 9)']\n" +
-                        ")",
+                """
+                CREATE TABLE %s.%s.%s (
+                   "order key" bigint,
+                   ship_priority integer,
+                   order_status varchar
+                )
+                WITH (
+                   format = '%s',
+                   format_version = 2,
+                   location = '%s',
+                   partitioning = ARRAY['order_status','ship_priority','bucket("order key", 9)']
+                )\
+                """,
                 getSession().getCatalog().orElseThrow(),
                 getSession().getSchema().orElseThrow(),
                 "test_create_partitioned_table_as",
@@ -1642,6 +1700,126 @@ public abstract class BaseIcebergConnectorTest
     }
 
     @Test
+    public void testSortedByNestedField()
+    {
+        Session withSmallRowGroups = withSmallRowGroups(getSession());
+
+        // Verify 1-level nesting
+        try (TestTable table = newTrinoTable(
+                "test_sorted_by_nested_field",
+                "(id INT, row_t ROW(other VARCHAR, name VARCHAR)) WITH (format = '" + format.name() + "', sorted_by = ARRAY[ '\"row_t.name\"' ])")) {
+            assertUpdate(
+                    withSmallRowGroups,
+                    // other field contains reverse-ordered values to ensure the sort check targets the correct (name) field
+                    "INSERT INTO " + table.getName() + "(id, row_t) " +
+                            "SELECT id, ROW(CONCAT('r', LPAD(CAST(501 - id AS VARCHAR), 3, '0')), CONCAT('v', LPAD(CAST(id AS VARCHAR), 3, '0'))) " +
+                            "FROM UNNEST(sequence(1, 500)) AS t(id)",
+                    500);
+
+            for (Object filePath : computeActual("SELECT file_path from \"" + table.getName() + "$files\"").getOnlyColumnAsSet()) {
+                assertThat(isFileSorted((String) filePath, "row_t.name")).isTrue();
+            }
+            assertThat(query("SELECT id, row_t.name FROM " + table.getName()))
+                    .matches("SELECT CAST(id AS integer), CONCAT('v', LPAD(CAST(id AS VARCHAR), 3, '0')) FROM UNNEST(sequence(1, 500)) AS t(id)");
+        }
+
+        // Verify 2-level nesting
+        try (TestTable table = newTrinoTable(
+                "test_sorted_by_deeply_nested_field",
+                "(id INT, outer_t ROW(other VARCHAR, inner_t ROW(other VARCHAR, name VARCHAR))) WITH (format = '" + format.name() + "', sorted_by = ARRAY[ '\"outer_t.inner_t.name\"' ])")) {
+            assertUpdate(
+                    withSmallRowGroups,
+                    // other fields contain reverse-ordered values to ensure the sort check targets the correct (name) field
+                    "INSERT INTO " + table.getName() + "(id, outer_t) " +
+                            "SELECT id, ROW(CONCAT('r', LPAD(CAST(501 - id AS VARCHAR), 3, '0')), ROW(CONCAT('r', LPAD(CAST(501 - id AS VARCHAR), 3, '0')), CONCAT('v', LPAD(CAST(id AS VARCHAR), 3, '0')))) " +
+                            "FROM UNNEST(sequence(1, 500)) AS t(id)",
+                    500);
+
+            for (Object filePath : computeActual("SELECT file_path from \"" + table.getName() + "$files\"").getOnlyColumnAsSet()) {
+                assertThat(isFileSorted((String) filePath, "outer_t.inner_t.name")).isTrue();
+            }
+            assertThat(query("SELECT id, outer_t.inner_t.name FROM " + table.getName()))
+                    .matches("SELECT CAST(id AS integer), CONCAT('v', LPAD(CAST(id AS VARCHAR), 3, '0')) FROM UNNEST(sequence(1, 500)) AS t(id)");
+        }
+
+        // Verify NULL values in the sort field are handled
+        try (TestTable table = newTrinoTable(
+                "test_sorted_by_nested_field_with_nulls",
+                "(id INT, row_t ROW(name VARCHAR)) WITH (format = '" + format.name() + "', sorted_by = ARRAY['\"row_t.name\"'])")) {
+            assertUpdate(
+                    withSmallRowGroups,
+                    "INSERT INTO " + table.getName() + "(id, row_t) " +
+                            "SELECT id, IF(id % 100 = 0, NULL, ROW(CONCAT('v', LPAD(CAST(id AS VARCHAR), 3, '0')))) " +
+                            "FROM UNNEST(sequence(1, 500)) AS t(id)",
+                    500);
+            for (Object filePath : computeActual("SELECT file_path from \"" + table.getName() + "$files\"").getOnlyColumnAsSet()) {
+                assertThat(isFileSorted((String) filePath, "row_t.name")).isTrue();
+            }
+            assertThat(query("SELECT count(*) FROM " + table.getName() + " WHERE row_t IS NULL"))
+                    .matches("VALUES BIGINT '5'");
+            assertThat(query("SELECT count(*) FROM " + table.getName() + " WHERE row_t.name IS NOT NULL"))
+                    .matches("VALUES BIGINT '495'");
+        }
+
+        // Uses tpch.tiny.lineitem (60k rows) to force spilling through temp files
+        try (TestTable table = newTrinoTable(
+                "test_sorted_nested_spill",
+                "(orderkey BIGINT, row_t ROW(comment VARCHAR)) WITH (format = '" + format.name() + "', sorted_by = ARRAY['\"row_t.comment\"'])")) {
+            assertUpdate(
+                    "INSERT INTO " + table.getName() + " SELECT orderkey, ROW(comment) FROM tpch.tiny.lineitem",
+                    "VALUES 60175");
+            for (Object filePath : computeActual("SELECT file_path from \"" + table.getName() + "$files\"").getOnlyColumnAsSet()) {
+                assertThat(isFileSorted((String) filePath, "row_t.comment")).isTrue();
+            }
+        }
+
+        // Verify mixed sort key (top-level column + nested field); channel/path alignment must be correct or sort targets wrong column
+        try (TestTable table = newTrinoTable(
+                "test_sorted_mixed_key",
+                "(id INT, row_t ROW(name VARCHAR)) WITH (format = '" + format.name() + "', sorted_by = ARRAY['id', '\"row_t.name\"'])")) {
+            assertUpdate(
+                    withSmallRowGroups,
+                    "INSERT INTO " + table.getName() + "(id, row_t) " +
+                            "SELECT id, ROW(CONCAT('v', LPAD(CAST(id AS VARCHAR), 3, '0'))) " +
+                            "FROM UNNEST(sequence(1, 500)) AS t(id)",
+                    500);
+            for (Object filePath : computeActual("SELECT file_path from \"" + table.getName() + "$files\"").getOnlyColumnAsSet()) {
+                assertThat(isFileSorted((String) filePath, "row_t.name")).isTrue();
+            }
+        }
+
+        // Verify nested sort on a partitioned table (opens more than one writer)
+        try (TestTable table = newTrinoTable(
+                "test_sorted_nested_partitioned",
+                "(id INT, part VARCHAR, row_t ROW(name VARCHAR)) WITH (format = '" + format.name() + "', partitioning = ARRAY['part'], sorted_by = ARRAY['\"row_t.name\"'])")) {
+            assertUpdate(
+                    withSmallRowGroups,
+                    "INSERT INTO " + table.getName() + "(id, part, row_t) " +
+                            "SELECT id, IF(id % 2 = 0, 'even', 'odd'), ROW(CONCAT('v', LPAD(CAST(id AS VARCHAR), 3, '0'))) " +
+                            "FROM UNNEST(sequence(1, 500)) AS t(id)",
+                    500);
+            for (Object filePath : computeActual("SELECT file_path from \"" + table.getName() + "$files\"").getOnlyColumnAsSet()) {
+                assertThat(isFileSorted((String) filePath, "row_t.name")).isTrue();
+            }
+        }
+
+        // Verify ALTER TABLE SET PROPERTIES and OPTIMIZE with nested sort field
+        try (TestTable table = newTrinoTable(
+                "test_sorted_nested_optimize",
+                "(id INT, row_t ROW(name VARCHAR)) WITH (format = '" + format.name() + "')")) {
+            assertUpdate("INSERT INTO " + table.getName() + "(id, row_t) VALUES (1, ROW('b')), (2, ROW('a'))", 2);
+            assertUpdate("INSERT INTO " + table.getName() + "(id, row_t) VALUES (3, ROW('d')), (4, ROW('c'))", 2);
+            assertUpdate("ALTER TABLE " + table.getName() + " SET PROPERTIES sorted_by = ARRAY['\"row_t.name\"']");
+            assertUpdate(withSingleWriterPerTask(getSession()), "ALTER TABLE " + table.getName() + " EXECUTE optimize");
+            for (MaterializedRow row : computeActual("SELECT file_path, sort_order_id from \"" + table.getName() + "$files\"").getMaterializedRows()) {
+                assertThat(isFileSorted((String) row.getField(0), "row_t.name")).isTrue();
+                assertThat((Integer) row.getField(1)).isEqualTo(1);
+            }
+            assertQuery("SELECT id FROM " + table.getName() + " ORDER BY row_t.name", "VALUES 2, 1, 4, 3");
+        }
+    }
+
+    @Test
     public void testSortingDisabled()
     {
         Session withSortingDisabled = Session.builder(getSession())
@@ -1677,6 +1855,97 @@ public abstract class BaseIcebergConnectorTest
                 assertThat(((Integer) row.getField(1))).isEqualTo(1);
             }
             assertQuery("SELECT * FROM " + table.getName(), "SELECT * FROM nation");
+        }
+    }
+
+    @Test
+    public void testOptimizeWithSameSortOrder()
+    {
+        try (TestTable table = newTrinoTable(
+                "test_optimize_with_same_sort_order",
+                "AS SELECT * FROM nation WITH NO DATA")) {
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey < 10", 10);
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey >= 10 AND nationkey < 20", 10);
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey >= 20", 5);
+            assertUpdate("ALTER TABLE " + table.getName() + " SET PROPERTIES sorted_by = ARRAY['comment']");
+
+            assertUpdate(withSingleWriterPerTask(getSession()), "ALTER TABLE " + table.getName() + " EXECUTE optimize (sorted_by => ARRAY['comment'])");
+
+            for (MaterializedRow row : computeActual("SELECT file_path, sort_order_id from \"" + table.getName() + "$files\"").getMaterializedRows()) {
+                assertThat(isFileSorted((String) row.getField(0), "comment")).isTrue();
+                assertThat(((Integer) row.getField(1))).isEqualTo(1);
+            }
+            assertQuery("SELECT * FROM " + table.getName(), "SELECT * FROM nation");
+        }
+    }
+
+    @Test
+    public void testOptimizeWithDifferentSortOrder()
+    {
+        try (TestTable table = newTrinoTable(
+                "test_optimize_with_different_sort_order",
+                "AS SELECT * FROM nation WITH NO DATA")) {
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey < 10", 10);
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey >= 10 AND nationkey < 20", 10);
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey >= 20", 5);
+            assertUpdate("ALTER TABLE " + table.getName() + " SET PROPERTIES sorted_by = ARRAY['comment']");
+
+            assertUpdate(withSingleWriterPerTask(getSession()), "ALTER TABLE " + table.getName() + " EXECUTE optimize (sorted_by => ARRAY['name'])");
+
+            for (MaterializedRow row : computeActual("SELECT file_path, sort_order_id from \"" + table.getName() + "$files\"").getMaterializedRows()) {
+                assertThat(isFileSorted((String) row.getField(0), "name")).isTrue();
+                assertThat(((Integer) row.getField(1))).isEqualTo(0);
+            }
+            assertQuery("SELECT * FROM " + table.getName(), "SELECT * FROM nation");
+        }
+    }
+
+    @Test
+    public void testOptimizeWithNewSortOrder()
+    {
+        try (TestTable table = newTrinoTable(
+                "test_optimize_with_new_sort_order",
+                "WITH (sorted_by = ARRAY['comment']) AS SELECT * FROM nation WITH NO DATA")) {
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey < 10", 10);
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey >= 10 AND nationkey < 20", 10);
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey >= 20", 5);
+
+            assertUpdate(withSingleWriterPerTask(getSession()), "ALTER TABLE " + table.getName() + " EXECUTE optimize (sorted_by => ARRAY['name'])");
+
+            for (MaterializedRow row : computeActual("SELECT file_path, sort_order_id from \"" + table.getName() + "$files\"").getMaterializedRows()) {
+                assertThat(isFileSorted((String) row.getField(0), "name")).isTrue();
+                assertThat(((Integer) row.getField(1))).isEqualTo(0);
+            }
+            assertQuery("SELECT * FROM " + table.getName(), "SELECT * FROM nation");
+        }
+    }
+
+    @Test
+    public void testOptimizeWithEmptySortOrder()
+    {
+        try (TestTable table = newTrinoTable(
+                "test_optimize_with_empty_sort_order",
+                "WITH (sorted_by = ARRAY['comment']) AS SELECT * FROM nation WITH NO DATA")) {
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey >= 20", 5);
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey < 10", 10);
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT * FROM nation WHERE nationkey >= 10 AND nationkey < 20", 10);
+
+            assertUpdate(withSingleWriterPerTask(getSession()), "ALTER TABLE " + table.getName() + " EXECUTE optimize (sorted_by => ARRAY[])");
+
+            for (MaterializedRow row : computeActual("SELECT sort_order_id from \"" + table.getName() + "$files\"").getMaterializedRows()) {
+                assertThat(((Integer) row.getField(0))).isEqualTo(0);
+            }
+            assertQuery("SELECT * FROM " + table.getName(), "SELECT * FROM nation");
+        }
+    }
+
+    @Test
+    public void testOptimizeWithInvalidSortOrder()
+    {
+        try (TestTable table = newTrinoTable("test_optimize_with_invalid_sort_order", "AS SELECT * FROM nation WITH NO DATA")) {
+            assertThat(query("ALTER TABLE " + table.getName() + " EXECUTE optimize (sorted_by => ARRAY['no_such_column'])"))
+                    // TODO should be TrinoException
+                    .nonTrinoExceptionFailure().hasMessageContaining("Cannot find field 'no_such_column'");
         }
     }
 
@@ -1737,9 +2006,32 @@ public abstract class BaseIcebergConnectorTest
         assertThat(query("CREATE TABLE " + tableName + " (nationkey BIGINT, row_t ROW(name VARCHAR, regionkey BIGINT, comment VARCHAR)) " +
                 "WITH (sorted_by = ARRAY['\"row_t\".\"comment\"'])"))
                 .failure().hasMessageContaining("Unable to parse sort field: [\"row_t\".\"comment\"]");
-        assertThat(query("CREATE TABLE " + tableName + " (nationkey BIGINT, row_t ROW(name VARCHAR, regionkey BIGINT, comment VARCHAR)) " +
-                "WITH (sorted_by = ARRAY['\"row_t.comment\"'])"))
-                .failure().hasMessageContaining("Column not found: row_t.comment");
+
+        assertUpdate("CREATE TABLE " + tableName + " (nationkey BIGINT, row_t ROW(name VARCHAR, regionkey BIGINT, comment VARCHAR)) " +
+                "WITH (sorted_by = ARRAY['\"row_t.comment\"'])");
+        assertThat((String) computeScalar("SHOW CREATE TABLE " + tableName))
+                .contains("sorted_by = ARRAY['\"row_t.comment\" ASC NULLS FIRST']");
+
+        assertThat(query("ALTER TABLE " + tableName + " DROP COLUMN row_t")).failure()
+                .hasMessage("Failed to drop column: Cannot find source column for sort field: identity(5) ASC NULLS FIRST");
+        assertThat(query("ALTER TABLE " + tableName + " DROP COLUMN row_t.comment")).failure()
+                .hasMessage("Cannot drop sort field: row_t.comment");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testSortingOnNonStructNestedField()
+    {
+        String tableName = "test_non_struct_sort_" + randomNameSuffix();
+        assertThat(query("CREATE TABLE " + tableName + " (arr ARRAY(VARCHAR)) WITH (sorted_by = ARRAY['\"arr.element\"'])")).failure()
+                .hasMessage("Column not found: arr.element");
+        assertThat(query("CREATE TABLE " + tableName + " (m MAP(VARCHAR, VARCHAR)) WITH (sorted_by = ARRAY['\"m.key\"'])")).failure()
+                .hasMessage("Column not found: m.key");
+        assertThat(query("CREATE TABLE " + tableName + " (m MAP(VARCHAR, VARCHAR)) WITH (sorted_by = ARRAY['\"m.value\"'])")).failure()
+                .hasMessage("Column not found: m.value");
+        assertThat(query("CREATE TABLE " + tableName + " (arrs ARRAY(ROW(x VARCHAR))) WITH (sorted_by = ARRAY['\"arrs.element.x\"'])")).failure()
+                .hasMessage("Column not found: arrs.element.x");
     }
 
     @Test
@@ -2221,14 +2513,26 @@ public abstract class BaseIcebergConnectorTest
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE CAST(d AS date) >= DATE '2015-05-15'"))
                 .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE CAST(d AS DATE) BETWEEN DATE '2015-05-15' AND DATE '2015-06-15'"))
+                .isFullyPushedDown();
 
         assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE d >= TIMESTAMP '2015-05-15 12:00:00'"))
                 .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE d BETWEEN TIMESTAMP '2015-05-15 12:00:00' AND TIMESTAMP '2015-06-15 11:59:59.999999'"))
+                .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE d >= TIMESTAMP '2015-05-15 12:00:00.000001'"))
+                .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE d BETWEEN TIMESTAMP '2015-05-15 12:00:00.000001' AND TIMESTAMP '2015-06-15 11:59:59.999999'"))
+                .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE d BETWEEN TIMESTAMP '2015-05-15 12:00:00' AND TIMESTAMP '2015-06-15 12:00:00.00000'"))
                 .isNotFullyPushedDown(FilterNode.class);
 
         // date()
         assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE date(d) = DATE '2015-05-15'"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE date(d) BETWEEN DATE '2015-05-15' AND DATE '2015-06-15'"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_hour_transform_timestamp WHERE date(d) BETWEEN TIMESTAMP '2015-05-15 12:00:00' AND TIMESTAMP '2015-06-15 12:00:00.00000'"))
                 .isFullyPushedDown();
 
         // year()
@@ -2327,6 +2631,8 @@ public abstract class BaseIcebergConnectorTest
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_hour_transform_timestamptz WHERE CAST(d AS date) >= DATE '2015-05-15'"))
                 .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_hour_transform_timestamptz WHERE CAST(d AS date) BETWEEN DATE '2015-05-15' AND DATE '2015-06-15'"))
+                .isFullyPushedDown();
 
         assertThat(query("SELECT * FROM test_hour_transform_timestamptz WHERE d >= TIMESTAMP '2015-05-15 12:00:00 UTC'"))
                 .isFullyPushedDown();
@@ -2335,6 +2641,8 @@ public abstract class BaseIcebergConnectorTest
 
         // date()
         assertThat(query("SELECT * FROM test_hour_transform_timestamptz WHERE date(d) = DATE '2015-05-15'"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_hour_transform_timestamptz WHERE date(d) BETWEEN DATE '2015-05-15' AND DATE '2015-06-15'"))
                 .isFullyPushedDown();
 
         // year()
@@ -2507,6 +2815,8 @@ public abstract class BaseIcebergConnectorTest
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_day_transform_date WHERE CAST(d AS date) >= DATE '2015-01-13'"))
                 .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_day_transform_date WHERE d BETWEEN DATE '2015-01-13' AND DATE '2015-01-14'"))
+                .isFullyPushedDown();
 
         // d comparison with TIMESTAMP can be unwrapped
         assertThat(query("SELECT * FROM test_day_transform_date WHERE d >= TIMESTAMP '2015-01-13 00:00:00'"))
@@ -2525,7 +2835,11 @@ public abstract class BaseIcebergConnectorTest
         // date_trunc
         assertThat(query("SELECT * FROM test_day_transform_date WHERE date_trunc('day', d) = DATE '2015-01-13'"))
                 .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_day_transform_date WHERE date_trunc('week', d) = DATE '2015-01-12'"))
+                .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_day_transform_date WHERE date_trunc('month', d) = DATE '2015-01-01'"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_day_transform_date WHERE date_trunc('quarter', d) = DATE '2015-01-01'"))
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_day_transform_date WHERE date_trunc('year', d) = DATE '2015-01-01'"))
                 .isFullyPushedDown();
@@ -2620,14 +2934,22 @@ public abstract class BaseIcebergConnectorTest
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE CAST(d AS date) >= DATE '2015-05-15'"))
                 .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE d BETWEEN DATE '2015-05-15' AND DATE '2015-05-16'"))
+                .isNotFullyPushedDown(FilterNode.class);
 
         assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE d >= TIMESTAMP '2015-05-15 00:00:00'"))
                 .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE d BETWEEN TIMESTAMP '2015-05-15 00:00:00' AND TIMESTAMP '2015-05-16 23:59:59.999999'"))
+                .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE d >= TIMESTAMP '2015-05-15 00:00:00.000001'"))
+                .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE d BETWEEN TIMESTAMP '2015-05-15 00:00:00' AND TIMESTAMP '2015-05-16 00:00:00'"))
                 .isNotFullyPushedDown(FilterNode.class);
 
         // date()
         assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE date(d) = DATE '2015-05-15'"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE date(d) BETWEEN DATE '2015-05-15' AND DATE '2015-06-15'"))
                 .isFullyPushedDown();
 
         // year()
@@ -2637,7 +2959,11 @@ public abstract class BaseIcebergConnectorTest
         // date_trunc
         assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE date_trunc('day', d) = DATE '2015-05-15'"))
                 .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE date_trunc('week', d) = DATE '2015-05-11'"))
+                .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE date_trunc('month', d) = DATE '2015-05-01'"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE date_trunc('quarter', d) = DATE '2015-04-01'"))
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_day_transform_timestamp WHERE date_trunc('year', d) = DATE '2015-01-01'"))
                 .isFullyPushedDown();
@@ -2843,12 +3169,16 @@ public abstract class BaseIcebergConnectorTest
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_month_transform_date WHERE CAST(d AS date) >= DATE '2020-06-02'"))
                 .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_month_transform_date WHERE d BETWEEN DATE '2020-06-01' AND DATE '2020-07-31'"))
+                .isFullyPushedDown();
 
         // d comparison with TIMESTAMP can be unwrapped
         assertThat(query("SELECT * FROM test_month_transform_date WHERE d >= TIMESTAMP '2015-06-01 00:00:00'"))
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_month_transform_date WHERE d >= TIMESTAMP '2015-05-01 00:00:00.000001'"))
                 .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_month_transform_date WHERE d BETWEEN TIMESTAMP '2015-05-01 00:00:00' AND TIMESTAMP '2015-06-30 00:00:00'"))
+                .isFullyPushedDown();
 
         // year()
         assertThat(query("SELECT * FROM test_month_transform_date WHERE year(d) = 2015"))
@@ -2973,6 +3303,11 @@ public abstract class BaseIcebergConnectorTest
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_month_transform_timestamp WHERE d >= TIMESTAMP '2015-05-01 00:00:00.000001'"))
                 .isNotFullyPushedDown(FilterNode.class);
+
+        assertThat(query("SELECT * FROM test_month_transform_timestamp WHERE d BETWEEN DATE '2015-05-01' AND DATE '2015-06-01'"))
+                .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_month_transform_timestamp WHERE d BETWEEN DATE '2015-05-01' AND TIMESTAMP '2015-05-31 23:59:59.999999'"))
+                .isFullyPushedDown();
 
         // year()
         assertThat(query("SELECT * FROM test_month_transform_timestamp WHERE year(d) = 2015"))
@@ -3178,6 +3513,10 @@ public abstract class BaseIcebergConnectorTest
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_year_transform_date WHERE CAST(d AS date) >= DATE '2015-01-02'"))
                 .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_year_transform_date WHERE d BETWEEN DATE '2015-01-01' AND DATE '2016-01-01'"))
+                .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_year_transform_date WHERE d BETWEEN DATE '2015-01-01' AND TIMESTAMP '2015-12-31 23:59:59.999999'"))
+                .isFullyPushedDown();
 
         // d comparison with TIMESTAMP can be unwrapped
         assertThat(query("SELECT * FROM test_year_transform_date WHERE d >= TIMESTAMP '2015-01-01 00:00:00'"))
@@ -3298,6 +3637,8 @@ public abstract class BaseIcebergConnectorTest
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_year_transform_timestamp WHERE CAST(d AS date) >= DATE '2015-01-02'"))
                 .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_year_transform_timestamp WHERE CAST(d AS date) BETWEEN DATE '2015-01-01' AND DATE '2016-12-31'"))
+                .isFullyPushedDown();
 
         assertThat(query("SELECT * FROM test_year_transform_timestamp WHERE d >= TIMESTAMP '2015-01-01 00:00:00'"))
                 .isFullyPushedDown();
@@ -3393,6 +3734,10 @@ public abstract class BaseIcebergConnectorTest
                 .isFullyPushedDown();
         assertThat(query("SELECT * FROM test_year_transform_timestamptz WHERE d >= with_timezone(DATE '2015-01-02', 'UTC')"))
                 .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_year_transform_timestamptz WHERE d BETWEEN DATE '2015-01-01' AND DATE '2016-01-01'"))
+                .isNotFullyPushedDown(FilterNode.class);
+        assertThat(query("SELECT * FROM test_year_transform_timestamptz WHERE d BETWEEN with_timezone(DATE '2015-01-01', 'UTC') AND with_timezone(TIMESTAMP '2016-12-31 23:59:59.999999', 'UTC')"))
+                .isFullyPushedDown();
 
         assertThat(query("SELECT * FROM test_year_transform_timestamptz WHERE CAST(d AS date) >= DATE '2015-01-01'"))
                 .isFullyPushedDown();
@@ -3402,6 +3747,8 @@ public abstract class BaseIcebergConnectorTest
                 // Engine can eliminate the table scan after connector accepts the filter pushdown
                 .hasPlan(node(OutputNode.class, node(ValuesNode.class)))
                 .returnsEmptyResult();
+        assertThat(query("SELECT * FROM test_year_transform_timestamptz WHERE CAST(d AS date) BETWEEN DATE '2015-01-01' AND DATE '2016-12-31'"))
+                .isFullyPushedDown();
 
         assertThat(query("SELECT * FROM test_year_transform_timestamptz WHERE d >= TIMESTAMP '2015-01-01 00:00:00 UTC'"))
                 .isFullyPushedDown();
@@ -4386,7 +4733,7 @@ public abstract class BaseIcebergConnectorTest
         List<Long> values = LongStream.range(1L, 1010L).boxed()
                 .filter(index -> index != 20L)
                 .collect(toImmutableList());
-        assertThat(values).hasSizeGreaterThan(ICEBERG_DOMAIN_COMPACTION_THRESHOLD);
+        assertThat(values).hasSizeGreaterThan(new IcebergConfig().getDomainCompactionThreshold());
         String valuesString = join(",", values.stream().map(Object::toString).collect(toImmutableList()));
         String inPredicate = "%s IN (" + valuesString + ")";
         assertQuery(
@@ -4780,6 +5127,11 @@ public abstract class BaseIcebergConnectorTest
         assertQuery(session, "SELECT DISTINCT b FROM test_metadata_optimization WHERE b < 7", "VALUES (6)");
         assertQuery(session, "SELECT DISTINCT b FROM test_metadata_optimization WHERE c > 8", "VALUES (9)");
 
+        // Predicates on hidden columns are enforced by the split source, so the optimization must not apply
+        assertQuery(session, "SELECT DISTINCT b, c FROM test_metadata_optimization WHERE \"$partition\" = 'b=6/c=7'", "VALUES (6, 7)");
+        assertQuery(session, "SELECT DISTINCT b, c FROM test_metadata_optimization WHERE \"$path\" = (SELECT \"$path\" FROM test_metadata_optimization WHERE a = 5)", "VALUES (6, 7)");
+        assertQueryReturnsEmptyResult(session, "SELECT DISTINCT b, c FROM test_metadata_optimization WHERE \"$file_modified_time\" < TIMESTAMP '2000-01-01 00:00:00 UTC'");
+
         // Assert behavior after metadata delete
         assertUpdate("DELETE FROM test_metadata_optimization WHERE b = 6", 1);
         assertQuery(session, "SELECT DISTINCT b FROM test_metadata_optimization", "VALUES (9)");
@@ -4870,7 +5222,7 @@ public abstract class BaseIcebergConnectorTest
         // Using Iceberg provided file size fails the query
         assertQueryFails(
                 "SELECT * FROM test_iceberg_file_size",
-                "(Malformed ORC file\\. Invalid file metadata.*)|(.*Malformed Parquet file.*)");
+                "(Malformed ORC file\\. (Invalid file metadata|Invalid postscript).*)|(.*Malformed Parquet file.*)");
 
         assertUpdate("DROP TABLE test_iceberg_file_size");
     }
@@ -4920,6 +5272,100 @@ public abstract class BaseIcebergConnectorTest
 
         verifySplitCount("SELECT * FROM " + tableName + " WHERE regionkey % 5 = 3", 10);
         verifySplitCount("SELECT * FROM " + tableName + " WHERE (regionkey * 2) - nationkey = 0", 6);
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testSplitPruningForAtTimeZoneFilterOnPartitionColumn()
+    {
+        String tableName = "test_split_pruning_at_timezone";
+
+        assertUpdate("DROP TABLE IF EXISTS " + tableName);
+
+        assertUpdate("CREATE TABLE " + tableName + " (id BIGINT, zone VARCHAR, ts TIMESTAMP(6) WITH TIME ZONE) WITH (partitioning = ARRAY['month(ts)'])");
+        assertUpdate("INSERT INTO " + tableName + " VALUES " +
+                "(1, 'UTC', TIMESTAMP '2025-01-15 10:00:00.000000 UTC'), " +
+                "(2, 'Asia/Jerusalem', TIMESTAMP '2025-02-15 10:00:00.000000 UTC'), " +
+                "(3, 'America/New_York', TIMESTAMP '2025-03-15 10:00:00.000000 UTC')", 3);
+
+        // sanity check that table contains exactly one file per month partition
+        assertThat(computeScalar("SELECT count(*) FROM \"" + tableName + "$files\"")).isEqualTo(3L);
+
+        verifySplitCount("SELECT * FROM " + tableName, 3);
+
+        // at_timezone changes only the zone a value is rendered in, never the instant, so comparisons
+        // over it prune partitions exactly like comparisons on the column itself
+        verifySplitCount("SELECT * FROM " + tableName + " WHERE at_timezone(ts, 'UTC') = TIMESTAMP '2025-01-15 10:00:00.000000 UTC'", 1);
+        verifySplitCount("SELECT * FROM " + tableName + " WHERE at_timezone(ts, 'Asia/Jerusalem') < TIMESTAMP '2025-02-01 00:00:00.000000 UTC'", 1);
+        // the zone argument may be a column, as in views exposing each row's timestamp in its own zone
+        verifySplitCount("SELECT * FROM " + tableName + " WHERE at_timezone(ts, zone) = TIMESTAMP '2025-01-15 10:00:00.000000 UTC'", 1);
+        verifySplitCount("SELECT * FROM " + tableName + " WHERE at_timezone(ts, zone) BETWEEN TIMESTAMP '2025-02-01 00:00:00.000000 UTC' AND TIMESTAMP '2025-02-28 00:00:00.000000 UTC'", 1);
+        verifySplitCount("SELECT * FROM " + tableName + " WHERE at_timezone(ts, zone) < TIMESTAMP '2020-01-01 00:00:00.000000 UTC'", 0);
+
+        // A row with an invalid zone pins the pruning boundary. It is inserted after the checks
+        // above because verifySplitCount cross-checks against a pushdown-disabled run, which would
+        // evaluate the invalid zone on every row.
+        assertUpdate("INSERT INTO " + tableName + " VALUES (4, 'bogus_zone', TIMESTAMP '2025-04-15 10:00:00.000000 UTC')", 1);
+
+        // the invalid-zone row's partition is outside the derived instant range, so it is pruned
+        // and never evaluated: the query succeeds
+        MaterializedResultWithPlan pruned = getDistributedQueryRunner().executeWithPlan(
+                getSession(),
+                "SELECT id FROM " + tableName + " WHERE at_timezone(ts, zone) < TIMESTAMP '2025-02-01 00:00:00.000000 UTC'");
+        assertThat(pruned.result().getOnlyValue()).isEqualTo(1L);
+        verifySplitCount(pruned.queryId(), 1);
+
+        // a non-deterministic disjunct prevents domain derivation: no pruning, the row is
+        // evaluated, and the invalid zone fails the query
+        assertQueryFails(
+                "SELECT id FROM " + tableName + " WHERE at_timezone(ts, zone) < TIMESTAMP '2025-02-01 00:00:00.000000 UTC' OR rand() < 42",
+                "'bogus_zone' is not a valid time zone");
+
+        // a row with the matching instant but a null zone lands in the same partition as row 1, so
+        // it survives pruning; the retained predicate evaluates to null for it and filters it out
+        assertUpdate("INSERT INTO " + tableName + " VALUES (5, NULL, TIMESTAMP '2025-01-15 10:00:00.000000 UTC')", 1);
+        assertThat(query("SELECT id FROM " + tableName + " WHERE at_timezone(ts, zone) = TIMESTAMP '2025-01-15 10:00:00.000000 UTC'"))
+                .matches("VALUES BIGINT '1'");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testSplitPruningForAtTimeZoneFilterWithDstAmbiguousValue()
+    {
+        String tableName = "test_split_pruning_at_timezone_dst";
+
+        assertUpdate("DROP TABLE IF EXISTS " + tableName);
+
+        // disable writes redistribution to have predictable number of files written per partition (one).
+        Session noRedistributeWrites = Session.builder(getSession())
+                .setSystemProperty("redistribute_writes", "false")
+                .build();
+
+        // The zone is a column: a constant zone is unwrapped by UnwrapAtTimeZoneInComparison before
+        // pushdown, so only a column zone exercises the DomainTranslator derivation.
+        assertUpdate("CREATE TABLE " + tableName + " (id BIGINT, zone VARCHAR, ts TIMESTAMP(6) WITH TIME ZONE) WITH (partitioning = ARRAY['month(ts)'])");
+        // The wall time 2020-10-25 02:31:18 Europe/Warsaw is ambiguous: it occurs at 00:31:18 UTC
+        // (CEST, before the DST fall-back) and again at 01:31:18 UTC (CET, after). Store a row at
+        // each occurrence to verify pruning matches exactly the rows the comparison itself matches.
+        assertUpdate(noRedistributeWrites, "INSERT INTO " + tableName + " VALUES " +
+                "(1, 'Europe/Warsaw', TIMESTAMP '2020-10-25 00:31:18.000000 UTC'), " +
+                "(2, 'Europe/Warsaw', TIMESTAMP '2020-10-25 01:31:18.000000 UTC'), " +
+                "(3, 'Europe/Warsaw', TIMESTAMP '2020-11-15 10:00:00.000000 UTC')", 3);
+
+        // an ambiguous literal resolves to a single instant (the earlier offset) during analysis;
+        // the pruned plan must match exactly the same row as the comparison itself
+        assertThat(query("SELECT id FROM " + tableName + " WHERE at_timezone(ts, zone) = TIMESTAMP '2020-10-25 02:31:18.000000 Europe/Warsaw'"))
+                .matches("VALUES BIGINT '1'");
+        verifySplitCount("SELECT * FROM " + tableName + " WHERE at_timezone(ts, zone) = TIMESTAMP '2020-10-25 02:31:18.000000 Europe/Warsaw'", 1);
+
+        // a range spanning the repeated hour matches both occurrences
+        assertThat(query("SELECT id FROM " + tableName + " WHERE at_timezone(ts, zone)" +
+                " BETWEEN TIMESTAMP '2020-10-25 02:00:00.000000 Europe/Warsaw' AND TIMESTAMP '2020-10-25 03:00:00.000000 Europe/Warsaw'"))
+                .matches("VALUES BIGINT '1', BIGINT '2'");
+        verifySplitCount("SELECT * FROM " + tableName + " WHERE at_timezone(ts, zone)" +
+                " BETWEEN TIMESTAMP '2020-10-25 02:00:00.000000 Europe/Warsaw' AND TIMESTAMP '2020-10-25 03:00:00.000000 Europe/Warsaw'", 1);
 
         assertUpdate("DROP TABLE " + tableName);
     }
@@ -5624,6 +6070,15 @@ public abstract class BaseIcebergConnectorTest
     }
 
     @Test
+    public void testProjectionPushdownWithBetweenSymmetric()
+    {
+        try (TestTable table = newTrinoTable("test_projection_between_symmetric", "(value integer, bounds row(low integer, high integer))")) {
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES (5, ROW(0, 10)), (5, ROW(10, 0)), (20, ROW(0, 10))", 3);
+            assertQuery("SELECT value + 1 BETWEEN SYMMETRIC bounds.low AND bounds.high FROM " + table.getName(), "VALUES true, true, false");
+        }
+    }
+
+    @Test
     public void testProjectionPushdownAfterRename()
     {
         assertUpdate("CREATE TABLE projection_pushdown_after_rename (id INT, a ROW(b INT, c ROW (d INT)))");
@@ -5709,7 +6164,7 @@ public abstract class BaseIcebergConnectorTest
     public void testOptimize()
             throws Exception
     {
-        for (int formatVersion = IcebergConfig.FORMAT_VERSION_SUPPORT_MIN; formatVersion < IcebergConfig.FORMAT_VERSION_SUPPORT_MAX; formatVersion++) {
+        for (int formatVersion = IcebergConfig.FORMAT_VERSION_SUPPORT_MIN; formatVersion <= IcebergConfig.FORMAT_VERSION_SUPPORT_MAX; formatVersion++) {
             String tableName = "test_optimize_" + randomNameSuffix();
             assertUpdate("CREATE TABLE " + tableName + " (key integer, value varchar) WITH (format_version = " + formatVersion + ")");
 
@@ -5744,8 +6199,7 @@ public abstract class BaseIcebergConnectorTest
                     .hasSizeBetween(1, workerCount)
                     .doesNotContainAnyElementsOf(initialFiles);
             // No files should be removed (this is expire_snapshots's job, when it exists)
-            assertThat(getAllDataFilesFromTableDirectory(tableName))
-                    .containsExactlyInAnyOrderElementsOf(concat(initialFiles, updatedFiles));
+            assertEqualsIgnoreOrder(getAllDataFilesFromTableDirectory(tableName), concat(initialFiles, updatedFiles));
 
             // optimize with low retention threshold, nothing should change
             // For optimize we need to set task_min_writer_count to 1, otherwise it will create more than one file.
@@ -5753,8 +6207,7 @@ public abstract class BaseIcebergConnectorTest
             assertThat(query("SELECT sum(key), listagg(value, ' ') WITHIN GROUP (ORDER BY key) FROM " + tableName))
                     .matches("VALUES (BIGINT '65', VARCHAR 'eleven zwölf trzynaście quatorze пʼятнадцять')");
             assertThat(getActiveFiles(tableName)).isEqualTo(updatedFiles);
-            assertThat(getAllDataFilesFromTableDirectory(tableName))
-                    .containsExactlyInAnyOrderElementsOf(concat(initialFiles, updatedFiles));
+            assertEqualsIgnoreOrder(getAllDataFilesFromTableDirectory(tableName), concat(initialFiles, updatedFiles));
 
             // optimize with delimited procedure name
             assertQueryFails("ALTER TABLE " + tableName + " EXECUTE \"optimize\"", "Table procedure not registered: optimize");
@@ -5767,10 +6220,61 @@ public abstract class BaseIcebergConnectorTest
     }
 
     @Test
+    public void testOptimizeMaterializedView()
+            throws Exception
+    {
+        String tableName = "test_optimize_mv_src_" + randomNameSuffix();
+        assertUpdate("CREATE TABLE " + tableName + " (key integer, value varchar)");
+        String mvName = "test_optimize_mv_" + randomNameSuffix();
+        assertUpdate("CREATE MATERIALIZED VIEW " + mvName + " AS SELECT * FROM " + tableName);
+
+        // DistributedQueryRunner sets node-scheduler.include-coordinator by default, so include coordinator
+        int workerCount = getQueryRunner().getNodeCount();
+
+        // optimize an empty storage table
+        assertQuerySucceeds(withSingleWriterPerTask(getSession()), "ALTER MATERIALIZED VIEW " + mvName + " EXECUTE OPTIMIZE");
+        assertThat(getSnapshotIds(mvName)).isEmpty();
+
+        assertUpdate("INSERT INTO " + tableName + " VALUES (11, 'eleven')", 1);
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 1);
+        assertUpdate("INSERT INTO " + tableName + " VALUES (12, 'zwölf')", 1);
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 1);
+        assertUpdate("INSERT INTO " + tableName + " VALUES (13, 'trzynaście')", 1);
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 1);
+        assertUpdate("INSERT INTO " + tableName + " VALUES (14, 'quatorze')", 1);
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 1);
+        assertUpdate("INSERT INTO " + tableName + " VALUES (15, 'пʼятнадцять')", 1);
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 1);
+
+        List<String> initialFiles = getActiveFiles(mvName);
+        assertThat(initialFiles)
+                .hasSize(5)
+                // Verify we have sufficiently many test rows with respect to worker count.
+                .hasSizeGreaterThan(workerCount);
+
+        // For optimize we need to set task_min_writer_count to 1, otherwise it will create more than one file.
+        assertUpdate(
+                withSingleWriterPerTask(getSession()),
+                "ALTER MATERIALIZED VIEW " + mvName + " EXECUTE OPTIMIZE",
+                "VALUES ('rewritten_data_files_count', 5), ('removed_delete_files_count', 0), ('added_data_files_count', 1)");
+        assertThat(query("SELECT sum(key), listagg(value, ' ') WITHIN GROUP (ORDER BY key) FROM " + mvName))
+                .matches("VALUES (BIGINT '65', VARCHAR 'eleven zwölf trzynaście quatorze пʼятнадцять')");
+        List<String> updatedFiles = getActiveFiles(mvName);
+        assertThat(updatedFiles)
+                .hasSizeBetween(1, workerCount)
+                .doesNotContainAnyElementsOf(initialFiles);
+        // No files should be removed (this is expire_snapshots's job, when it exists)
+        assertEqualsIgnoreOrder(getAllDataFilesFromMvStorageTableDirectory(mvName), concat(initialFiles, updatedFiles));
+
+        assertUpdate("DROP MATERIALIZED VIEW " + mvName);
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
     public void testOptimizeForPartitionedTable()
             throws IOException
     {
-        for (int formatVersion = IcebergConfig.FORMAT_VERSION_SUPPORT_MIN; formatVersion < IcebergConfig.FORMAT_VERSION_SUPPORT_MAX; formatVersion++) {
+        for (int formatVersion = IcebergConfig.FORMAT_VERSION_SUPPORT_MIN; formatVersion <= IcebergConfig.FORMAT_VERSION_SUPPORT_MAX; formatVersion++) {
             // This test will have its own session to make sure partitioning is indeed forced and is not a result
             // of session configuration
             Session session = testSessionBuilder()
@@ -5806,7 +6310,7 @@ public abstract class BaseIcebergConnectorTest
             List<String> updatedFiles = getActiveFiles(tableName);
             // as we force repartitioning there should be only 3 partitions
             assertThat(updatedFiles).hasSize(3);
-            assertThat(getAllDataFilesFromTableDirectory(tableName)).containsExactlyInAnyOrderElementsOf(ImmutableSet.copyOf(concat(initialFiles, updatedFiles)));
+            assertEqualsIgnoreOrder(getAllDataFilesFromTableDirectory(tableName), ImmutableSet.copyOf(concat(initialFiles, updatedFiles)));
 
             assertUpdate("DROP TABLE " + tableName);
         }
@@ -5893,6 +6397,50 @@ public abstract class BaseIcebergConnectorTest
                 .isEqualTo(expectedFilesAfterOptimize);
 
         assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testInIntegerPredicatePushdown()
+    {
+        try (TestTable table = newTrinoTable("test_in_predicate", "(an_integer integer, a_bigint bigint, data varchar) WITH (partitioning = ARRAY['an_integer', 'a_bigint'])")) {
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT i, i, CAST(i AS varchar) FROM UNNEST(sequence(1, 10)) AS t(i)", 10);
+
+            // integer column + IN with consecutive values
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(an_integer AS smallint) IN (SMALLINT '1', SMALLINT '2', SMALLINT '3')")).isNotFullyPushedDown(FilterNode.class);
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE an_integer                   IN (INTEGER  '1', INTEGER  '2', INTEGER  '3')")).isFullyPushedDown();
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(an_integer AS bigint)   IN (BIGINT   '1', BIGINT   '2', BIGINT   '3')")).isFullyPushedDown();
+
+            // bigint column + IN with consecutive values
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(a_bigint AS smallint)   IN (SMALLINT '1', SMALLINT '2', SMALLINT '3')")).isNotFullyPushedDown(FilterNode.class);
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(a_bigint AS integer)    IN (INTEGER  '1', INTEGER  '2', INTEGER  '3')")).isNotFullyPushedDown(FilterNode.class);
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE a_bigint                     IN (BIGINT   '1', BIGINT   '2', BIGINT   '3')")).isFullyPushedDown();
+
+            // integer column + IN with non-consecutive values
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(an_integer AS smallint) IN (SMALLINT '1', SMALLINT '7', SMALLINT '3')")).isNotFullyPushedDown(FilterNode.class);
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE an_integer                   IN (INTEGER  '1', INTEGER  '7', INTEGER  '3')")).isFullyPushedDown();
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(an_integer AS bigint)   IN (BIGINT   '1', BIGINT   '7', BIGINT   '3')")).isFullyPushedDown();
+
+            // bigint column + IN with non-consecutive values
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(a_bigint AS smallint)   IN (SMALLINT '1', SMALLINT '7', SMALLINT '3')")).isNotFullyPushedDown(FilterNode.class);
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(a_bigint AS integer)    IN (INTEGER  '1', INTEGER  '7', INTEGER  '3')")).isNotFullyPushedDown(FilterNode.class);
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE a_bigint                     IN (BIGINT   '1', BIGINT   '7', BIGINT   '3')")).isFullyPushedDown();
+        }
+    }
+
+    @Test
+    public void testInTimestampDatePredicatePushdown()
+    {
+        try (TestTable table = newTrinoTable("test_in_timestamp_date_predicate", "(a_timestamp timestamp(6), data varchar) WITH (partitioning = ARRAY['day(a_timestamp)'])")) {
+            assertUpdate("INSERT INTO " + table.getName() + " SELECT date_add('day', i, TIMESTAMP '2025-01-01 12:34:56.123456'), CAST(i AS varchar) FROM UNNEST(sequence(1, 10)) AS t(i)", 10);
+
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(a_timestamp AS date) =  DATE '2025-01-03'")).isFullyPushedDown();
+
+            // IN with consecutive values
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(a_timestamp AS date) IN (DATE '2025-01-03', DATE '2025-01-04', DATE '2025-01-05')")).isFullyPushedDown();
+
+            // IN with non-consecutive values
+            assertThat(query("SELECT * FROM " + table.getName() + " WHERE CAST(a_timestamp AS date) IN (DATE '2025-01-03', DATE '2025-01-09', DATE '2025-01-05')")).isFullyPushedDown();
+        }
     }
 
     @Test
@@ -6107,8 +6655,7 @@ public abstract class BaseIcebergConnectorTest
                 "VALUES ('rewritten_data_files_count', 0), ('removed_delete_files_count', 0), ('added_data_files_count', 0)");
         assertThat(query("SELECT a FROM " + tableName))
                 .matches("VALUES 1, 2");
-        assertThat(getActiveFiles(tableName))
-                .containsExactlyInAnyOrderElementsOf(initialFiles);
+        assertEqualsIgnoreOrder(getActiveFiles(tableName), initialFiles);
 
         assertUpdate("DELETE FROM " + tableName + " WHERE a = 1", 1);
         // Calling optimize after adding a DELETE should result in compaction
@@ -6133,8 +6680,7 @@ public abstract class BaseIcebergConnectorTest
         // OPTIMIZE shouldn't have to rewrite files
         computeActual("ALTER TABLE " + tableName + " EXECUTE OPTIMIZE");
         assertThat(query("SELECT COUNT(*) FROM " + tableName)).matches("VALUES BIGINT '100'");
-        assertThat(getActiveFiles(tableName))
-                .containsExactlyInAnyOrderElementsOf(initialFiles);
+        assertEqualsIgnoreOrder(getActiveFiles(tableName), initialFiles);
 
         // Change in partitioning should result in OPTIMIZE rewriting all files
         assertUpdate("ALTER TABLE " + tableName + " SET PROPERTIES partitioning = ARRAY['nationkey']");
@@ -6148,9 +6694,9 @@ public abstract class BaseIcebergConnectorTest
         // OPTIMIZE shouldn't have to rewrite files anymore
         computeActual("ALTER TABLE " + tableName + " EXECUTE OPTIMIZE");
         assertThat(query("SELECT COUNT(*) FROM " + tableName)).matches("VALUES BIGINT '100'");
-        assertThat(getActiveFiles(tableName))
-                .hasSize(25)
-                .containsExactlyInAnyOrderElementsOf(filesAfterPartioningChange);
+        List<String> activeFiles = getActiveFiles(tableName);
+        assertThat(activeFiles).hasSize(25);
+        assertEqualsIgnoreOrder(activeFiles, filesAfterPartioningChange);
     }
 
     private List<String> getActiveFiles(String tableName)
@@ -6173,20 +6719,36 @@ public abstract class BaseIcebergConnectorTest
 
     protected String getTableLocation(String tableName)
     {
+        return getLocationFromShowCreate("SHOW CREATE TABLE " + tableName);
+    }
+
+    protected String getMvStorageTableLocation(String mvName)
+    {
+        return getLocationFromShowCreate("SHOW CREATE MATERIALIZED VIEW " + mvName);
+    }
+
+    private String getLocationFromShowCreate(String showCreateStatement)
+    {
         Pattern locationPattern = Pattern.compile(".*location = '(.*?)'.*", Pattern.DOTALL);
-        Matcher m = locationPattern.matcher((String) computeActual("SHOW CREATE TABLE " + tableName).getOnlyValue());
+        Matcher m = locationPattern.matcher((String) computeActual(showCreateStatement).getOnlyValue());
         if (m.find()) {
             String location = m.group(1);
             verify(!m.find(), "Unexpected second match");
             return location;
         }
-        throw new IllegalStateException("Location not found in SHOW CREATE TABLE result");
+        throw new IllegalStateException("Location not found in " + showCreateStatement + " result");
     }
 
     protected List<String> getAllDataFilesFromTableDirectory(String tableName)
             throws IOException
     {
         return listFiles(getIcebergTableDataPath(getTableLocation(tableName)));
+    }
+
+    protected List<String> getAllDataFilesFromMvStorageTableDirectory(String mvName)
+            throws IOException
+    {
+        return listFiles(getIcebergTableDataPath(getMvStorageTableLocation(mvName)));
     }
 
     @Test
@@ -6891,6 +7453,40 @@ public abstract class BaseIcebergConnectorTest
     }
 
     @Test
+    public void testExpireSnapshotsMaterializedView()
+            throws Exception
+    {
+        String tableName = "test_expiring_snapshots_" + randomNameSuffix();
+        String mvName = "test_expiring_snapshots_mv_" + randomNameSuffix();
+        Session sessionWithShortRetentionUnlocked = prepareCleanUpSession();
+        assertUpdate("CREATE TABLE " + tableName + " (key varchar, value integer)");
+        assertUpdate("CREATE MATERIALIZED VIEW " + mvName + " AS SELECT * FROM " + tableName);
+
+        assertUpdate("INSERT INTO " + tableName + " VALUES ('one', 1)", 1);
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 1);
+
+        assertUpdate("INSERT INTO " + tableName + " VALUES ('two', 2)", 1);
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 1);
+
+        assertThat(query("SELECT sum(value), listagg(key, ' ') WITHIN GROUP (ORDER BY key) FROM " + mvName))
+                .matches("VALUES (BIGINT '3', VARCHAR 'one two')");
+
+        List<Long> initialSnapshots = getSnapshotIds(mvName);
+        String storageTableLocation = getMvStorageTableLocation(mvName);
+        List<String> initialFiles = getAllMetadataFilesFromTableDirectory(storageTableLocation);
+        assertQuerySucceeds(sessionWithShortRetentionUnlocked, "ALTER MATERIALIZED VIEW " + mvName + " EXECUTE EXPIRE_SNAPSHOTS (retention_threshold => '0s')");
+
+        assertThat(query("SELECT sum(value), listagg(key, ' ') WITHIN GROUP (ORDER BY key) FROM " + mvName))
+                .matches("VALUES (BIGINT '3', VARCHAR 'one two')");
+        List<String> updatedFiles = getAllMetadataFilesFromTableDirectory(storageTableLocation);
+        List<Long> updatedSnapshots = getSnapshotIds(mvName);
+        assertThat(updatedFiles).hasSizeLessThan(initialFiles.size());
+        assertThat(updatedSnapshots.size()).isLessThan(initialSnapshots.size());
+        assertThat(updatedSnapshots).hasSize(1);
+        assertThat(initialSnapshots).containsAll(updatedSnapshots);
+    }
+
+    @Test
     public void testExpireSnapshotsPartitionedTable()
             throws Exception
     {
@@ -7138,6 +7734,44 @@ public abstract class BaseIcebergConnectorTest
         assertQuery("SELECT * FROM " + tableName, "VALUES ('one', 1), ('three', 3)");
 
         List<String> updatedDataFiles = getAllDataFilesFromTableDirectory(tableName);
+        assertThat(updatedDataFiles.size()).isLessThan(initialDataFiles.size());
+        assertThat(updatedDataFiles).doesNotContain(orphanFile1, orphanFile2);
+    }
+
+    @Test
+    public void testRemoveOrphanFilesMaterializedView()
+            throws Exception
+    {
+        String tableName = "test_deleting_orphan_files_unnecessary_files_" + randomNameSuffix();
+        String mvName = "test_deleting_orphan_files_unnecessary_files_mv_" + randomNameSuffix();
+        Session sessionWithShortRetentionUnlocked = prepareCleanUpSession();
+        assertUpdate("CREATE TABLE " + tableName + " (key varchar, value integer)");
+        assertUpdate("CREATE MATERIALIZED VIEW " + mvName + " AS SELECT * FROM " + tableName);
+        assertUpdate("INSERT INTO " + tableName + " VALUES ('one', 1)", 1);
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 1);
+        assertUpdate("INSERT INTO " + tableName + " VALUES ('two', 2), ('three', 3)", 2);
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 2);
+        assertUpdate("DELETE FROM " + tableName + " WHERE key = 'two'", 1);
+        // performs full refresh as there has been a DELETE, so refresh goes through whole table (2 rows)
+        assertUpdate("REFRESH MATERIALIZED VIEW " + mvName, 2);
+        String location = getMvStorageTableLocation(mvName);
+        String orphanFile1 = getIcebergTableDataPath(location) + "/invalidData1." + format;
+        String orphanFile2 = getIcebergTableDataPath(location) + "/invalidData2." + format;
+        int orphanFile1Bytes = 123;
+        int orphanFile2Bytes = 456;
+        int totalOrphanBytes = orphanFile1Bytes + orphanFile2Bytes;
+        createFile(orphanFile1, new byte[orphanFile1Bytes]);
+        createFile(orphanFile2, new byte[orphanFile2Bytes]);
+        List<String> initialDataFiles = getAllDataFilesFromMvStorageTableDirectory(mvName);
+        assertThat(initialDataFiles).contains(orphanFile1, orphanFile2);
+
+        assertUpdate(
+                sessionWithShortRetentionUnlocked,
+                "ALTER MATERIALIZED VIEW " + mvName + " EXECUTE REMOVE_ORPHAN_FILES (retention_threshold => '0s')",
+                "VALUES ('processed_manifests_count', 5), ('active_files_count', 17), ('scanned_files_count', 19), ('deleted_files_count', 2), ('deleted_bytes', " + totalOrphanBytes + ")");
+        assertQuery("SELECT * FROM " + mvName, "VALUES ('one', 1), ('three', 3)");
+
+        List<String> updatedDataFiles = getAllDataFilesFromMvStorageTableDirectory(mvName);
         assertThat(updatedDataFiles.size()).isLessThan(initialDataFiles.size());
         assertThat(updatedDataFiles).doesNotContain(orphanFile1, orphanFile2);
     }
@@ -9119,6 +9753,28 @@ public abstract class BaseIcebergConnectorTest
     }
 
     @Test
+    public void testBucketedJoinOnDecimal()
+    {
+        try (TestTable table = newTrinoTable(
+                "test_bucketed_join_decimal_",
+                "WITH (partitioning = ARRAY['bucket(short_key, 13)', 'bucket(long_key, 17)']) AS " +
+                        "SELECT CAST(orderkey AS decimal(18, 0)) short_key, CAST(orderkey AS decimal(38, 0)) long_key FROM tpch.tiny.orders")) {
+            Session session = Session.builder(getSession())
+                    .setSystemProperty(JOIN_DISTRIBUTION_TYPE, "PARTITIONED")
+                    .setCatalogSessionProperty(ICEBERG_CATALOG, BUCKET_EXECUTION_ENABLED, "true")
+                    .build();
+            assertQuery(
+                    session,
+                    "SELECT count(*) FROM " + table.getName() + " JOIN (SELECT CAST(orderkey AS decimal(18, 0)) short_key FROM tpch.tiny.lineitem) USING (short_key)",
+                    "VALUES 60175");
+            assertQuery(
+                    session,
+                    "SELECT count(*) FROM " + table.getName() + " JOIN (SELECT CAST(orderkey AS decimal(38, 0)) long_key FROM tpch.tiny.lineitem) USING (long_key)",
+                    "VALUES 60175");
+        }
+    }
+
+    @Test
     public void testBucketPartitionFilterIncluded()
     {
         String tableName = "test_partition_" + randomNameSuffix();
@@ -9795,6 +10451,10 @@ public abstract class BaseIcebergConnectorTest
         assertQueryFails(
                 "CREATE TABLE test_create_table_with_as_illegal_extra_properties WITH (extra_properties = MAP(ARRAY['not_allowed_property'], ARRAY['foo'])) AS SELECT 1 as c1",
                 "\\QIllegal keys in extra_properties: [not_allowed_property]");
+
+        assertQueryFails(
+                "CREATE TABLE test_create_table_with_gc_enabled_via_extra_properties WITH (extra_properties = MAP(ARRAY['gc.enabled'], ARRAY['false'])) AS SELECT 1 as c1",
+                "\\QIllegal keys in extra_properties: [gc.enabled]");
     }
 
     @Test
@@ -9810,6 +10470,27 @@ public abstract class BaseIcebergConnectorTest
             assertQueryFails(
                     "ALTER TABLE " + table.getName() + " SET PROPERTIES extra_properties = MAP(ARRAY['not_allowed_property'], ARRAY['foo'])",
                     "\\QIllegal keys in extra_properties: [not_allowed_property]");
+            assertQueryFails(
+                    "ALTER TABLE " + table.getName() + " SET PROPERTIES extra_properties = MAP(ARRAY['gc.enabled'], ARRAY['false'])",
+                    "\\QIllegal keys in extra_properties: [gc.enabled]");
+        }
+    }
+
+    @Test
+    public void testGcEnabled()
+    {
+        try (TestTable table = newTrinoTable("test_gc_enabled_", "(x integer) WITH (gc_enabled = false)")) {
+            assertThat(getTableProperties(table.getName())).containsEntry("gc.enabled", "false");
+            assertThat((String) computeScalar("SHOW CREATE TABLE " + table.getName()))
+                    .contains("gc_enabled = false");
+        }
+
+        try (TestTable table = newTrinoTable("test_gc_enabled_alter_", "(x integer)")) {
+            assertUpdate("ALTER TABLE " + table.getName() + " SET PROPERTIES gc_enabled = false");
+            assertThat(getTableProperties(table.getName())).containsEntry("gc.enabled", "false");
+
+            assertUpdate("ALTER TABLE " + table.getName() + " SET PROPERTIES gc_enabled = true");
+            assertThat(getTableProperties(table.getName())).containsEntry("gc.enabled", "true");
         }
     }
 

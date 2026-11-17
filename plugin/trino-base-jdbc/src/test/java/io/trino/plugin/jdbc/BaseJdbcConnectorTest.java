@@ -1189,9 +1189,9 @@ public abstract class BaseJdbcConnectorTest
 
                 List<String> nonEqualities = Stream.concat(
                                 Stream.of(JoinCondition.Operator.values())
-                                        .filter(operator -> operator != JoinCondition.Operator.EQUAL && operator != JoinCondition.Operator.IDENTICAL)
+                                        .filter(operator -> operator != JoinCondition.Operator.EQUAL)
                                         .map(JoinCondition.Operator::getValue),
-                                Stream.of("IS DISTINCT FROM", "IS NOT DISTINCT FROM"))
+                                Stream.of("IS DISTINCT FROM"))
                         .collect(toImmutableList());
 
                 // basic case
@@ -1413,9 +1413,6 @@ public abstract class BaseJdbcConnectorTest
 
     private JoinCondition.Operator toJoinConditionOperator(String operator)
     {
-        if (operator.equals("IS NOT DISTINCT FROM")) {
-            return JoinCondition.Operator.IDENTICAL;
-        }
         return Stream.of(JoinCondition.Operator.values())
                 .filter(joinOperator -> joinOperator.getValue().equals(operator))
                 .collect(toOptional())
@@ -1578,7 +1575,7 @@ public abstract class BaseJdbcConnectorTest
             startTracingDatabaseEvent(runningTracingEvent);
 
             String query = "SELECT * FROM " + sleepingView.getName();
-            Future<?> future = executor.submit(() -> assertQueryFails(query, "Query killed. Message: Killed by test"));
+            Future<?> future = executor.submit(() -> assertQueryFails(query, "Query killed by user '.*'\\. Message: Killed by test"));
             QueryId queryId = getQueryId(getQueryRunner(), query);
             assertEventually(() -> assertThat(runningTracingEvent.hasHappened()).isTrue());
             stopTracingDatabaseEvent(runningTracingEvent);
@@ -2290,7 +2287,7 @@ public abstract class BaseJdbcConnectorTest
         assertEqualsIgnoreOrder(
                 dynamicFilteringResult.result(),
                 dynamicFilteringWithCompactionThresholdResult.result(),
-                "For query: \n " + query);
+                "Rows for query [%s]".formatted(query));
 
         MaterializedResultWithPlan noDynamicFilteringResult = getDistributedQueryRunner().executeWithPlan(
                 dynamicFiltering(false),
@@ -2299,7 +2296,7 @@ public abstract class BaseJdbcConnectorTest
         assertEqualsIgnoreOrder(
                 dynamicFilteringWithCompactionThresholdResult.result(),
                 noDynamicFilteringResult.result(),
-                "For query: \n " + query);
+                "Rows for query [%s]".formatted(query));
 
         assertThat(unfilteredInputPositions)
                 .as("unfiltered input positions")
@@ -2409,7 +2406,7 @@ public abstract class BaseJdbcConnectorTest
         assertEqualsIgnoreOrder(
                 dynamicFilteringResultWithQueryId.result(),
                 noDynamicFilteringResultWithQueryId.result(),
-                "For query: \n " + sql);
+                "Rows for query [%s]".formatted(sql));
 
         long dynamicFilteringInputPositions = getPhysicalInputPositions(dynamicFilteringResultWithQueryId.queryId());
         long noDynamicFilteringInputPositions = getPhysicalInputPositions(noDynamicFilteringResultWithQueryId.queryId());

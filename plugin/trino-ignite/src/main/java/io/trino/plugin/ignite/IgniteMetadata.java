@@ -175,13 +175,15 @@ public class IgniteMetadata
     }
 
     @Override
-    public void finishMerge(
+    public Optional<ConnectorOutputMetadata> finishMerge(
             ConnectorSession session,
             ConnectorMergeTableHandle tableHandle,
             List<ConnectorTableHandle> sourceTableHandles,
             Collection<Slice> fragments,
             Collection<ComputedStatistics> computedStatistics)
-    {}
+    {
+        return Optional.empty();
+    }
 
     @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table)
@@ -232,7 +234,7 @@ public class IgniteMetadata
         if (replace) {
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support replacing tables");
         }
-        return igniteClient.beginCreateTable(session, tableMetadata, rollbackActions::add);
+        return igniteClient.beginCreateTable(session, tableMetadata, this::addRollbackAction);
     }
 
     @Override

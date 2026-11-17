@@ -20,15 +20,17 @@ import io.opentelemetry.instrumentation.awssdk.v2_2.AwsSdkTelemetry;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.s3.S3Context.S3SseContext;
+import io.trino.filesystem.s3.S3FileSystemConfig.S3AuthType;
 import io.trino.filesystem.s3.S3FileSystemConfig.SignerType;
 import jakarta.annotation.PreDestroy;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.http.SdkHttpClient;
-import software.amazon.awssdk.http.apache.ApacheHttpClient;
-import software.amazon.awssdk.http.apache.ProxyConfiguration;
+import software.amazon.awssdk.http.apache5.Apache5HttpClient;
+import software.amazon.awssdk.http.apache5.ProxyConfiguration;
 import software.amazon.awssdk.http.auth.aws.scheme.AwsV4AuthScheme;
 import software.amazon.awssdk.http.auth.aws.signer.AwsV4HttpSigner;
 import software.amazon.awssdk.http.auth.spi.scheme.AuthSchemeOption;
@@ -38,6 +40,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.LegacyMd5Plugin;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
+import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.auth.scheme.S3AuthSchemeProvider;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import software.amazon.awssdk.services.sts.auth.StsAssumeRoleCredentialsProvider;
@@ -104,7 +107,8 @@ final class S3FileSystemLoader
                         config.getSseCustomerKey()),
                 Optional.empty(),
                 config.getStorageClass(),
-                config.getCannedAcl());
+                config.getCannedAcl(),
+                config.getChecksumAlgorithm());
     }
 
     @Override
@@ -161,7 +165,10 @@ final class S3FileSystemLoader
         Optional<String> staticRegion = Optional.ofNullable(config.getRegion());
         Optional<String> staticEndpoint = Optional.ofNullable(config.getEndpoint());
         boolean pathStyleAccess = config.isPathStyleAccess();
-        boolean useWebIdentityTokenCredentialsProvider = config.isUseWebIdentityTokenCredentialsProvider();
+        S3Configuration serviceConfiguration = S3Configuration.builder()
+                .chunkedEncodingEnabled(config.isChunkedEncodingEnabled())
+                .build();
+        S3AuthType authType = config.getAuthType();
         Optional<String> staticIamRole = Optional.ofNullable(config.getIamRole());
         String staticRoleSessionName = config.getRoleSessionName();
         String externalId = config.getExternalId();
@@ -185,29 +192,34 @@ final class S3FileSystemLoader
             s3.responseChecksumValidation(WHEN_REQUIRED);
             s3.requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED);
             s3.addPlugin(LegacyMd5Plugin.create());
+            s3.serviceConfiguration(serviceConfiguration);
             authSchemeProvider.ifPresent(s3::authSchemeProvider);
 
             region.map(Region::of).ifPresent(s3::region);
             endpoint.map(URI::create).ifPresent(s3::endpointOverride);
             s3.forcePathStyle(pathStyleAccess);
 
-            if (useWebIdentityTokenCredentialsProvider) {
-                s3.credentialsProvider(WebIdentityTokenFileCredentialsProvider.builder()
+            switch (authType) {
+                case ANONYMOUS -> s3.credentialsProvider(AnonymousCredentialsProvider.create());
+                case WEB_IDENTITY -> s3.credentialsProvider(WebIdentityTokenFileCredentialsProvider.builder()
                         .asyncCredentialUpdateEnabled(true)
                         .build());
-            }
-            else if (iamRole.isPresent()) {
-                s3.credentialsProvider(StsAssumeRoleCredentialsProvider.builder()
-                        .refreshRequest(request -> request
-                                .roleArn(iamRole.get())
-                                .roleSessionName(roleSessionName)
-                                .externalId(externalId))
-                        .stsClient(createStsClient(config, credentialsProvider))
-                        .asyncCredentialUpdateEnabled(true)
-                        .build());
-            }
-            else {
-                credentialsProvider.ifPresent(s3::credentialsProvider);
+                case IAM_ROLE, DEFAULT -> {
+                    // A security mapping may supply a per-request IAM role even when the static auth type is DEFAULT.
+                    if (iamRole.isPresent()) {
+                        s3.credentialsProvider(StsAssumeRoleCredentialsProvider.builder()
+                                .refreshRequest(request -> request
+                                        .roleArn(iamRole.get())
+                                        .roleSessionName(roleSessionName)
+                                        .externalId(externalId))
+                                .stsClient(createStsClient(config, credentialsProvider))
+                                .asyncCredentialUpdateEnabled(true)
+                                .build());
+                    }
+                    else {
+                        credentialsProvider.ifPresent(s3::credentialsProvider);
+                    }
+                }
             }
 
             return s3.build();
@@ -266,9 +278,10 @@ final class S3FileSystemLoader
 
     private static SdkHttpClient createHttpClient(S3FileSystemConfig config)
     {
-        ApacheHttpClient.Builder client = ApacheHttpClient.builder()
+        Apache5HttpClient.Builder client = Apache5HttpClient.builder()
                 .maxConnections(config.getMaxConnections())
-                .tcpKeepAlive(config.getTcpKeepAlive());
+                .tcpKeepAlive(config.getTcpKeepAlive())
+                .expectContinueEnabled(config.isExpectContinueEnabled());
 
         config.getConnectionTtl().ifPresent(ttl -> client.connectionTimeToLive(ttl.toJavaTime()));
         config.getConnectionMaxIdleTime().ifPresent(time -> client.connectionMaxIdleTime(time.toJavaTime()));

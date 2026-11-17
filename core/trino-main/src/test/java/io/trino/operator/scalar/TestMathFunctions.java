@@ -1268,6 +1268,36 @@ public class TestMathFunctions
 
         assertTrinoExceptionThrownBy(assertions.function("mod", "DECIMAL '5.0'", "DECIMAL '0'")::evaluate)
                 .hasErrorCode(DIVISION_BY_ZERO);
+
+        assertTrinoExceptionThrownBy(assertions.function("mod", "TINYINT '5'", "TINYINT '0'")::evaluate)
+                .hasErrorCode(DIVISION_BY_ZERO);
+
+        assertTrinoExceptionThrownBy(assertions.function("mod", "SMALLINT '5'", "SMALLINT '0'")::evaluate)
+                .hasErrorCode(DIVISION_BY_ZERO);
+
+        assertTrinoExceptionThrownBy(assertions.function("mod", "INTEGER '5'", "INTEGER '0'")::evaluate)
+                .hasErrorCode(DIVISION_BY_ZERO);
+
+        assertTrinoExceptionThrownBy(assertions.function("mod", "BIGINT '5'", "BIGINT '0'")::evaluate)
+                .hasErrorCode(DIVISION_BY_ZERO);
+
+        assertTrinoExceptionThrownBy(assertions.function("mod", "NUMBER '5'", "NUMBER '0'")::evaluate)
+                .hasErrorCode(DIVISION_BY_ZERO);
+
+        assertThat(assertions.expression("try(mod(TINYINT '5', TINYINT '0'))"))
+                .isNull(TINYINT);
+
+        assertThat(assertions.expression("try(mod(SMALLINT '5', SMALLINT '0'))"))
+                .isNull(SMALLINT);
+
+        assertThat(assertions.expression("try(mod(INTEGER '5', INTEGER '0'))"))
+                .isNull(INTEGER);
+
+        assertThat(assertions.expression("try(mod(BIGINT '5', BIGINT '0'))"))
+                .isNull(BIGINT);
+
+        assertThat(assertions.expression("try(mod(NUMBER '5', NUMBER '0'))"))
+                .isNull(NUMBER);
     }
 
     @Test
@@ -3276,6 +3306,20 @@ public class TestMathFunctions
         assertThat(assertions.function("greatest", "ARRAY[CAST(NaN() as REAL)]", "ARRAY[CAST(NaN() as REAL)]", "ARRAY[CAST(NaN() as REAL)]"))
                 .hasType(new ArrayType(REAL))
                 .isEqualTo(ImmutableList.of(Float.NaN));
+
+        assertThat(assertions.expression("greatest(ROW(1, NULL), ROW(1, 2)) IS NOT DISTINCT FROM ROW(1, 2)"))
+                .isEqualTo(true);
+        assertThat(assertions.expression("greatest(ARRAY[1, NULL], ARRAY[1, 2])"))
+                .matches("ARRAY[1, 2]");
+
+        assertThat(assertions.function("greatest", "ROW(1, 2)", "ROW(1, 3)"))
+                .neverFails();
+        assertThat(assertions.function("greatest", "ARRAY[1, 2]", "ARRAY[1, 3]"))
+                .neverFails();
+        assertThat(assertions.function("greatest", "1", "2"))
+                .neverFails();
+        assertThat(assertions.function("greatest", "VARCHAR 'a'", "VARCHAR 'b'"))
+                .neverFails();
     }
 
     @Test
@@ -3604,6 +3648,20 @@ public class TestMathFunctions
         assertThat(assertions.function("least", "ARRAY[CAST(NaN() as REAL)]", "ARRAY[CAST(NaN() as REAL)]", "ARRAY[CAST(NaN() as REAL)]"))
                 .hasType(new ArrayType(REAL))
                 .isEqualTo(ImmutableList.of(Float.NaN));
+
+        assertThat(assertions.expression("least(ROW(1, NULL), ROW(1, 2)) IS NOT DISTINCT FROM ROW(1, 2)"))
+                .isEqualTo(true);
+        assertThat(assertions.expression("least(ARRAY[1, NULL], ARRAY[1, 2])"))
+                .matches("ARRAY[1, 2]");
+
+        assertThat(assertions.function("least", "ROW(1, 2)", "ROW(1, 3)"))
+                .neverFails();
+        assertThat(assertions.function("least", "ARRAY[1, 2]", "ARRAY[1, 3]"))
+                .neverFails();
+        assertThat(assertions.function("least", "1", "2"))
+                .neverFails();
+        assertThat(assertions.function("least", "VARCHAR 'a'", "VARCHAR 'b'"))
+                .neverFails();
     }
 
     @Test

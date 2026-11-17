@@ -25,14 +25,12 @@ import io.trino.testing.BaseConnectorTest;
 import io.trino.testing.MaterializedResult;
 import io.trino.testing.QueryRunner;
 import io.trino.testing.TestingConnectorBehavior;
-import org.apache.http.HttpHost;
 import org.intellij.lang.annotations.Language;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.opensearch.client.Request;
-import org.opensearch.client.RestClient;
 import org.opensearch.client.RestHighLevelClient;
 
 import java.io.IOException;
@@ -42,11 +40,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import static io.trino.plugin.opensearch.RestClientUtils.createClient;
 import static io.trino.spi.StandardErrorCode.INVALID_COLUMN_REFERENCE;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.testing.MaterializedResult.resultBuilder;
 import static io.trino.testing.TestingNames.randomNameSuffix;
+import static io.trino.testing.assertions.Assert.assertEqualsIgnoreOrder;
 import static io.trino.testing.assertions.TrinoExceptionAssert.assertTrinoExceptionThrownBy;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -74,8 +74,8 @@ public abstract class BaseOpenSearchConnectorTest
     {
         opensearch = new OpenSearchServer(image, false, ImmutableMap.of());
         HostAndPort address = opensearch.getAddress();
-        client = new RestHighLevelClient(RestClient.builder(new HttpHost(address.getHost(), address.getPort())));
 
+        client = createClient(address);
         jmxBaseName = randomNameSuffix();
 
         return OpenSearchQueryRunner.builder(opensearch.getAddress())
@@ -1319,7 +1319,7 @@ public abstract class BaseOpenSearchConnectorTest
                 .row(false)
                 .build();
 
-        assertThat(rows.getMaterializedRows()).containsExactlyInAnyOrderElementsOf(expected.getMaterializedRows());
+        assertEqualsIgnoreOrder(rows.getMaterializedRows(), expected.getMaterializedRows());
     }
 
     @Test
@@ -1355,7 +1355,7 @@ public abstract class BaseOpenSearchConnectorTest
                 .row(LocalDateTime.parse("2015-01-01T00:00:00.001"))
                 .build();
 
-        assertThat(rows.getMaterializedRows()).containsExactlyInAnyOrderElementsOf(expected.getMaterializedRows());
+        assertEqualsIgnoreOrder(rows.getMaterializedRows(), expected.getMaterializedRows());
     }
 
     @Test
@@ -1993,13 +1993,16 @@ public abstract class BaseOpenSearchConnectorTest
 
         // use aggregations
         @Language("JSON")
-        String query = "{\n" +
-                "    \"size\": 0,\n" +
-                "    \"aggs\" : {\n" +
-                "        \"max_orderkey\" : { \"max\" : { \"field\" : \"orderkey\" } },\n" +
-                "        \"sum_orderkey\" : { \"sum\" : { \"field\" : \"orderkey\" } }\n" +
-                "    }\n" +
-                "}";
+        String query =
+                """
+                {
+                    "size": 0,
+                    "aggs" : {
+                        "max_orderkey" : { "max" : { "field" : "orderkey" } },
+                        "sum_orderkey" : { "sum" : { "field" : "orderkey" } }
+                    }
+                }
+                """;
 
         assertThat(query(format("WITH data(r) AS (" +
                 "   SELECT CAST(json_parse(result) AS ROW(aggregations ROW(max_orderkey ROW(value BIGINT), sum_orderkey ROW(value BIGINT)))) " +

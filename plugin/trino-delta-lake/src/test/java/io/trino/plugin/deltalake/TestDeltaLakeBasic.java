@@ -33,6 +33,7 @@ import io.trino.parquet.reader.MetadataReader;
 import io.trino.parquet.reader.ParquetReader;
 import io.trino.plugin.base.metrics.FileFormatDataSourceStats;
 import io.trino.plugin.deltalake.transactionlog.AddFileEntry;
+import io.trino.plugin.deltalake.transactionlog.CdcEntry;
 import io.trino.plugin.deltalake.transactionlog.DeletionVectorEntry;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ColumnMappingMode;
 import io.trino.plugin.deltalake.transactionlog.DeltaLakeTransactionLogEntry;
@@ -70,6 +71,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.FileTime;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -91,6 +93,8 @@ import java.util.stream.Stream;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Predicates.alwaysTrue;
 import static com.google.common.base.Verify.verify;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static com.google.common.collect.Iterators.getOnlyElement;
 import static com.google.common.collect.MoreCollectors.onlyElement;
 import static com.google.common.io.MoreFiles.deleteRecursively;
@@ -104,15 +108,20 @@ import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.ex
 import static io.trino.plugin.deltalake.transactionlog.DeltaLakeSchemaSupport.getColumnsMetadata;
 import static io.trino.plugin.deltalake.transactionlog.TemporalTimeTravelUtil.findLatestVersionUsingTemporal;
 import static io.trino.plugin.deltalake.transactionlog.TransactionLogUtil.getTransactionLogJsonEntryPath;
+import static io.trino.plugin.deltalake.util.DeltaLakeWriteUtils.createDataFilePath;
 import static io.trino.spi.type.DateTimeEncoding.packDateTimeWithZone;
 import static io.trino.spi.type.DecimalType.createDecimalType;
 import static io.trino.spi.type.SqlDecimal.decimal;
 import static io.trino.spi.type.TimeZoneKey.UTC_KEY;
 import static io.trino.testing.TestingNames.randomNameSuffix;
+import static io.trino.testing.assertions.Assert.assertEqualsIgnoreOrder;
 import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static java.lang.String.format;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.time.ZoneOffset.UTC;
+import static java.time.temporal.ChronoUnit.HOURS;
+import static java.util.UUID.randomUUID;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.entry;
@@ -127,6 +136,9 @@ public class TestDeltaLakeBasic
 {
     private static final JsonMapper JSON_MAPPER = new JsonMapperProvider().get();
 
+    private static final String DELETION_VECTOR_TABLE_STATISTICS = "\"stats\":\"{\\\"numRecords\\\":2,\\\"minValues\\\":{\\\"a\\\":1,\\\"b\\\":11}," +
+            "\\\"maxValues\\\":{\\\"a\\\":2,\\\"b\\\":22},\\\"nullCount\\\":{\\\"a\\\":0,\\\"b\\\":0},\\\"tightBounds\\\":false}\"";
+
     private static final List<ResourceTable> PERSON_TABLES = ImmutableList.of(
             new ResourceTable("person", "databricks73/person"),
             new ResourceTable("person_without_last_checkpoint", "databricks73/person_without_last_checkpoint"),
@@ -138,10 +150,12 @@ public class TestDeltaLakeBasic
             new ResourceTable("stats_with_minmax_nulls", "deltalake/stats_with_minmax_nulls"),
             new ResourceTable("no_column_stats", "databricks73/no_column_stats"),
             new ResourceTable("liquid_clustering", "deltalake/liquid_clustering"),
+            new ResourceTable("liquid_clustering_multi_column", "deltalake/liquid_clustering_multi_column"),
             new ResourceTable("region_91_lts", "databricks91/region"),
             new ResourceTable("region_104_lts", "databricks104/region"),
             new ResourceTable("region_113_lts", "databricks113/region"),
             new ResourceTable("region_122_lts", "databricks122/region"),
+            new ResourceTable("region_133_lts", "databricks133/region"),
             new ResourceTable("timestamp_ntz", "databricks131/timestamp_ntz"),
             new ResourceTable("timestamp_ntz_partition", "databricks131/timestamp_ntz_partition"),
             new ResourceTable("uniform_hudi", "deltalake/uniform_hudi"),
@@ -247,6 +261,129 @@ public class TestDeltaLakeBasic
     }
 
     @Test
+    public void testBinaryDataFilePathsForCtasInsertAndReplace()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable(
+                "test_binary_paths_",
+                "WITH (partitioned_by = ARRAY['part'], object_store_layout_enabled = true) AS SELECT * FROM (VALUES (1, 'one'), (2, 'two')) t(id, part)")) {
+            Path tableLocation = Path.of(URI.create(getTableLocation(table.getName())));
+
+            List<AddFileEntry> ctasFiles = getAddedFiles(0, tableLocation);
+            assertBinaryDataFiles(tableLocation, ctasFiles);
+            assertThat(ctasFiles)
+                    .extracting(file -> file.getCanonicalPartitionValues().get("part"))
+                    .containsExactlyInAnyOrder(Optional.of("one"), Optional.of("two"));
+            assertQuery("SELECT id FROM " + table.getName() + " WHERE part = 'one'", "VALUES 1");
+
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES (3, 'one'), (4, 'three')", 2);
+            List<AddFileEntry> insertFiles = getAddedFiles(1, tableLocation);
+            assertBinaryDataFiles(tableLocation, insertFiles);
+            assertThat(insertFiles)
+                    .extracting(file -> file.getCanonicalPartitionValues().get("part"))
+                    .containsExactlyInAnyOrder(Optional.of("one"), Optional.of("three"));
+            assertQuery("SELECT * FROM " + table.getName(), "VALUES (1, 'one'), (2, 'two'), (3, 'one'), (4, 'three')");
+
+            assertUpdate("CREATE OR REPLACE TABLE " + table.getName() + " WITH (partitioned_by = ARRAY['part'], object_store_layout_enabled = true) " +
+                    "AS SELECT * FROM (VALUES (5, 'five')) t(id, part)", 1);
+            List<AddFileEntry> replaceFiles = getAddedFiles(2, tableLocation);
+            assertBinaryDataFiles(tableLocation, replaceFiles);
+            assertThat(replaceFiles)
+                    .extracting(file -> file.getCanonicalPartitionValues().get("part"))
+                    .containsExactly(Optional.of("five"));
+            assertQuery("SELECT * FROM " + table.getName(), "VALUES (5, 'five')");
+        }
+    }
+
+    @Test
+    public void testBinaryDataFilePathsIgnoreRandomPrefixLength()
+            throws Exception
+    {
+        String tableName = "test_random_prefix_length_" + randomNameSuffix();
+        Path tableLocation = registerCaseSensitiveTableWithRandomPrefixMetadata(tableName, true, 0);
+        try {
+            MetadataEntry metadataEntry = loadMetadataEntry(0, tableLocation);
+            assertThat(metadataEntry.getConfiguration())
+                    .containsEntry("delta.randomizeFilePrefixes", "true")
+                    .containsEntry("delta.randomPrefixLength", "0");
+
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, 11)", 1);
+            assertBinaryDataFiles(tableLocation, getAddedFiles(1, tableLocation));
+            assertQuery("SELECT * FROM " + tableName, "VALUES (1, 11)");
+        }
+        finally {
+            assertUpdate("DROP TABLE " + tableName);
+        }
+    }
+
+    @Test
+    public void testBinaryDataFilePathsForMergeDeleteAndOptimize()
+            throws Exception
+    {
+        String tableName = "test_binary_merge_optimize_" + randomNameSuffix();
+        Session singleWriterSession = Session.builder(getSession())
+                .setSystemProperty("task_min_writer_count", "1")
+                .build();
+        assertUpdate(singleWriterSession, "CREATE TABLE " + tableName + " WITH (object_store_layout_enabled = true) AS " +
+                "SELECT * FROM (VALUES (1, 'one'), (2, 'two')) t(id, name)", 2);
+        try {
+            Path tableLocation = Path.of(URI.create(getTableLocation(tableName)));
+            String originalPath = (String) computeScalar("SELECT DISTINCT \"$path\" FROM " + tableName);
+
+            assertUpdate(singleWriterSession, "MERGE INTO " + tableName + " target USING (VALUES 1) source(id) ON target.id = source.id " +
+                    "WHEN MATCHED THEN UPDATE SET name = 'updated'", 1);
+            List<AddFileEntry> mergeFiles = getAddedFiles(1, tableLocation);
+            assertBinaryDataFiles(tableLocation, mergeFiles);
+            assertThat((String) computeScalar("SELECT \"$path\" FROM " + tableName + " WHERE id = 2"))
+                    .isNotEqualTo(originalPath);
+            assertQuery("SELECT * FROM " + tableName, "VALUES (1, 'updated'), (2, 'two')");
+
+            assertUpdate(singleWriterSession, "INSERT INTO " + tableName + " VALUES (3, 'three'), (4, 'four')", 2);
+            assertUpdate(singleWriterSession, "DELETE FROM " + tableName + " WHERE id = 3", 1);
+            assertBinaryDataFiles(tableLocation, getAddedFiles(3, tableLocation));
+            assertQuery("SELECT * FROM " + tableName, "VALUES (1, 'updated'), (2, 'two'), (4, 'four')");
+
+            assertUpdate(singleWriterSession, "ALTER TABLE " + tableName + " EXECUTE OPTIMIZE");
+            List<AddFileEntry> optimizeFiles = getAddedFiles(4, tableLocation);
+            assertBinaryDataFiles(tableLocation, optimizeFiles);
+            assertQuery("SELECT * FROM " + tableName, "VALUES (1, 'updated'), (2, 'two'), (4, 'four')");
+        }
+        finally {
+            assertUpdate("DROP TABLE " + tableName);
+        }
+    }
+
+    @Test
+    public void testBinaryChangeDataFeedPaths()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable(
+                "test_binary_cdf_",
+                "(id integer, part varchar) WITH (change_data_feed_enabled = true, partitioned_by = ARRAY['part'], object_store_layout_enabled = true)")) {
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES (1, 'one')", 1);
+            assertUpdate("UPDATE " + table.getName() + " SET id = 2 WHERE id = 1", 1);
+
+            Path tableLocation = Path.of(URI.create(getTableLocation(table.getName())));
+            List<CdcEntry> cdcFiles = getEntriesFromJson(2, tableLocation.resolve("_delta_log").toString()).stream()
+                    .map(DeltaLakeTransactionLogEntry::getCDC)
+                    .filter(Objects::nonNull)
+                    .collect(toImmutableList());
+            assertThat(cdcFiles).isNotEmpty();
+            cdcFiles.forEach(file -> {
+                assertThat(file.getPath()).startsWith("_change_data/");
+                assertBinaryDataFilePath(file.getPath().substring("_change_data/".length()));
+                assertThat(file.getPath()).doesNotContain("part=");
+                assertThat(file.getPartitionValues()).containsEntry("part", "one");
+                assertThat(Files.isRegularFile(tableLocation.resolve(file.getPath()))).isTrue();
+            });
+            assertQuery(
+                    "SELECT id, part, _change_type, _commit_version FROM TABLE(system.table_changes(CURRENT_SCHEMA, '" + table.getName() + "', 1))",
+                    "VALUES (1, 'one', 'update_preimage', CAST(2 AS BIGINT)), " +
+                            "(2, 'one', 'update_postimage', CAST(2 AS BIGINT))");
+        }
+    }
+
+    @Test
     void testDatabricks91()
     {
         assertThat(query("SELECT * FROM region_91_lts"))
@@ -274,6 +411,14 @@ public class TestDeltaLakeBasic
     void testDatabricks122()
     {
         assertThat(query("SELECT * FROM region_122_lts"))
+                .skippingTypesCheck() // name and comment columns are unbounded varchar in Delta Lake and bounded varchar in TPCH
+                .matches("SELECT * FROM tpch.tiny.region");
+    }
+
+    @Test
+    void testDatabricks133()
+    {
+        assertThat(query("SELECT * FROM region_133_lts"))
                 .skippingTypesCheck() // name and comment columns are unbounded varchar in Delta Lake and bounded varchar in TPCH
                 .matches("SELECT * FROM tpch.tiny.region");
     }
@@ -511,6 +656,87 @@ public class TestDeltaLakeBasic
     }
 
     @Test
+    void testCheckpointDropsEntriesSupersededAfterPreviousCheckpoint()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_checkpoint_superseded_entries", "(x int) WITH (checkpoint_interval = 2)")) {
+            Path tableLocation = Path.of(getTableLocation(table.getName()).replace("file://", ""));
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2", 2);
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 3", 1);
+            assertThat(tableLocation.resolve("_delta_log/00000000000000000002.checkpoint.parquet")).exists();
+
+            // version 3 removes the file holding 1 and 2, and adds a file holding only 2
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 1", 1);
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 4", 1);
+            assertThat(tableLocation.resolve("_delta_log/00000000000000000004.checkpoint.parquet")).exists();
+
+            // metadata, protocol, three adds and one remove
+            assertThat(JSON_MAPPER.readTree(Files.readString(tableLocation.resolve("_delta_log/_last_checkpoint"))).get("size").asLong())
+                    .isEqualTo(6);
+            assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => '%s')".formatted(table.getName()));
+            assertThat(query("TABLE " + table.getName()))
+                    .matches("VALUES 2, 3, 4");
+        }
+    }
+
+    @Test
+    void testCheckpointKeepsDeletionVectorEntriesDistinctByVector()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_checkpoint_deletion_vector_entries", "(x int) WITH (checkpoint_interval = 2, deletion_vectors_enabled = true)")) {
+            Path tableLocation = Path.of(getTableLocation(table.getName()).replace("file://", ""));
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2, 3", 3);
+            // version 2 removes the plain file and adds it back with a deletion vector
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 1", 1);
+            assertThat(Files.readString(tableLocation.resolve("_delta_log/00000000000000000002.json"))).contains("\"deletionVector\"");
+            assertThat(tableLocation.resolve("_delta_log/00000000000000000002.checkpoint.parquet")).exists();
+
+            // version 3 removes the file with the first deletion vector and adds it with a second one
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 2", 1);
+            assertThat(Files.readString(tableLocation.resolve("_delta_log/00000000000000000003.json"))).contains("\"deletionVector\"");
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 4", 1);
+            assertThat(tableLocation.resolve("_delta_log/00000000000000000004.checkpoint.parquet")).exists();
+
+            // metadata, protocol, the plain file remove, the first vector remove, the second vector add and the new file add
+            assertThat(JSON_MAPPER.readTree(Files.readString(tableLocation.resolve("_delta_log/_last_checkpoint"))).get("size").asLong())
+                    .isEqualTo(6);
+            assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => '%s')".formatted(table.getName()));
+            assertThat(query("TABLE " + table.getName()))
+                    .matches("VALUES 3, 4");
+        }
+    }
+
+    @Test
+    void testCheckpointCarriesTransactionEntriesFromPreviousCheckpoint()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_checkpoint_transaction_entries", "(x int) WITH (checkpoint_interval = 3)")) {
+            Path tableLocation = Path.of(getTableLocation(table.getName()).replace("file://", ""));
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1", 1);
+            Files.writeString(
+                    tableLocation.resolve("_delta_log/00000000000000000002.json"),
+                    "{\"commitInfo\":{\"timestamp\":1,\"operation\":\"STREAMING UPDATE\"}}\n{\"txn\":{\"appId\":\"streaming-app\",\"version\":7,\"lastUpdated\":1}}\n");
+            assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => '%s')".formatted(table.getName()));
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 3", 1);
+            assertThat(tableLocation.resolve("_delta_log/00000000000000000003.checkpoint.parquet")).exists();
+            // metadata, protocol, one transaction and two adds
+            assertThat(JSON_MAPPER.readTree(Files.readString(tableLocation.resolve("_delta_log/_last_checkpoint"))).get("size").asLong())
+                    .isEqualTo(5);
+
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 4", 1);
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 5", 1);
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 6", 1);
+            assertThat(tableLocation.resolve("_delta_log/00000000000000000006.checkpoint.parquet")).exists();
+            // the transaction entry read from the previous checkpoint is carried into the new one
+            assertThat(JSON_MAPPER.readTree(Files.readString(tableLocation.resolve("_delta_log/_last_checkpoint"))).get("size").asLong())
+                    .isEqualTo(8);
+            assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => '%s')".formatted(table.getName()));
+            assertThat(query("TABLE " + table.getName()))
+                    .matches("VALUES 1, 3, 4, 5, 6");
+        }
+    }
+
+    @Test
     void testCreateOrReplacePreservesFeatures()
             throws Exception
     {
@@ -528,6 +754,38 @@ public class TestDeltaLakeBasic
             // deletion_vectors_enabled is not enabled, since we created the table without it
             assertThat((String) computeScalar("SHOW CREATE TABLE " + table.getName()))
                     .doesNotContain("deletion_vectors_enabled = true");
+        }
+    }
+
+    @Test
+    void testCreateOrReplaceWithDeletionVectors()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_create_or_replace_deletion_vectors", "(x int) WITH (deletion_vectors_enabled = true)")) {
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2, 3", 3);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 1", 1);
+            assertThat(getEntriesFromJson(2, getTableLocation(table.getName()) + "/_delta_log"))
+                    .filteredOn(entry -> entry.getAdd() != null)
+                    .anySatisfy(entry -> assertThat(entry.getAdd().getDeletionVector()).isPresent());
+
+            assertUpdate("CREATE OR REPLACE TABLE " + table.getName() + " (x int)");
+            assertQueryReturnsEmptyResult("SELECT * FROM " + table.getName());
+        }
+    }
+
+    @Test
+    void testCreateOrReplaceAsSelectWithDeletionVectors()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_create_or_replace_as_select_deletion_vectors", "(x int) WITH (deletion_vectors_enabled = true)")) {
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2, 3", 3);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 1", 1);
+            assertThat(getEntriesFromJson(2, getTableLocation(table.getName()) + "/_delta_log"))
+                    .filteredOn(entry -> entry.getAdd() != null)
+                    .anySatisfy(entry -> assertThat(entry.getAdd().getDeletionVector()).isPresent());
+
+            assertUpdate("CREATE OR REPLACE TABLE " + table.getName() + " AS SELECT 4 x", 1);
+            assertThat(query("SELECT * FROM " + table.getName())).matches("VALUES 4");
         }
     }
 
@@ -623,7 +881,7 @@ public class TestDeltaLakeBasic
                     }
                     page = reader.nextPage();
                 }
-                assertThat(actual).containsExactlyInAnyOrderElementsOf(expectedPartitionValuesParsed);
+                assertEqualsIgnoreOrder(actual, expectedPartitionValuesParsed);
             }
         }
     }
@@ -1673,6 +1931,161 @@ public class TestDeltaLakeBasic
         assertUpdate("DROP TABLE " + tableName);
     }
 
+    /**
+     * @see deltalake.deletion_vectors_disabled
+     * @see deltalake.deletion_vectors_unset
+     * @see deltalake.deletion_vectors_disabled_checkpoint
+     */
+    @Test
+    public void testDeletionVectorsReadWithPropertyDisabled()
+            throws Exception
+    {
+        testDeletionVectorsReadWithPropertyDisabled("deltalake/deletion_vectors_disabled", "VALUES (1, 10), (3, 10), (4, 10), (6, 20)");
+        testDeletionVectorsReadWithPropertyDisabled("deltalake/deletion_vectors_unset", "VALUES (1, 10), (3, 10), (4, 10), (6, 20)");
+        testDeletionVectorsReadWithPropertyDisabled("deltalake/deletion_vectors_disabled_checkpoint", "VALUES (1, 10), (3, 10), (4, 10), (6, 20), (7, 20)");
+    }
+
+    private void testDeletionVectorsReadWithPropertyDisabled(String resourceName, String expectedRows)
+            throws Exception
+    {
+        String tableName = "deletion_vectors_disabled_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        copyDirectoryContents(new File(Resources.getResource(resourceName).toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+
+        assertThat((String) computeScalar("SHOW CREATE TABLE " + tableName))
+                .doesNotContain("deletion_vectors_enabled");
+        assertQuery("SELECT * FROM " + tableName, expectedRows);
+        assertQuery("SELECT * FROM " + tableName + " WHERE part = 20", "SELECT * FROM (" + expectedRows + ") t(id, part) WHERE part = 20");
+
+        assertUpdate("ALTER TABLE " + tableName + " ADD COLUMN extra int");
+        assertQuery("SELECT * FROM " + tableName, "SELECT id, part, NULL FROM (" + expectedRows + ") t(id, part)");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    /**
+     * @see deltalake.deletion_vectors_disabled
+     */
+    @Test
+    public void testDeletionVectorsVacuumWithPropertyDisabled()
+            throws Exception
+    {
+        Session sessionWithShortRetentionUnlocked = Session.builder(getSession())
+                .setCatalogSessionProperty(getSession().getCatalog().orElseThrow(), "vacuum_min_retention", "0s")
+                .build();
+
+        String tableName = "deletion_vectors_disabled_vacuum_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        copyDirectoryContents(new File(Resources.getResource("deltalake/deletion_vectors_disabled").toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+
+        Path deletionVector;
+        try (Stream<Path> files = Files.list(tableLocation)) {
+            deletionVector = files.filter(file -> file.getFileName().toString().startsWith("deletion_vector_")).collect(onlyElement());
+        }
+        Files.setLastModifiedTime(deletionVector, FileTime.from(Instant.now().minus(1, HOURS)));
+        assertUpdate(sessionWithShortRetentionUnlocked, "CALL system.vacuum(schema_name => CURRENT_SCHEMA, table_name => '" + tableName + "', retention => '10m')");
+        assertThat(deletionVector).exists();
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 10), (3, 10), (4, 10), (6, 20)");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    /**
+     * @see deltalake.deletion_vectors_disabled
+     * @see deltalake.deletion_vectors_unset
+     */
+    @Test
+    public void testDeletionVectorsDmlWithPropertyDisabled()
+            throws Exception
+    {
+        testDeletionVectorsDmlWithPropertyDisabled("deltalake/deletion_vectors_disabled");
+        testDeletionVectorsDmlWithPropertyDisabled("deltalake/deletion_vectors_unset");
+    }
+
+    private void testDeletionVectorsDmlWithPropertyDisabled(String resourceName)
+            throws Exception
+    {
+        String tableName = "deletion_vectors_disabled_dml_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        copyDirectoryContents(new File(Resources.getResource(resourceName).toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 10), (3, 10), (4, 10), (6, 20)");
+
+        // existing deletion vector rows stay deleted and the remove entry carries the old deletion vector
+        assertUpdate("DELETE FROM " + tableName + " WHERE id = 3", 1);
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 10), (4, 10), (6, 20)");
+        List<String> deleteLog = Files.readAllLines(tableLocation.resolve("_delta_log/00000000000000000004.json"));
+        assertThat(deleteLog.stream().filter(line -> line.startsWith("{\"remove\"")).collect(onlyElement()))
+                .contains("\"deletionVector\"");
+        assertThat(deleteLog.stream().filter(line -> line.startsWith("{\"add\"")).collect(onlyElement()))
+                .doesNotContain("\"deletionVector\"");
+
+        assertUpdate("UPDATE " + tableName + " SET id = 60 WHERE id = 6", 1);
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 10), (4, 10), (60, 20)");
+        List<String> updateLog = Files.readAllLines(tableLocation.resolve("_delta_log/00000000000000000005.json"));
+        assertThat(updateLog.stream().filter(line -> line.startsWith("{\"remove\"")).collect(onlyElement()))
+                .contains("\"deletionVector\"");
+        assertThat(updateLog.stream().filter(line -> line.startsWith("{\"add\"")).collect(onlyElement()))
+                .doesNotContain("\"deletionVector\"");
+
+        assertUpdate("MERGE INTO " + tableName + " t USING (VALUES 4) AS s(id) ON t.id = s.id WHEN MATCHED THEN DELETE", 1);
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 10), (60, 20)");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    /**
+     * @see deltalake.deletion_vectors_disabled_cdf
+     */
+    @Test
+    public void testDeletionVectorsChangeDataFeedWithPropertyDisabled()
+            throws Exception
+    {
+        String tableName = "deletion_vectors_disabled_cdf_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        copyDirectoryContents(new File(Resources.getResource("deltalake/deletion_vectors_disabled_cdf").toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 10), (3, 10), (4, 10), (6, 20)");
+
+        assertUpdate("DELETE FROM " + tableName + " WHERE id = 3", 1);
+        assertUpdate("UPDATE " + tableName + " SET id = 60 WHERE id = 6", 1);
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 10), (4, 10), (60, 20)");
+        // rows already deleted by the existing deletion vector produce no change data feed entries
+        assertQuery(
+                "SELECT id, part, _change_type, _commit_version FROM TABLE(system.table_changes(CURRENT_SCHEMA, '" + tableName + "', 3))",
+                "VALUES (3, 10, 'delete', 4), (6, 20, 'update_preimage', 5), (60, 20, 'update_postimage', 5)");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    /**
+     * @see deltalake.deletion_vectors_disabled_checkpoint
+     */
+    @Test
+    public void testDeletionVectorsCheckpointWithPropertyDisabled()
+            throws Exception
+    {
+        String tableName = "deletion_vectors_disabled_checkpoint_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        copyDirectoryContents(new File(Resources.getResource("deltalake/deletion_vectors_disabled_checkpoint").toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 10), (3, 10), (4, 10), (6, 20), (7, 20)");
+
+        assertUpdate("DELETE FROM " + tableName + " WHERE id = 3", 1);
+        assertUpdate("INSERT INTO " + tableName + " VALUES (8, 20)", 1);
+        assertUpdate("INSERT INTO " + tableName + " VALUES (9, 20)", 1);
+        assertUpdate("INSERT INTO " + tableName + " VALUES (10, 20)", 1);
+        assertThat(tableLocation.resolve("_delta_log/00000000000000000008.checkpoint.parquet")).exists();
+
+        // the checkpoint written by Trino keeps the deletion vector of the untouched part=20 file
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 10), (4, 10), (6, 20), (7, 20), (8, 20), (9, 20), (10, 20)");
+        assertQuery("SELECT * FROM " + tableName + " WHERE part = 20", "VALUES (6, 20), (7, 20), (8, 20), (9, 20), (10, 20)");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
     @Test
     public void testDeletionVectorsRandomPrefix()
             throws Exception
@@ -1684,6 +2097,7 @@ public class TestDeltaLakeBasic
         assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
 
         assertUpdate("INSERT INTO " + tableName + " VALUES (1, 10), (2, 20), (3, 30)", 3);
+        assertBinaryDataFiles(tableLocation, getAddedFiles(1, tableLocation));
         assertUpdate("DELETE FROM " + tableName + " WHERE a = 1", 1);
         assertQuery("SELECT * FROM " + tableName, "VALUES (2, 20), (3, 30)");
 
@@ -1701,6 +2115,148 @@ public class TestDeltaLakeBasic
             assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 2", 1);
             assertThat(query("SELECT * FROM " + table.getName())).matches("VALUES 3");
         }
+    }
+
+    @Test
+    void testOptimizeWithDeletionVectors()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_optimize_dv", "(x int) WITH (deletion_vectors_enabled = true)")) {
+            String transactionLogDir = getTableLocation(table.getName()) + "/_delta_log";
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2", 2);
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 3, 4", 2);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 1", 1);
+            DeletionVectorEntry deletionVector = getEntriesFromJson(3, transactionLogDir).stream()
+                    .filter(entry -> entry.getAdd() != null)
+                    .map(entry -> entry.getAdd().getDeletionVector().orElseThrow())
+                    .collect(onlyElement());
+
+            assertUpdate("ALTER TABLE " + table.getName() + " EXECUTE optimize");
+
+            assertThat(getEntriesFromJson(4, transactionLogDir))
+                    .filteredOn(entry -> entry.getRemove() != null)
+                    .extracting(entry -> entry.getRemove().deletionVector())
+                    .containsExactlyInAnyOrder(Optional.of(deletionVector), Optional.empty());
+            assertThat(query("SELECT * FROM " + table.getName())).matches("VALUES 2, 3, 4");
+        }
+    }
+
+    @Test
+    void testMetadataDeleteWithDeletionVectors()
+    {
+        try (TestTable table = newTrinoTable("test_metadata_delete_dv", "(x int) WITH (deletion_vectors_enabled = true)", List.of("1", "2", "3", "4", "5"))) {
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x IN (1, 2)", 2);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 3", 1);
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 6, 7", 2);
+
+            assertUpdate("DELETE FROM " + table.getName(), 4);
+            assertQueryReturnsEmptyResult("SELECT * FROM " + table.getName());
+        }
+    }
+
+    @Test
+    void testMetadataDeleteWithDeletionVectorsAfterCheckpoint()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_metadata_delete_dv_checkpoint", "(x int) WITH (deletion_vectors_enabled = true, checkpoint_interval = 2)")) {
+            Path tableLocation = Path.of(getTableLocation(table.getName()).replace("file://", ""));
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2, 3", 3);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 1", 1);
+            assertThat(getEntriesFromJson(2, tableLocation.resolve("_delta_log").toString()))
+                    .filteredOn(entry -> entry.getAdd() != null)
+                    .anySatisfy(entry -> assertThat(entry.getAdd().getDeletionVector()).isPresent());
+            assertThat(tableLocation.resolve("_delta_log/00000000000000000002.checkpoint.parquet")).exists();
+            assertThat(JSON_MAPPER.readTree(Files.readString(tableLocation.resolve("_delta_log/_last_checkpoint"))).get("version").asLong())
+                    .isEqualTo(2);
+
+            assertUpdate("CALL system.flush_metadata_cache(schema_name => CURRENT_SCHEMA, table_name => '%s')".formatted(table.getName()));
+            assertUpdate("DELETE FROM " + table.getName(), 2);
+            assertQueryReturnsEmptyResult("SELECT * FROM " + table.getName());
+        }
+    }
+
+    @Test
+    void testMetadataDeleteWithDeletionVectorsWithoutDataChange()
+            throws Exception
+    {
+        String tableName = "test_metadata_delete_dv_without_data_change_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        Path transactionLog = copyDeletionVectorsTable(tableLocation);
+        String transactionLogContents = Files.readString(transactionLog);
+        String existingAddFile = "\"dataChange\":true," + DELETION_VECTOR_TABLE_STATISTICS;
+        assertThat(transactionLogContents).contains(existingAddFile);
+        Files.writeString(transactionLog, transactionLogContents.replace(existingAddFile, "\"dataChange\":false," + DELETION_VECTOR_TABLE_STATISTICS));
+
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
+        assertUpdate("DELETE FROM " + tableName, 1);
+        assertQueryReturnsEmptyResult("SELECT * FROM " + tableName);
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    void testMetadataDeleteWithDeletionVectorsWithoutTightBounds()
+            throws Exception
+    {
+        String tableName = "test_metadata_delete_dv_without_tight_bounds_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        Path transactionLog = copyDeletionVectorsTable(tableLocation);
+        String transactionLogContents = Files.readString(transactionLog);
+        assertThat(transactionLogContents).contains(DELETION_VECTOR_TABLE_STATISTICS);
+        String statisticsWithoutTightBounds = DELETION_VECTOR_TABLE_STATISTICS.replace(",\\\"tightBounds\\\":false", "");
+        Files.writeString(transactionLog, transactionLogContents.replace(DELETION_VECTOR_TABLE_STATISTICS, statisticsWithoutTightBounds));
+
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
+        assertUpdate("DELETE FROM " + tableName);
+        assertQueryReturnsEmptyResult("SELECT * FROM " + tableName);
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    void testMetadataDeleteWithDeletionVectorsAfterAnalyze()
+            throws Exception
+    {
+        String tableName = "test_metadata_delete_dv_analyze_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        Path transactionLog = copyDeletionVectorsTable(tableLocation);
+        String transactionLogContents = Files.readString(transactionLog);
+        assertThat(transactionLogContents).contains(DELETION_VECTOR_TABLE_STATISTICS);
+        // Remove column statistics so ANALYZE exercises the path for missing file statistics.
+        Files.writeString(transactionLog, transactionLogContents.replace(DELETION_VECTOR_TABLE_STATISTICS, "\"stats\":\"{\\\"numRecords\\\":2,\\\"tightBounds\\\":false}\""));
+
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
+        assertUpdate("ANALYZE %s WITH(mode = 'full_refresh')".formatted(tableName), 1);
+        assertUpdate("DELETE FROM " + tableName, 1);
+        assertQueryReturnsEmptyResult("SELECT * FROM " + tableName);
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    void testMetadataDeleteWithDeletionVectorsAfterLegacyAnalyze()
+            throws Exception
+    {
+        String tableName = "test_metadata_delete_dv_legacy_analyze_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        Path transactionLog = copyDeletionVectorsTable(tableLocation);
+        String transactionLogContents = Files.readString(transactionLog);
+        String existingAddFile = "\"dataChange\":true," + DELETION_VECTOR_TABLE_STATISTICS;
+        assertThat(transactionLogContents).contains(existingAddFile);
+        // Simulate an older ANALYZE that wrote a logical row count without tightBounds.
+        String logicalStats = DELETION_VECTOR_TABLE_STATISTICS
+                .replace("\\\"numRecords\\\":2", "\\\"numRecords\\\":1")
+                .replace(",\\\"tightBounds\\\":false", "");
+        Files.writeString(transactionLog, transactionLogContents.replace(existingAddFile, "\"dataChange\":false," + logicalStats));
+
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
+        assertUpdate("DELETE FROM " + tableName);
+        assertQueryReturnsEmptyResult("SELECT * FROM " + tableName);
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    private static Path copyDeletionVectorsTable(Path tableLocation)
+            throws Exception
+    {
+        copyDirectoryContents(new File(Resources.getResource("databricks122/deletion_vectors").toURI()).toPath(), tableLocation);
+        return tableLocation.resolve("_delta_log/00000000000000000002.json");
     }
 
     @Test
@@ -1744,22 +2300,163 @@ public class TestDeltaLakeBasic
         assertUpdate("DROP TABLE " + tableName);
     }
 
-    @Test
-    public void testUnsupportedVacuumDeletionVectors()
+    @Test // regression test for https://github.com/trinodb/trino/issues/31252
+    public void testCheckpointWithDeletionVectorWrittenBeforeRemove()
             throws Exception
     {
-        String tableName = "deletion_vectors" + randomNameSuffix();
-
+        String tableName = "deletion_vectors_checkpoint" + randomNameSuffix();
         Path tableLocation = catalogDir.resolve(tableName);
-        copyDirectoryContents(new File(Resources.getResource("databricks122/deletion_vectors_empty").toURI()).toPath(), tableLocation);
+        // The commit at version 2 adds a deletion vector to a file and removes the version of that file which has no deletion vector, in that order
+        copyDirectoryContents(new File(Resources.getResource("deltalake/deletion_vector_pages").toURI()).toPath(), tableLocation);
         assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
 
-        // TODO https://github.com/trinodb/trino/issues/22809 Add support for vacuuming tables with deletion vectors
-        assertQueryFails(
-                "CALL delta.system.vacuum('tpch', '" + tableName + "', '7d')",
-                "Cannot execute vacuum procedure with deletionVectors writer features");
+        assertThat(computeScalar("SELECT count(*) FROM " + tableName)).isEqualTo(20001L);
+
+        // Commit up to the default checkpoint interval of 10 so that Trino writes a checkpoint
+        for (int i = 0; i < 8; i++) {
+            assertUpdate("INSERT INTO " + tableName + " VALUES -1", 1);
+        }
+        assertThat(tableLocation.resolve("_delta_log/00000000000000000010.checkpoint.parquet")).exists();
+
+        assertThat(computeScalar("SELECT count(*) FROM " + tableName)).isEqualTo(20009L);
 
         assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testVacuumKeepsDeletionVectorOfRecentSnapshot()
+            throws Exception
+    {
+        Session sessionWithShortRetentionUnlocked = Session.builder(getSession())
+                .setCatalogSessionProperty(getSession().getCatalog().orElseThrow(), "vacuum_min_retention", "0s")
+                .build();
+
+        try (TestTable table = newTrinoTable("test_vacuum_dv_recent_snapshot", "(x int) WITH (deletion_vectors_enabled = true)")) {
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2, 3", 3);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 2", 1);
+            Set<String> firstDeletionVectors = deletionVectorFiles(dataAndDeletionVectorFiles(table.getName()));
+            assertThat(firstDeletionVectors).hasSize(1);
+
+            // The first deletion vector file ages past the retention while the versions that still read it do not
+            MILLISECONDS.sleep(2_100);
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 10", 1);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 3", 1);
+            assertUpdate(sessionWithShortRetentionUnlocked, "CALL system.vacuum(schema_name => CURRENT_SCHEMA, table_name => '" + table.getName() + "', retention => '2s')");
+
+            assertThat(dataAndDeletionVectorFiles(table.getName())).containsAll(firstDeletionVectors);
+            assertThat(query("SELECT * FROM " + table.getName() + " FOR VERSION AS OF 3")).matches("VALUES 1, 3, 10");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("VALUES 1, 10");
+        }
+    }
+
+    @Test
+    public void testVacuumKeepsDeletionVectorOfOptimizedFile()
+            throws Exception
+    {
+        Session sessionWithShortRetentionUnlocked = Session.builder(getSession())
+                .setCatalogSessionProperty(getSession().getCatalog().orElseThrow(), "vacuum_min_retention", "0s")
+                .build();
+
+        try (TestTable table = newTrinoTable("test_vacuum_dv_optimized_file", "(x int) WITH (deletion_vectors_enabled = true)")) {
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2, 3", 3);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 2", 1);
+            Set<String> deletionVectors = deletionVectorFiles(dataAndDeletionVectorFiles(table.getName()));
+            assertThat(deletionVectors).hasSize(1);
+
+            // The deletion vector file ages past the retention while the versions that still read it do not
+            MILLISECONDS.sleep(2_100);
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 10", 1);
+            assertUpdate("ALTER TABLE " + table.getName() + " EXECUTE optimize");
+            assertUpdate(sessionWithShortRetentionUnlocked, "CALL system.vacuum(schema_name => CURRENT_SCHEMA, table_name => '" + table.getName() + "', retention => '2s')");
+
+            assertThat(dataAndDeletionVectorFiles(table.getName())).containsAll(deletionVectors);
+            assertThat(query("SELECT * FROM " + table.getName() + " FOR VERSION AS OF 3")).matches("VALUES 1, 3, 10");
+            assertThat(query("SELECT * FROM " + table.getName())).matches("VALUES 1, 3, 10");
+        }
+    }
+
+    @Test
+    public void testVacuumKeepsSparkDeletionVector()
+            throws Exception
+    {
+        Session sessionWithShortRetentionUnlocked = Session.builder(getSession())
+                .setCatalogSessionProperty(getSession().getCatalog().orElseThrow(), "vacuum_min_retention", "0s")
+                .build();
+
+        String tableName = "test_vacuum_spark_dv_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        copyDirectoryContents(new File(Resources.getResource("databricks122/deletion_vectors").toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table('%s', '%s', '%s')".formatted(getSession().getSchema().orElseThrow(), tableName, tableLocation.toUri()));
+
+        Path deletionVector = tableLocation.resolve("deletion_vector_a52eda8c-0a57-4636-814b-9c165388f7ca.bin");
+        Files.setLastModifiedTime(deletionVector, FileTime.from(Instant.now().minus(1, HOURS)));
+        assertUpdate(sessionWithShortRetentionUnlocked, "CALL system.vacuum(schema_name => CURRENT_SCHEMA, table_name => '" + tableName + "', retention => '10m')");
+
+        assertThat(deletionVector).exists();
+        assertQuery("SELECT * FROM " + tableName, "VALUES (1, 11)");
+
+        assertUpdate("DROP TABLE " + tableName);
+    }
+
+    @Test
+    public void testVacuumRemovesUnreferencedDeletionVectors()
+            throws Exception
+    {
+        Session sessionWithShortRetentionUnlocked = Session.builder(getSession())
+                .setCatalogSessionProperty(getSession().getCatalog().orElseThrow(), "vacuum_min_retention", "0s")
+                .build();
+
+        try (TestTable table = newTrinoTable("test_vacuum_unreferenced_dv", "(x int) WITH (deletion_vectors_enabled = true)")) {
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES 1, 2, 3", 3);
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE x = 2", 1);
+            Set<String> activeFiles = dataAndDeletionVectorFiles(table.getName());
+
+            Path tablePath = Path.of(new URI(getTableLocation(table.getName())));
+            Instant expired = Instant.now().minus(1, HOURS);
+            Path expiredDeletionVector = createDeletionVectorFile(tablePath, expired);
+            Path expiredPrefixedDeletionVector = createDeletionVectorFile(tablePath.resolve("ab"), expired);
+            Path recentDeletionVector = createDeletionVectorFile(tablePath, Instant.now());
+            Path recentPrefixedDeletionVector = createDeletionVectorFile(tablePath.resolve("cd"), Instant.now());
+            assertUpdate(sessionWithShortRetentionUnlocked, "CALL system.vacuum(schema_name => CURRENT_SCHEMA, table_name => '" + table.getName() + "', retention => '10m')");
+
+            assertThat(expiredDeletionVector).doesNotExist();
+            assertThat(expiredPrefixedDeletionVector).doesNotExist();
+            assertThat(recentDeletionVector).exists();
+            assertThat(recentPrefixedDeletionVector).exists();
+            assertThat(dataAndDeletionVectorFiles(table.getName())).containsAll(activeFiles);
+            assertThat(query("SELECT * FROM " + table.getName())).matches("VALUES 1, 3");
+        }
+    }
+
+    private static Path createDeletionVectorFile(Path directory, Instant lastModified)
+            throws IOException
+    {
+        Files.createDirectories(directory);
+        Path file = directory.resolve("deletion_vector_" + randomUUID() + ".bin");
+        Files.write(file, new byte[0]);
+        Files.setLastModifiedTime(file, FileTime.from(lastModified));
+        return file;
+    }
+
+    private Set<String> dataAndDeletionVectorFiles(String tableName)
+            throws Exception
+    {
+        Path tablePath = Path.of(new URI(getTableLocation(tableName)));
+        try (Stream<Path> walk = Files.walk(tablePath)) {
+            return walk
+                    .filter(Files::isRegularFile)
+                    .filter(path -> !path.toString().contains("/_delta_log/"))
+                    .filter(path -> !path.getFileName().toString().startsWith("."))
+                    .map(Path::toString)
+                    .collect(toImmutableSet());
+        }
+    }
+
+    private static Set<String> deletionVectorFiles(Set<String> files)
+    {
+        return files.stream()
+                .filter(path -> path.matches(".*deletion_vector_[0-9a-f-]+\\.bin"))
+                .collect(toImmutableSet());
     }
 
     @Test // regression test for https://github.com/trinodb/trino/issues/28885
@@ -1802,6 +2499,31 @@ public class TestDeltaLakeBasic
     }
 
     /**
+     * @see deltalake.liquid_clustering_multi_column
+     */
+    @Test
+    public void testLiquidClusteringMultiColumn()
+    {
+        assertQuery("SELECT count(*) FROM liquid_clustering_multi_column", "VALUES 300");
+        assertQuery(
+                "SELECT year, count(*) FROM liquid_clustering_multi_column GROUP BY year ORDER BY year",
+                "VALUES (2021, 100), (2022, 100), (2023, 100)");
+
+        assertQuery("SELECT count(*) FROM liquid_clustering_multi_column WHERE year = 2022", "VALUES 100");
+        assertQuery("SELECT count(*) FROM liquid_clustering_multi_column WHERE year IN (2021, 2023)", "VALUES 200");
+        assertQuery("SELECT count(*) FROM liquid_clustering_multi_column WHERE year = 2022 AND month = 3", "VALUES 9");
+        assertQuery("SELECT DISTINCT data FROM liquid_clustering_multi_column WHERE year = 2022 AND month = 3", "VALUES 'row 2022-3'");
+        assertQuery("SELECT count(*) FROM liquid_clustering_multi_column WHERE month = 1", "VALUES 27");
+
+        assertQueryReturnsEmptyResult("SELECT * FROM liquid_clustering_multi_column FOR VERSION AS OF 0");
+        assertQuery("SELECT count(*) FROM liquid_clustering_multi_column FOR VERSION AS OF 1", "VALUES 100");
+        assertQuery("SELECT DISTINCT year FROM liquid_clustering_multi_column FOR VERSION AS OF 1", "VALUES 2021");
+        assertQuery("SELECT count(*) FROM liquid_clustering_multi_column FOR VERSION AS OF 2", "VALUES 100");
+        assertQuery("SELECT count(*) FROM liquid_clustering_multi_column FOR VERSION AS OF 3", "VALUES 200");
+        assertQuery("SELECT count(*) FROM liquid_clustering_multi_column FOR VERSION AS OF 4", "VALUES 300");
+    }
+
+    /**
      * @see deltalake.uniform_hudi
      */
     @Test
@@ -1810,6 +2532,7 @@ public class TestDeltaLakeBasic
         assertQuery("SELECT * FROM uniform_hudi", "VALUES (123)");
         assertQueryFails("INSERT INTO uniform_hudi VALUES (456)", "\\QUnsupported universal formats: [hudi]");
         assertQueryFails("CALL system.vacuum(CURRENT_SCHEMA, 'uniform_hudi', '7d')", "\\QUnsupported universal formats: [hudi]");
+        assertQueryFails("DROP TABLE uniform_hudi", "\\QUnsupported universal formats: [hudi]");
     }
 
     /**
@@ -1820,6 +2543,7 @@ public class TestDeltaLakeBasic
     {
         assertQuery("SELECT * FROM uniform_iceberg_v1", "VALUES (1, 'test data')");
         assertQueryFails("INSERT INTO uniform_iceberg_v1 VALUES (2, 'new data')", "\\QUnsupported universal formats: [iceberg]");
+        assertQueryFails("DROP TABLE uniform_iceberg_v1", "\\QUnsupported universal formats: [iceberg]");
     }
 
     /**
@@ -1830,6 +2554,7 @@ public class TestDeltaLakeBasic
     {
         assertQuery("SELECT * FROM uniform_iceberg_v2", "VALUES (1, 'test data')");
         assertQueryFails("INSERT INTO uniform_iceberg_v2 VALUES (2, 'new data')", "\\QUnsupported universal formats: [iceberg]");
+        assertQueryFails("DROP TABLE uniform_iceberg_v2", "\\QUnsupported universal formats: [iceberg]");
     }
 
     /**
@@ -2256,6 +2981,28 @@ public class TestDeltaLakeBasic
                     .hasMessage("No temporal version history at or before %s".formatted(Instant.ofEpochMilli(1738242898530L - 1L)));
             assertThat(findLatestVersionUsingTemporal(FILE_SYSTEM, tableLocation.toString(), 1738242898530L, executorService, 1)).isEqualTo(2);
             assertThat(findLatestVersionUsingTemporal(FILE_SYSTEM, tableLocation.toString(), 1738242905942L, executorService, 1)).isEqualTo(3);
+        }
+        finally {
+            assertUpdate("DROP TABLE " + tableName);
+        }
+    }
+
+    /**
+     * @see deltalake.multipart_checkpoint
+     */
+    @Test
+    public void testTemporalTimeTravelUtilParallelSearchWithPartialFinalRange()
+            throws Exception
+    {
+        String tableName = "test_time_travel_util_parallel_partial_range_" + randomNameSuffix();
+        Path tableLocation = catalogDir.resolve(tableName);
+        copyDirectoryContents(new File(Resources.getResource("deltalake/multipart_checkpoint").toURI()).toPath(), tableLocation);
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
+
+        try (ExecutorService executorService = Executors.newCachedThreadPool()) {
+            // Version 5's commit timestamp
+            long version5CommitTimeMillis = Instant.parse("2023-10-16T06:53:09.907Z").toEpochMilli();
+            assertThat(findLatestVersionUsingTemporal(FILE_SYSTEM, tableLocation.toString(), version5CommitTimeMillis, executorService, 5)).isEqualTo(5);
         }
         finally {
             assertUpdate("DROP TABLE " + tableName);
@@ -2991,6 +3738,51 @@ public class TestDeltaLakeBasic
                         }
                     });
         }
+    }
+
+    private static List<AddFileEntry> getAddedFiles(long version, Path tableLocation)
+            throws IOException
+    {
+        return getEntriesFromJson(version, tableLocation.resolve("_delta_log").toString()).stream()
+                .map(DeltaLakeTransactionLogEntry::getAdd)
+                .filter(Objects::nonNull)
+                .collect(toImmutableList());
+    }
+
+    private Path registerCaseSensitiveTableWithRandomPrefixMetadata(String tableName, boolean randomizeFilePrefixes, int randomPrefixLength)
+            throws Exception
+    {
+        Path tableLocation = catalogDir.resolve(tableName);
+        copyDirectoryContents(new File(Resources.getResource("deltalake/case_sensitive").toURI()).toPath(), tableLocation);
+
+        Path transactionLog = tableLocation.resolve("_delta_log/00000000000000000000.json");
+        String originalTransactionLog = Files.readString(transactionLog);
+        String modifiedTransactionLog = originalTransactionLog.replace(
+                "\"configuration\":{}",
+                "\"configuration\":{\"delta.randomizeFilePrefixes\":\"%s\",\"delta.randomPrefixLength\":\"%s\"}"
+                        .formatted(randomizeFilePrefixes, randomPrefixLength));
+        assertThat(modifiedTransactionLog).isNotEqualTo(originalTransactionLog);
+        Files.writeString(transactionLog, modifiedTransactionLog);
+
+        assertUpdate("CALL system.register_table(CURRENT_SCHEMA, '%s', '%s')".formatted(tableName, tableLocation.toUri()));
+        return tableLocation;
+    }
+
+    private static void assertBinaryDataFiles(Path tableLocation, List<AddFileEntry> files)
+    {
+        assertThat(files).isNotEmpty();
+        files.forEach(file -> {
+            assertBinaryDataFilePath(file.getPath());
+            assertThat(Files.isRegularFile(tableLocation.resolve(file.getPath()))).isTrue();
+        });
+    }
+
+    private static void assertBinaryDataFilePath(String path)
+    {
+        String fileName = path.substring(path.lastIndexOf('/') + 1);
+        assertThat(path)
+                .matches("[01]{4}/[01]{4}/[01]{4}/[01]{8}/[^/]+")
+                .isEqualTo(createDataFilePath(fileName));
     }
 
     private static MetadataEntry loadMetadataEntry(long entryNumber, Path tableLocation)

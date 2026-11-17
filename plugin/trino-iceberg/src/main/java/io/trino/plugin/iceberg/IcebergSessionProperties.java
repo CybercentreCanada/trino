@@ -23,6 +23,7 @@ import io.trino.plugin.hive.orc.OrcReaderConfig;
 import io.trino.plugin.hive.orc.OrcWriterConfig;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
 import io.trino.plugin.hive.parquet.ParquetWriterConfig;
+import io.trino.plugin.iceberg.encryption.IcebergEncryptionConfig;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.session.PropertyMetadata;
@@ -82,6 +83,7 @@ public final class IcebergSessionProperties
     private static final String ORC_WRITER_MAX_DICTIONARY_MEMORY = "orc_writer_max_dictionary_memory";
     private static final String PARQUET_MAX_READ_BLOCK_SIZE = "parquet_max_read_block_size";
     private static final String PARQUET_USE_BLOOM_FILTER = "parquet_use_bloom_filter";
+    private static final String PARQUET_USE_COLUMN_INDEX = "parquet_use_column_index";
     private static final String PARQUET_MAX_READ_BLOCK_ROW_COUNT = "parquet_max_read_block_row_count";
     private static final String PARQUET_SMALL_FILE_THRESHOLD = "parquet_small_file_threshold";
     private static final String PARQUET_IGNORE_STATISTICS = "parquet_ignore_statistics";
@@ -106,6 +108,7 @@ public final class IcebergSessionProperties
     private static final String QUERY_PARTITION_FILTER_REQUIRED_SCHEMAS = "query_partition_filter_required_schemas";
     private static final String INCREMENTAL_REFRESH_ENABLED = "incremental_refresh_enabled";
     public static final String BUCKET_EXECUTION_ENABLED = "bucket_execution_enabled";
+    private static final String PLAINTEXT_FILES_ALLOWED_FOR_ENCRYPTED_TABLES = "plaintext_files_allowed_for_encrypted_tables";
     private static final String MAX_PARTITIONS_PER_WRITER = "max_partitions_per_writer";
 
     private final List<PropertyMetadata<?>> sessionProperties;
@@ -113,6 +116,7 @@ public final class IcebergSessionProperties
     @Inject
     public IcebergSessionProperties(
             IcebergConfig icebergConfig,
+            IcebergEncryptionConfig encryptionConfig,
             OrcReaderConfig orcReaderConfig,
             OrcWriterConfig orcWriterConfig,
             ParquetReaderConfig parquetReaderConfig,
@@ -227,6 +231,11 @@ public final class IcebergSessionProperties
                         PARQUET_USE_BLOOM_FILTER,
                         "Use Parquet Bloom filters",
                         parquetReaderConfig.isUseBloomFilter(),
+                        false))
+                .add(booleanProperty(
+                        PARQUET_USE_COLUMN_INDEX,
+                        "Use Parquet column index",
+                        parquetReaderConfig.isUseColumnIndex(),
                         false))
                 .add(integerProperty(
                         PARQUET_MAX_READ_BLOCK_ROW_COUNT,
@@ -387,6 +396,11 @@ public final class IcebergSessionProperties
                         BUCKET_EXECUTION_ENABLED,
                         "Enable bucket-aware execution: use physical bucketing information to optimize queries",
                         icebergConfig.isBucketExecutionEnabled(),
+                        false))
+                .add(booleanProperty(
+                        PLAINTEXT_FILES_ALLOWED_FOR_ENCRYPTED_TABLES,
+                        "Allow reading unencrypted files in tables with encryption enabled",
+                        encryptionConfig.isPlaintextFilesAllowedForEncryptedTables(),
                         false))
                 .add(integerProperty(
                         MAX_PARTITIONS_PER_WRITER,
@@ -561,6 +575,11 @@ public final class IcebergSessionProperties
         return session.getProperty(PARQUET_USE_BLOOM_FILTER, Boolean.class);
     }
 
+    public static boolean isParquetUseColumnIndex(ConnectorSession session)
+    {
+        return session.getProperty(PARQUET_USE_COLUMN_INDEX, Boolean.class);
+    }
+
     public static Duration getDynamicFilteringWaitTimeout(ConnectorSession session)
     {
         return session.getProperty(DYNAMIC_FILTERING_WAIT_TIMEOUT, Duration.class);
@@ -642,5 +661,10 @@ public final class IcebergSessionProperties
     public static int maxPartitionsPerWriter(ConnectorSession session)
     {
         return session.getProperty(MAX_PARTITIONS_PER_WRITER, Integer.class);
+    }
+
+    public static boolean arePlaintextFilesAllowedForEncryptedTables(ConnectorSession session)
+    {
+        return session.getProperty(PLAINTEXT_FILES_ALLOWED_FOR_ENCRYPTED_TABLES, Boolean.class);
     }
 }

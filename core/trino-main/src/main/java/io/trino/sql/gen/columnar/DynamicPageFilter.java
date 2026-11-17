@@ -28,6 +28,7 @@ import io.trino.sql.ir.optimizer.IrExpressionOptimizer;
 import io.trino.sql.planner.DomainTranslator;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolAllocator;
+import io.trino.type.CharVarcharCoercion;
 import jakarta.annotation.Nullable;
 
 import java.util.List;
@@ -38,6 +39,7 @@ import java.util.function.Supplier;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static io.trino.sql.gen.columnar.FilterEvaluator.createColumnarFilterEvaluator;
 import static java.util.Objects.requireNonNull;
 
@@ -80,9 +82,8 @@ public final class DynamicPageFilter
         this.filterReorderingEnabled = filterReorderingEnabled;
     }
 
-    // Compiled dynamic filter is fixed per-split and generated duration page source creation.
-    // Page source implementations may subsequently implement blocking on completion of dynamic filters, but since
-    // that occurs after page source creation, we cannot be guaranteed a completed dynamic filter here for initial splits
+    // Compiled dynamic filter is generated once per split at PageProcessor#createWorkProcessor.
+    // The supplied FilterEvaluator should not be shared across splits.
     public synchronized Supplier<FilterEvaluator> createDynamicPageFilterEvaluator(ColumnarFilterCompiler compiler, DynamicFilter dynamicFilter)
     {
         requireNonNull(dynamicFilter, "dynamicFilter is null");
@@ -120,16 +121,17 @@ public final class DynamicPageFilter
         // symbol introduced by a rule (e.g. a Let binding) cannot collide with a column reference
         // in the expression handed to codegen below.
         SymbolAllocator symbolAllocator = new SymbolAllocator(columnHandles.values());
+        CharVarcharCoercion charVarcharCoercion = getCharVarcharCoercion(session);
         // We translate each conjunct into separate FilterEvaluator to make it easy to profile selectivity
         // of dynamic filter per column and drop them if they're ineffective
         List<Supplier<FilterEvaluator>> subExpressionEvaluators = currentPredicate.getDomains().orElseThrow()
                 .entrySet().stream()
                 .map(entry -> {
                     Symbol symbol = columnHandles.get(entry.getKey());
-                    Expression expression = domainTranslator.toPredicate(entry.getValue(), symbol.toSymbolReference());
+                    Expression expression = domainTranslator.toPredicate(getCharVarcharCoercion(session), entry.getValue(), symbol.toSymbolReference());
                     // Run the expression derived from TupleDomain through IR optimizer to simplify predicates. E.g. SimplifyContinuousInValues
                     expression = irExpressionOptimizer.process(expression, session, symbolAllocator, ImmutableMap.of()).orElse(expression);
-                    return createColumnarFilterEvaluator(expression, sourceLayout, compiler, filterReorderingEnabled);
+                    return createColumnarFilterEvaluator(charVarcharCoercion, expression, sourceLayout, compiler, filterReorderingEnabled, true);
                 })
                 .filter(Optional::isPresent)
                 .map(Optional::get)

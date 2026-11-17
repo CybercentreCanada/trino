@@ -18,7 +18,6 @@ import com.google.common.collect.ImmutableMap;
 import io.airlift.slice.Slice;
 import io.trino.memory.context.LocalMemoryContext;
 import io.trino.metadata.TestingFunctionResolution;
-import io.trino.operator.DriverYieldSignal;
 import io.trino.operator.WorkProcessor;
 import io.trino.operator.project.PageProcessor;
 import io.trino.operator.project.PageProcessorMetrics;
@@ -38,7 +37,6 @@ import io.trino.sql.ir.In;
 import io.trino.sql.ir.Logical;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.planner.SymbolAllocator;
 import io.trino.tpch.LineItem;
 import io.trino.tpch.LineItemColumn;
 import io.trino.tpch.TpchColumn;
@@ -64,6 +62,8 @@ import java.util.concurrent.TimeUnit;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.slice.Slices.utf8Slice;
+import static io.trino.SessionTestUtils.TEST_SESSION;
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static io.trino.jmh.Benchmarks.benchmark;
 import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static io.trino.parquet.BenchmarkParquetFormatUtils.createTpchDataSet;
@@ -77,6 +77,7 @@ import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.sql.analyzer.TypeDescriptorProvider.fromTypes;
 import static io.trino.sql.ir.IrExpressions.between;
 import static io.trino.sql.ir.IrExpressions.call;
+import static io.trino.sql.planner.TestingSymbolAllocator.emptySymbolAllocator;
 import static io.trino.tpch.TpchTable.LINE_ITEM;
 import static io.trino.type.LikePatternType.LIKE_PATTERN;
 
@@ -155,7 +156,7 @@ public class BenchmarkColumnarFilterParquetData
             @Override
             Expression getExpression()
             {
-                return between(FUNCTION_RESOLUTION.getMetadata(), new SymbolAllocator(), SHIP_DATE, new Constant(DATE, MIN_SHIP_DATE), new Constant(DATE, MAX_SHIP_DATE));
+                return between(FUNCTION_RESOLUTION.getMetadata(), getCharVarcharCoercion(TEST_SESSION), emptySymbolAllocator(), SHIP_DATE, new Constant(DATE, MIN_SHIP_DATE), new Constant(DATE, MAX_SHIP_DATE));
             }
         },
         IN {
@@ -192,6 +193,7 @@ public class BenchmarkColumnarFilterParquetData
         Expression filterExpression = filterProvider.getExpression();
         ExpressionCompiler expressionCompiler = FUNCTION_RESOLUTION.getExpressionCompiler();
         compiledProcessor = expressionCompiler.compilePageProcessor(
+                        getCharVarcharCoercion(TEST_SESSION),
                         columnarEvaluationEnabled,
                         true,
                         Optional.of(filterExpression),
@@ -238,7 +240,6 @@ public class BenchmarkColumnarFilterParquetData
         while (inputPage != null) {
             WorkProcessor<Page> workProcessor = compiledProcessor.createWorkProcessor(
                     null,
-                    new DriverYieldSignal(),
                     context,
                     new PageProcessorMetrics(),
                     inputPage);

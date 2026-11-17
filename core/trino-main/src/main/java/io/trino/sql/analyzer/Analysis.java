@@ -80,6 +80,7 @@ import io.trino.sql.tree.NullIfExpression;
 import io.trino.sql.tree.Offset;
 import io.trino.sql.tree.OrderBy;
 import io.trino.sql.tree.Parameter;
+import io.trino.sql.tree.Pivot;
 import io.trino.sql.tree.Predicate;
 import io.trino.sql.tree.QualifiedName;
 import io.trino.sql.tree.Query;
@@ -147,6 +148,8 @@ public class Analysis
 
     private final Map<NodeRef<Table>, Query> namedQueries = new LinkedHashMap<>();
 
+    private final Map<NodeRef<Pivot>, PivotAnalysis> pivotAnalyses = new LinkedHashMap<>();
+
     // map expandable query to the node being the inner recursive reference
     private final Map<NodeRef<Query>, Node> expandableNamedQueries = new LinkedHashMap<>();
 
@@ -186,10 +189,11 @@ public class Analysis
     private final Map<NodeRef<Expression>, ResolvedFunction> jsonInputFunctions = new LinkedHashMap<>();
     private final Map<NodeRef<Node>, ResolvedFunction> jsonOutputFunctions = new LinkedHashMap<>();
     private final Map<NodeRef<JsonTable>, JsonTableAnalysis> jsonTableAnalyses = new LinkedHashMap<>();
+    private final Map<NodeRef<Expression>, JsonSimplifiedAccessor> jsonSimplifiedAccessors = new LinkedHashMap<>();
 
     private final Map<NodeRef<QuerySpecification>, List<FunctionCall>> aggregates = new LinkedHashMap<>();
     private final Map<NodeRef<OrderBy>, List<Expression>> orderByAggregates = new LinkedHashMap<>();
-    private final Map<NodeRef<QuerySpecification>, GroupingSetAnalysis> groupingSets = new LinkedHashMap<>();
+    private final Map<NodeRef<Node>, GroupingSetAnalysis> groupingSets = new LinkedHashMap<>();
 
     private final Map<NodeRef<Node>, Expression> where = new LinkedHashMap<>();
     private final Map<NodeRef<QuerySpecification>, Expression> having = new LinkedHashMap<>();
@@ -271,6 +275,9 @@ public class Analysis
     private final Multimap<NodeRef<Expression>, Field> fieldLineage = ArrayListMultimap.create();
 
     private Optional<TableExecuteHandle> tableExecuteHandle = Optional.empty();
+    // AST node the execute handle is registered against; for a materialized view this names the view,
+    // while the registered TableHandle is the view's storage table
+    private Optional<Table> tableExecuteTable = Optional.empty();
 
     // names of tables and aliased relations. All names are resolved case-insensitive.
     private final Map<NodeRef<Relation>, QualifiedName> relationNames = new LinkedHashMap<>();
@@ -443,7 +450,7 @@ public class Analysis
         return unmodifiableMap(lambdaArgumentReferences);
     }
 
-    public void setGroupingSets(QuerySpecification node, GroupingSetAnalysis groupingSets)
+    public void setGroupingSets(Node node, GroupingSetAnalysis groupingSets)
     {
         this.groupingSets.put(NodeRef.of(node), groupingSets);
     }
@@ -453,7 +460,7 @@ public class Analysis
         return groupingSets.containsKey(NodeRef.of(node));
     }
 
-    public GroupingSetAnalysis getGroupingSets(QuerySpecification node)
+    public GroupingSetAnalysis getGroupingSets(Node node)
     {
         return groupingSets.get(NodeRef.of(node));
     }
@@ -947,6 +954,21 @@ public class Analysis
         namedQueries.put(NodeRef.of(tableReference), query);
     }
 
+    public void registerPivotAnalysis(Pivot pivot, PivotAnalysis analysis)
+    {
+        requireNonNull(pivot, "pivot is null");
+        requireNonNull(analysis, "analysis is null");
+
+        pivotAnalyses.put(NodeRef.of(pivot), analysis);
+    }
+
+    public PivotAnalysis getPivotAnalysis(Pivot pivot)
+    {
+        PivotAnalysis analysis = pivotAnalyses.get(NodeRef.of(pivot));
+        checkArgument(analysis != null, "pivot has no analysis registered: %s", pivot);
+        return analysis;
+    }
+
     public void registerExpandableQuery(Query query, Node recursiveReference)
     {
         requireNonNull(query, "query is null");
@@ -1167,6 +1189,62 @@ public class Analysis
     public JsonPathAnalysis getJsonPathAnalysis(Node node)
     {
         return jsonPathAnalyses.get(NodeRef.of(node));
+    }
+
+    public void setJsonSimplifiedAccessor(Expression expression, JsonSimplifiedAccessor recipe)
+    {
+        jsonSimplifiedAccessors.put(NodeRef.of(expression), recipe);
+    }
+
+    public Optional<JsonSimplifiedAccessor> getJsonSimplifiedAccessor(Expression expression)
+    {
+        return Optional.ofNullable(jsonSimplifiedAccessors.get(NodeRef.of(expression)));
+    }
+
+    public sealed interface JsonSimplifiedAccessor
+            permits JsonSimplifiedAccessor.Query, JsonSimplifiedAccessor.Value
+    {
+        ResolvedField column();
+
+        JsonPathAnalysis pathAnalysis();
+
+        ResolvedFunction inputFunction();
+
+        record Query(
+                ResolvedField column,
+                JsonPathAnalysis pathAnalysis,
+                ResolvedFunction inputFunction,
+                ResolvedFunction queryFunction,
+                ResolvedFunction outputFunction)
+                implements JsonSimplifiedAccessor
+        {
+            public Query
+            {
+                requireNonNull(column, "column is null");
+                requireNonNull(pathAnalysis, "pathAnalysis is null");
+                requireNonNull(inputFunction, "inputFunction is null");
+                requireNonNull(queryFunction, "queryFunction is null");
+                requireNonNull(outputFunction, "outputFunction is null");
+            }
+        }
+
+        record Value(
+                ResolvedField column,
+                JsonPathAnalysis pathAnalysis,
+                ResolvedFunction inputFunction,
+                ResolvedFunction valueFunction,
+                Type returnedType)
+                implements JsonSimplifiedAccessor
+        {
+            public Value
+            {
+                requireNonNull(column, "column is null");
+                requireNonNull(pathAnalysis, "pathAnalysis is null");
+                requireNonNull(inputFunction, "inputFunction is null");
+                requireNonNull(valueFunction, "valueFunction is null");
+                requireNonNull(returnedType, "returnedType is null");
+            }
+        }
     }
 
     public void setJsonInputFunctions(Map<NodeRef<Expression>, ResolvedFunction> functions)
@@ -1423,6 +1501,18 @@ public class Analysis
     public Optional<TableExecuteHandle> getTableExecuteHandle()
     {
         return tableExecuteHandle;
+    }
+
+    public void setTableExecuteTable(Table table)
+    {
+        requireNonNull(table, "table is null");
+        checkState(this.tableExecuteTable.isEmpty(), "tableExecuteTable already set");
+        this.tableExecuteTable = Optional.of(table);
+    }
+
+    public Table getTableExecuteTable()
+    {
+        return tableExecuteTable.orElseThrow(() -> new IllegalStateException("tableExecuteTable not set"));
     }
 
     public void setTableFunctionAnalysis(TableFunctionInvocation node, TableFunctionInvocationAnalysis analysis)
@@ -1792,6 +1882,29 @@ public class Analysis
                                     .flatMap(Collection::stream)
                                     .flatMap(Collection::stream))
                     .collect(toImmutableSet());
+        }
+    }
+
+    public record PivotAnalysis(
+            GroupingSetAnalysis groupingSetAnalysis,
+            boolean distinctGroupingSets,
+            List<PivotOutputColumn> outputColumns,
+            List<FunctionCall> aggregates)
+    {
+        public PivotAnalysis
+        {
+            requireNonNull(groupingSetAnalysis, "groupingSetAnalysis is null");
+            outputColumns = ImmutableList.copyOf(outputColumns);
+            aggregates = ImmutableList.copyOf(aggregates);
+        }
+    }
+
+    public record PivotOutputColumn(String name, Type type)
+    {
+        public PivotOutputColumn
+        {
+            requireNonNull(name, "name is null");
+            requireNonNull(type, "type is null");
         }
     }
 

@@ -434,7 +434,7 @@ abstract class AbstractTrinoResultSet
             }
         }
 
-        throw new IllegalArgumentException("Expected column to be a time type but is " + columnInfo.getColumnTypeName());
+        throw new SQLException("Expected column to be a time type but is " + columnInfo.getColumnTypeName());
     }
 
     @Override
@@ -471,7 +471,7 @@ abstract class AbstractTrinoResultSet
             }
         }
 
-        throw new IllegalArgumentException("Expected column to be a timestamp type but is " + columnInfo.getColumnTypeName());
+        throw new SQLException("Expected column to be a timestamp type but is " + columnInfo.getColumnTypeName());
     }
 
     private static Instant parseTimestampWithTimeZoneAsInstant(String value)
@@ -773,7 +773,10 @@ abstract class AbstractTrinoResultSet
 
     private static TrinoIntervalDayTime parseIntervalDayTime(String value)
     {
-        return new TrinoIntervalDayTime(IntervalDayTime.parseMillis(value));
+        long[] components = IntervalDayTime.parseToPicos(value);
+        int dot = value.indexOf('.');
+        int fractionalPrecision = dot < 0 ? 0 : value.length() - dot - 1;
+        return new TrinoIntervalDayTime(components[0], (int) components[1], fractionalPrecision);
     }
 
     @Override

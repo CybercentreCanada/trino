@@ -24,6 +24,14 @@ public abstract class DefaultTraversalVisitor<C>
     }
 
     @Override
+    protected Void visitIntervalValueExpression(IntervalValueExpression node, C context)
+    {
+        process(node.getLeft(), context);
+        process(node.getRight(), context);
+        return null;
+    }
+
+    @Override
     protected Void visitCast(Cast node, C context)
     {
         process(node.getExpression(), context);
@@ -506,6 +514,13 @@ public abstract class DefaultTraversalVisitor<C>
     protected Void visitMatchPredicate(MatchPredicate node, C context)
     {
         process(node.getSubquery(), context);
+        return null;
+    }
+
+    @Override
+    protected Void visitOverlapsPredicate(OverlapsPredicate node, C context)
+    {
+        process(node.getRight(), context);
         return null;
     }
 
@@ -1006,9 +1021,25 @@ public abstract class DefaultTraversalVisitor<C>
     }
 
     @Override
+    protected Void visitJsonConstructor(JsonConstructor node, C context)
+    {
+        process(node.getExpression(), context);
+
+        return null;
+    }
+
+    @Override
     protected Void visitJsonQuery(JsonQuery node, C context)
     {
         process(node.getJsonPathInvocation(), context);
+
+        return null;
+    }
+
+    @Override
+    protected Void visitJsonSerialize(JsonSerialize node, C context)
+    {
+        process(node.getExpression(), context);
 
         return null;
     }
@@ -1096,6 +1127,42 @@ public abstract class DefaultTraversalVisitor<C>
     {
         for (JsonTableColumnDefinition column : node.getColumns()) {
             process(column, context);
+        }
+
+        return null;
+    }
+
+    @Override
+    protected Void visitPivot(Pivot node, C context)
+    {
+        process(node.getInput(), context);
+        for (PivotAggregation aggregation : node.getAggregations()) {
+            process(aggregation, context);
+        }
+        for (Expression pivotColumn : node.getPivotColumns()) {
+            process(pivotColumn, context);
+        }
+        for (PivotValueGroup valueGroup : node.getValueGroups()) {
+            process(valueGroup, context);
+        }
+        node.getGroupBy().ifPresent(groupBy -> process(groupBy, context));
+
+        return null;
+    }
+
+    @Override
+    protected Void visitPivotAggregation(PivotAggregation node, C context)
+    {
+        process(node.getExpression(), context);
+
+        return null;
+    }
+
+    @Override
+    protected Void visitPivotValueGroup(PivotValueGroup node, C context)
+    {
+        for (Expression value : node.getValues()) {
+            process(value, context);
         }
 
         return null;

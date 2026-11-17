@@ -14,7 +14,6 @@
 package io.trino.sql.planner.iterative.rule;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.Session;
 import io.trino.metadata.Metadata;
@@ -36,9 +35,12 @@ import io.trino.sql.planner.SymbolAllocator;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.collect.Iterables.getOnlyElement;
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static io.trino.metadata.GlobalFunctionCatalog.builtinFunctionName;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DateType.DATE;
@@ -50,11 +52,13 @@ import static io.trino.sql.ir.ComparisonOperator.GREATER_THAN_OR_EQUAL;
 import static io.trino.sql.ir.ComparisonOperator.LESS_THAN;
 import static io.trino.sql.ir.ComparisonOperator.LESS_THAN_OR_EQUAL;
 import static io.trino.sql.ir.IrExpressions.between;
+import static io.trino.sql.ir.IrExpressions.bindIfNecessary;
 import static io.trino.sql.ir.IrExpressions.comparison;
 import static io.trino.sql.ir.IrExpressions.matchComparison;
 import static io.trino.sql.ir.IrExpressions.not;
 import static io.trino.sql.ir.IrUtils.or;
 import static io.trino.sql.ir.Logical.and;
+import static io.trino.sql.planner.ExpressionNodeInliner.replaceExpression;
 import static io.trino.type.DateTimes.scaleFactor;
 import static java.lang.Math.multiplyExact;
 import static java.lang.Math.toIntExact;
@@ -90,7 +94,8 @@ public class UnwrapYearInComparison
         return (expression, context) -> unwrapYear(context.getSession(), plannerContext, context.getSymbolAllocator(), expression);
     }
 
-    private static Expression unwrapYear(
+    @VisibleForTesting
+    static Expression unwrapYear(
             Session session,
             PlannerContext plannerContext,
             SymbolAllocator symbolAllocator,
@@ -122,13 +127,14 @@ public class UnwrapYearInComparison
             if (!(matchComparison(expression) instanceof Comparison comparison)) {
                 return expression;
             }
-            // The unwrap logic expects year(...) on the left. A comparison whose year operand is on the
-            // right (e.g. the canonical form of year(x) > literal, which is literal < year(x)) is flipped
-            // so the year call lands on the left; the rebuilt comparison is canonicalized again on the way out.
-            if (isYearCall(comparison.right()) && !isYearCall(comparison.left())) {
-                return unwrapYear(comparison.operator().flip(), comparison.right(), comparison.left());
+            // The unwrap logic expects year(...) on the left. Try the flipped form when the call is on the right,
+            // but preserve the original comparison when it cannot be unwrapped.
+            if (isYearCall(comparison.right())) {
+                return tryUnwrapYear(comparison.operator().flip(), comparison.right(), comparison.left())
+                        .orElse(expression);
             }
-            return unwrapYear(comparison.operator(), comparison.left(), comparison.right());
+            return tryUnwrapYear(comparison.operator(), comparison.left(), comparison.right())
+                    .orElse(expression);
         }
 
         private static boolean isYearCall(Expression expression)
@@ -150,9 +156,11 @@ public class UnwrapYearInComparison
                 return in;
             }
 
+            Expression argument = getOnlyElement(call.arguments());
+
             // Convert each value to a comparison expression and try to unwrap it.
             // unwrap the InPredicate only in case we manage to unwrap the entire value list
-            ImmutableList.Builder<Expression> comparisonExpressions = ImmutableList.builderWithExpectedSize(node.valueList().size());
+            List<Expression> comparisonExpressions = new ArrayList<>(node.valueList().size());
             for (Expression rightExpression : node.valueList()) {
                 Optional<Expression> unwrappedExpression = tryUnwrapYear(EQUAL, value, rightExpression);
                 if (unwrappedExpression.isEmpty()) {
@@ -161,14 +169,11 @@ public class UnwrapYearInComparison
                 comparisonExpressions.add(unwrappedExpression.get());
             }
 
-            return or(comparisonExpressions.build());
-        }
-
-        // Simplify `year(d) ? value`
-        private Expression unwrapYear(ComparisonOperator operator, Expression left, Expression originalRight)
-        {
-            return tryUnwrapYear(operator, left, originalRight)
-                    .orElseGet(() -> comparison(metadata, operator, left, originalRight));
+            Expression unwrapped = or(comparisonExpressions);
+            if (comparisonExpressions.size() < 2) {
+                return unwrapped;
+            }
+            return bindIfNecessary(symbolAllocator, "operand", argument, operand -> replaceExpression(unwrapped, ImmutableMap.of(argument, operand)));
         }
 
         // Returns the unwrapped form of `year(d) ? value`, or empty when the comparison cannot be unwrapped
@@ -211,39 +216,41 @@ public class UnwrapYearInComparison
             return Optional.of(switch (operator) {
                 case EQUAL -> between(
                         metadata,
+                        getCharVarcharCoercion(session),
                         symbolAllocator,
                         argument,
                         new Constant(argumentType, calculateRangeStartInclusive(year, argumentType)),
                         new Constant(argumentType, calculateRangeEndInclusive(year, argumentType)));
-                case NOT_EQUAL -> not(metadata, between(
+                case NOT_EQUAL -> not(metadata, getCharVarcharCoercion(session), between(
                         metadata,
+                        getCharVarcharCoercion(session),
                         symbolAllocator,
                         argument,
                         new Constant(argumentType, calculateRangeStartInclusive(year, argumentType)),
                         new Constant(argumentType, calculateRangeEndInclusive(year, argumentType))));
-                case IDENTICAL -> and(
-                        not(metadata, new IsNull(argument)),
-                        between(
-                                metadata,
+                case IDENTICAL -> bindIfNecessary(symbolAllocator, "operand", argument, operand -> and(
+                        not(metadata, getCharVarcharCoercion(session), new IsNull(operand)),
+                        between(metadata,
+                                getCharVarcharCoercion(session),
                                 symbolAllocator,
-                                argument,
+                                operand,
                                 new Constant(argumentType, calculateRangeStartInclusive(year, argumentType)),
-                                new Constant(argumentType, calculateRangeEndInclusive(year, argumentType))));
+                                new Constant(argumentType, calculateRangeEndInclusive(year, argumentType)))));
                 case LESS_THAN -> {
                     Object value = calculateRangeStartInclusive(year, argumentType);
-                    yield comparison(metadata, LESS_THAN, argument, new Constant(argumentType, value));
+                    yield comparison(metadata, getCharVarcharCoercion(session), LESS_THAN, argument, new Constant(argumentType, value));
                 }
                 case LESS_THAN_OR_EQUAL -> {
                     Object value = calculateRangeEndInclusive(year, argumentType);
-                    yield comparison(metadata, LESS_THAN_OR_EQUAL, argument, new Constant(argumentType, value));
+                    yield comparison(metadata, getCharVarcharCoercion(session), LESS_THAN_OR_EQUAL, argument, new Constant(argumentType, value));
                 }
                 case GREATER_THAN -> {
                     Object value = calculateRangeEndInclusive(year, argumentType);
-                    yield comparison(metadata, GREATER_THAN, argument, new Constant(argumentType, value));
+                    yield comparison(metadata, getCharVarcharCoercion(session), GREATER_THAN, argument, new Constant(argumentType, value));
                 }
                 case GREATER_THAN_OR_EQUAL -> {
                     Object value = calculateRangeStartInclusive(year, argumentType);
-                    yield comparison(metadata, GREATER_THAN_OR_EQUAL, argument, new Constant(argumentType, value));
+                    yield comparison(metadata, getCharVarcharCoercion(session), GREATER_THAN_OR_EQUAL, argument, new Constant(argumentType, value));
                 }
             });
         }

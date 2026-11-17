@@ -5,7 +5,7 @@
     <parent>
         <groupId>io.trino</groupId>
         <artifactId>trino-root</artifactId>
-        <version>482</version>
+        <version>484</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
 
@@ -33,13 +33,6 @@
         </dependency>
 
         <dependency>
-            <groupId>com.google.inject</groupId>
-            <artifactId>guice</artifactId>
-            <classifier>classes</classifier>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp</artifactId>
             <scope>test</scope>
@@ -60,6 +53,12 @@
         <dependency>
             <groupId>io.airlift</groupId>
             <artifactId>configuration</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>guice</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -127,6 +126,12 @@
         <dependency>
             <groupId>io.trino</groupId>
             <artifactId>trino-blackhole</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-blob-cache-memory</artifactId>
             <scope>test</scope>
         </dependency>
 

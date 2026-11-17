@@ -15,7 +15,6 @@ package io.trino.operator.index;
 
 import com.google.common.collect.ImmutableList;
 import io.trino.metadata.TestingFunctionResolution;
-import io.trino.operator.DriverYieldSignal;
 import io.trino.operator.project.PageProcessor;
 import io.trino.spi.Page;
 import io.trino.spi.connector.SourcePage;
@@ -39,6 +38,7 @@ import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static io.trino.testing.TestingConnectorSession.SESSION;
+import static io.trino.type.CharVarcharCoercion.SQL_STANDARD;
 
 public class TestTupleFilterProcessor
 {
@@ -68,12 +68,12 @@ public class TestTupleFilterProcessor
                 new int[] {1, 0, 3},
                 outputTypes,
                 pageFunctionCompiler,
+                SQL_STANDARD,
                 new BlockTypeOperators(new TypeOperators()));
         PageProcessor tupleFilterProcessor = filterFactory.createPageProcessor(tuplePage, OptionalInt.of(MAX_BATCH_SIZE)).get();
         Page actualPage = getOnlyElement(
                 tupleFilterProcessor.process(
                         SESSION,
-                        new DriverYieldSignal(),
                         newSimpleAggregatedMemoryContext().newLocalMemoryContext(PageProcessor.class.getSimpleName()),
                         SourcePage.create(inputPage)))
                 .orElseThrow(() -> new AssertionError("page is not present"));

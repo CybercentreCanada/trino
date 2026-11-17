@@ -39,9 +39,9 @@ import io.trino.sql.ir.Reference;
 import io.trino.sql.ir.Row;
 import io.trino.sql.ir.WhenClause;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.planner.SymbolAllocator;
 import io.trino.sql.planner.assertions.SymbolAliases;
 import io.trino.transaction.TestingTransactionManager;
+import io.trino.type.CharVarcharCoercion;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -49,6 +49,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static io.trino.SessionTestUtils.TEST_SESSION;
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static io.trino.spi.StandardErrorCode.DIVISION_BY_ZERO;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -69,14 +70,15 @@ import static io.trino.sql.ir.Logical.Operator.OR;
 import static io.trino.sql.ir.TestingIr.between;
 import static io.trino.sql.ir.TestingIr.comparison;
 import static io.trino.sql.ir.TestingIr.nullIf;
-import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
 import static io.trino.sql.planner.TestingPlannerContext.plannerContextBuilder;
+import static io.trino.sql.planner.TestingSymbolAllocator.emptySymbolAllocator;
 import static io.trino.testing.assertions.TrinoExceptionAssert.assertTrinoExceptionThrownBy;
 import static io.trino.type.UnknownType.UNKNOWN;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestExpressionInterpreter
 {
+    private static final CharVarcharCoercion CHAR_VARCHAR_COERCION = getCharVarcharCoercion(TEST_SESSION);
     private static final Set<Symbol> SYMBOLS = ImmutableSet.of(
             new Symbol(INTEGER, "bound_value"),
             new Symbol(INTEGER, "unbound_value"));
@@ -238,13 +240,13 @@ public class TestExpressionInterpreter
     public void testIsNotNull()
     {
         assertOptimizedEquals(
-                not(FUNCTIONS.getMetadata(), new IsNull(new Constant(UNKNOWN, null))),
+                not(FUNCTIONS.getMetadata(), CHAR_VARCHAR_COERCION, new IsNull(new Constant(UNKNOWN, null))),
                 FALSE);
         assertOptimizedEquals(
-                not(FUNCTIONS.getMetadata(), new IsNull(new Constant(INTEGER, 1L))),
+                not(FUNCTIONS.getMetadata(), CHAR_VARCHAR_COERCION, new IsNull(new Constant(INTEGER, 1L))),
                 TRUE);
         assertOptimizedEquals(
-                not(FUNCTIONS.getMetadata(), new IsNull(new Call(ADD_INTEGER, ImmutableList.of(new Constant(INTEGER, null), new Constant(INTEGER, 1L))))),
+                not(FUNCTIONS.getMetadata(), CHAR_VARCHAR_COERCION, new IsNull(new Call(ADD_INTEGER, ImmutableList.of(new Constant(INTEGER, null), new Constant(INTEGER, 1L))))),
                 FALSE);
     }
 
@@ -252,20 +254,20 @@ public class TestExpressionInterpreter
     public void testNullIf()
     {
         assertOptimizedEquals(
-                nullIf(new SymbolAllocator(), new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, Slices.utf8Slice("a"))),
+                nullIf(emptySymbolAllocator(), new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, Slices.utf8Slice("a"))),
                 new Constant(VARCHAR, null));
         assertOptimizedEquals(
-                nullIf(new SymbolAllocator(), new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, Slices.utf8Slice("b"))),
+                nullIf(emptySymbolAllocator(), new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, Slices.utf8Slice("b"))),
                 new Constant(VARCHAR, Slices.utf8Slice("a")));
         assertOptimizedEquals(
-                nullIf(new SymbolAllocator(), new Constant(VARCHAR, null), new Constant(VARCHAR, Slices.utf8Slice("b"))),
+                nullIf(emptySymbolAllocator(), new Constant(VARCHAR, null), new Constant(VARCHAR, Slices.utf8Slice("b"))),
                 new Constant(VARCHAR, null));
         assertOptimizedEquals(
-                nullIf(new SymbolAllocator(), new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, null)),
+                nullIf(emptySymbolAllocator(), new Constant(VARCHAR, Slices.utf8Slice("a")), new Constant(VARCHAR, null)),
                 new Constant(VARCHAR, Slices.utf8Slice("a")));
         assertOptimizedEquals(
-                nullIf(new SymbolAllocator(), new Reference(INTEGER, "unbound_value"), new Constant(INTEGER, 1L)),
-                nullIf(new SymbolAllocator(), new Reference(INTEGER, "unbound_value"), new Constant(INTEGER, 1L)));
+                nullIf(emptySymbolAllocator(), new Reference(INTEGER, "unbound_value"), new Constant(INTEGER, 1L)),
+                nullIf(emptySymbolAllocator(), new Reference(INTEGER, "unbound_value"), new Constant(INTEGER, 1L)));
     }
 
     @Test
@@ -283,17 +285,17 @@ public class TestExpressionInterpreter
     public void testNot()
     {
         assertOptimizedEquals(
-                not(PLANNER_CONTEXT.getMetadata(), TRUE),
+                not(PLANNER_CONTEXT.getMetadata(), CHAR_VARCHAR_COERCION, TRUE),
                 FALSE);
         assertOptimizedEquals(
-                not(PLANNER_CONTEXT.getMetadata(), FALSE),
+                not(PLANNER_CONTEXT.getMetadata(), CHAR_VARCHAR_COERCION, FALSE),
                 TRUE);
         assertOptimizedEquals(
-                not(PLANNER_CONTEXT.getMetadata(), new Constant(BOOLEAN, null)),
+                not(PLANNER_CONTEXT.getMetadata(), CHAR_VARCHAR_COERCION, new Constant(BOOLEAN, null)),
                 new Constant(BOOLEAN, null));
         assertOptimizedEquals(
-                not(PLANNER_CONTEXT.getMetadata(), comparison(EQUAL, new Reference(INTEGER, "unbound_value"), new Constant(INTEGER, 1L))),
-                not(PLANNER_CONTEXT.getMetadata(), comparison(EQUAL, new Reference(INTEGER, "unbound_value"), new Constant(INTEGER, 1L))));
+                not(PLANNER_CONTEXT.getMetadata(), CHAR_VARCHAR_COERCION, comparison(EQUAL, new Reference(INTEGER, "unbound_value"), new Constant(INTEGER, 1L))),
+                not(PLANNER_CONTEXT.getMetadata(), CHAR_VARCHAR_COERCION, comparison(EQUAL, new Reference(INTEGER, "unbound_value"), new Constant(INTEGER, 1L))));
     }
 
     @Test
@@ -950,7 +952,7 @@ public class TestExpressionInterpreter
 
     static Object optimize(Expression parsedExpression)
     {
-        return PLANNER_CONTEXT.getExpressionOptimizer().process(parsedExpression, TEST_SESSION, new SymbolAllocator(), INPUTS)
+        return PLANNER_CONTEXT.getExpressionOptimizer().process(parsedExpression, TEST_SESSION, emptySymbolAllocator(), INPUTS)
                 .orElse(parsedExpression);
     }
 
@@ -966,6 +968,6 @@ public class TestExpressionInterpreter
 
     private static MatchClause equalityClause(Expression value, Expression result)
     {
-        return IrExpressions.equalityClause(PLANNER_CONTEXT.getMetadata(), new Symbol(value.type(), "operand"), value, result);
+        return IrExpressions.equalityClause(PLANNER_CONTEXT.getMetadata(), CHAR_VARCHAR_COERCION, new Symbol(value.type(), "operand"), value, result);
     }
 }

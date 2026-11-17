@@ -21,7 +21,6 @@ import io.trino.metadata.FunctionManager;
 import io.trino.metadata.Metadata;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
-import io.trino.operator.DriverYieldSignal;
 import io.trino.operator.project.PageProcessor;
 import io.trino.spi.Page;
 import io.trino.spi.connector.DynamicFilter;
@@ -56,6 +55,8 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.TimeUnit;
 
+import static io.trino.SessionTestUtils.TEST_SESSION;
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static io.trino.jmh.Benchmarks.benchmark;
 import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -121,7 +122,7 @@ public class BenchmarkPageProcessor2
 
         inputPage = createPage(types, dictionaryBlocks);
         pageProcessor = new ExpressionCompiler(pageFunctionCompiler, columnarFilterCompiler)
-                .compilePageProcessor(true, true, Optional.of(getFilter(type)), Optional.empty(), projections, sourceLayout, Optional.empty(), OptionalInt.empty())
+                .compilePageProcessor(getCharVarcharCoercion(TEST_SESSION), true, true, Optional.of(getFilter(type)), Optional.empty(), projections, sourceLayout, Optional.empty(), OptionalInt.empty())
                 .apply(DynamicFilter.EMPTY);
     }
 
@@ -131,7 +132,6 @@ public class BenchmarkPageProcessor2
         return ImmutableList.copyOf(
                 pageProcessor.process(
                         null,
-                        new DriverYieldSignal(),
                         newSimpleAggregatedMemoryContext().newLocalMemoryContext(PageProcessor.class.getSimpleName()),
                         SourcePage.create(inputPage)));
     }

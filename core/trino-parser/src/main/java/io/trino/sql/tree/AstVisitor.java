@@ -487,6 +487,11 @@ public abstract class AstVisitor<R, C>
         return visitPredicate(node, context);
     }
 
+    protected R visitOverlapsPredicate(OverlapsPredicate node, C context)
+    {
+        return visitPredicate(node, context);
+    }
+
     protected R visitQuantifiedComparisonPredicate(QuantifiedComparisonPredicate node, C context)
     {
         return visitPredicate(node, context);
@@ -498,6 +503,11 @@ public abstract class AstVisitor<R, C>
     }
 
     protected R visitSubscriptExpression(SubscriptExpression node, C context)
+    {
+        return visitExpression(node, context);
+    }
+
+    protected R visitArrayWildcardSubscript(ArrayWildcardSubscript node, C context)
     {
         return visitExpression(node, context);
     }
@@ -577,6 +587,21 @@ public abstract class AstVisitor<R, C>
         return visitRelation(node, context);
     }
 
+    protected R visitPivot(Pivot node, C context)
+    {
+        return visitRelation(node, context);
+    }
+
+    protected R visitPivotAggregation(PivotAggregation node, C context)
+    {
+        return visitNode(node, context);
+    }
+
+    protected R visitPivotValueGroup(PivotValueGroup node, C context)
+    {
+        return visitNode(node, context);
+    }
+
     protected R visitJoin(Join node, C context)
     {
         return visitRelation(node, context);
@@ -593,6 +618,11 @@ public abstract class AstVisitor<R, C>
     }
 
     protected R visitTryExpression(TryExpression node, C context)
+    {
+        return visitExpression(node, context);
+    }
+
+    protected R visitIntervalValueExpression(IntervalValueExpression node, C context)
     {
         return visitExpression(node, context);
     }
@@ -783,6 +813,11 @@ public abstract class AstVisitor<R, C>
     }
 
     protected R visitTableExecute(TableExecute node, C context)
+    {
+        return visitStatement(node, context);
+    }
+
+    protected R visitMaterializedViewExecute(MaterializedViewExecute node, C context)
     {
         return visitStatement(node, context);
     }
@@ -1222,7 +1257,17 @@ public abstract class AstVisitor<R, C>
         return visitExpression(node, context);
     }
 
+    protected R visitJsonConstructor(JsonConstructor node, C context)
+    {
+        return visitExpression(node, context);
+    }
+
     protected R visitJsonQuery(JsonQuery node, C context)
+    {
+        return visitExpression(node, context);
+    }
+
+    protected R visitJsonSerialize(JsonSerialize node, C context)
     {
         return visitExpression(node, context);
     }

@@ -45,19 +45,29 @@ public class OAuth2Authenticator
     private static final Logger log = Logger.get(OAuth2Authenticator.class);
     private final OAuth2Client client;
     private final String principalField;
+<<<<<<< HEAD
     private final Optional<String> groupsField;
+=======
+    private final String scopes;
+>>>>>>> tags/484
     private final UserMapping userMapping;
     private final TokenPairSerializer tokenPairSerializer;
     private final TokenRefresher tokenRefresher;
+    private final OAuth2ServerConfigProvider serverConfigProvider;
 
     @Inject
-    public OAuth2Authenticator(OAuth2Client client, OAuth2Config config, TokenRefresher tokenRefresher, TokenPairSerializer tokenPairSerializer)
+    public OAuth2Authenticator(OAuth2Client client, OAuth2Config config, TokenRefresher tokenRefresher, TokenPairSerializer tokenPairSerializer, OAuth2ServerConfigProvider serverConfigProvider)
     {
         this.client = requireNonNull(client, "service is null");
         this.principalField = config.getPrincipalField();
+        this.scopes = String.join(" ", config.getScopes());
         this.tokenRefresher = requireNonNull(tokenRefresher, "tokenRefresher is null");
         this.tokenPairSerializer = requireNonNull(tokenPairSerializer, "tokenPairSerializer is null");
+<<<<<<< HEAD
         groupsField = requireNonNull(config.getGroupsField(), "groupsField is null");
+=======
+        this.serverConfigProvider = requireNonNull(serverConfigProvider, "serverConfigProvider is null");
+>>>>>>> tags/484
         userMapping = createUserMapping(config.getUserMappingPattern(), config.getUserMappingFile());
     }
 
@@ -116,6 +126,6 @@ public class OAuth2Authenticator
         UUID authId = UUID.randomUUID();
         URI initiateUri = request.getUriInfo().getBaseUri().resolve(getInitiateUri(authId));
         URI tokenUri = request.getUriInfo().getBaseUri().resolve(getTokenUri(authId));
-        return new AuthenticationException(message, format("Bearer x_redirect_server=\"%s\", x_token_server=\"%s\"", initiateUri, tokenUri));
+        return new AuthenticationException(message, format("Bearer x_redirect_server=\"%s\", x_token_server=\"%s\", x_token_endpoint=\"%s\", scope=\"%s\"", initiateUri, tokenUri, serverConfigProvider.get().tokenUrl(), scopes));
     }
 }

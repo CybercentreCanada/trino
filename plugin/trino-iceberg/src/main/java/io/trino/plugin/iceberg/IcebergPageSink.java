@@ -49,10 +49,10 @@ import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeManager;
 import io.trino.spi.type.VarbinaryType;
 import io.trino.spi.type.VarcharType;
+import org.apache.iceberg.Metrics;
 import org.apache.iceberg.MetricsConfig;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.io.LocationProvider;
 import org.apache.iceberg.transforms.Transform;
@@ -88,6 +88,7 @@ import static io.trino.plugin.iceberg.util.Timestamps.getTimestampTzNanos;
 import static io.trino.plugin.iceberg.util.Timestamps.timestampToNanos;
 import static io.trino.plugin.iceberg.util.Timestamps.timestampTzToMicros;
 import static io.trino.plugin.iceberg.util.Timestamps.timestampTzToNanos;
+import static io.trino.spi.StandardErrorCode.CONSTRAINT_VIOLATION;
 import static io.trino.spi.StandardErrorCode.INVALID_FUNCTION_ARGUMENT;
 import static io.trino.spi.block.RowBlock.getRowFieldsFromBlock;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -143,7 +144,8 @@ public class IcebergPageSink
     private final TypeManager typeManager;
     private final PageSorter pageSorter;
     private final List<Type> columnTypes;
-    private final List<Integer> sortColumnIndexes;
+    // Per sort field: index path from root struct to the leaf field (e.g. [1, 0] for top.nested)
+    private final List<List<Integer>> sortIndexPaths;
     private final List<SortOrder> sortOrders;
     // Maps column index to top-level types that contain geometry
     private final Map<Integer, org.apache.iceberg.types.Type> columnsWithGeometry;
@@ -222,22 +224,22 @@ public class IcebergPageSink
                 .orElseGet(() -> Location.of(locationProvider.newDataLocation("trino-tmp-files")));
 
         if (sortedWritingEnabled) {
-            ImmutableList.Builder<Integer> sortColumnIndexes = ImmutableList.builder();
+            ImmutableList.Builder<List<Integer>> sortIndexPaths = ImmutableList.builder();
             ImmutableList.Builder<SortOrder> sortOrders = ImmutableList.builder();
             for (TrinoSortField sortField : sortFields) {
-                Types.NestedField column = outputSchema.findField(sortField.sourceColumnId());
-                if (column == null) {
+                if (outputSchema.findField(sortField.sourceColumnId()) == null) {
                     throw new TrinoException(ICEBERG_INVALID_METADATA, "Unable to find sort field source column in the table schema: " + sortField);
                 }
-                sortColumnIndexes.add(outputSchema.columns().indexOf(column));
+                List<Integer> nestedFieldIds = getNestedFieldIds(outputSchema.asStruct(), sortField.sourceColumnId());
+                sortIndexPaths.add(getIndexPathToField(outputSchema.asStruct(), nestedFieldIds));
                 sortOrders.add(sortField.sortOrder());
             }
-            this.sortColumnIndexes = sortColumnIndexes.build();
+            this.sortIndexPaths = sortIndexPaths.build();
             this.sortOrders = sortOrders.build();
             this.sortOrderId = sortOrderId;
         }
         else {
-            this.sortColumnIndexes = ImmutableList.of();
+            this.sortIndexPaths = ImmutableList.of();
             this.sortOrders = ImmutableList.of();
             this.sortOrderId = org.apache.iceberg.SortOrder.unsorted().orderId();
         }
@@ -535,7 +537,7 @@ public class IcebergPageSink
                         sortingFileWriterBufferSize,
                         sortingFileWriterMaxOpenFiles,
                         columnTypes,
-                        sortColumnIndexes,
+                        sortIndexPaths,
                         sortOrders,
                         pageSorter,
                         typeManager.getTypeOperators());
@@ -585,6 +587,8 @@ public class IcebergPageSink
 
         closedWriterRollbackActions.add(writer.commit());
 
+        verifyNotNullConstraint(writer.getFileMetrics().metrics(), outputSchema);
+
         validationCpuNanos += writer.getValidationCpuNanos();
         writtenBytes += (writer.getWrittenBytes() - currentWritten);
         memoryUsage -= currentMemory;
@@ -597,7 +601,7 @@ public class IcebergPageSink
                 fileFormat,
                 writer.getWrittenBytes(),
                 new MetricsWrapper(writer.getFileMetrics().metrics()),
-                PartitionSpecParser.toJson(partitionSpec),
+                partitionSpec.specId(),
                 writeContext.getPartitionData().map(PartitionData::toJson),
                 DATA,
                 Optional.empty(),
@@ -606,6 +610,19 @@ public class IcebergPageSink
                 Optional.empty());
 
         commitTasks.add(wrappedBuffer(jsonCodec.toJsonBytes(task)));
+    }
+
+    private static void verifyNotNullConstraint(Metrics metrics, Schema schema)
+    {
+        if (metrics.nullValueCounts() == null) {
+            return;
+        }
+
+        for (Types.NestedField field : schema.columns()) {
+            if (field.isRequired() && metrics.nullValueCounts().getOrDefault(field.fieldId(), 0L) > 0) {
+                throw new TrinoException(CONSTRAINT_VIOLATION, "NULL value not allowed for NOT NULL column: " + field.name());
+            }
+        }
     }
 
     private WriteContext createWriter(String outputPath, Optional<PartitionData> partitionData)

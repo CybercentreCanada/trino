@@ -26,9 +26,11 @@ import io.trino.plugin.jdbc.ColumnMapping;
 import io.trino.plugin.jdbc.ConnectionFactory;
 import io.trino.plugin.jdbc.JdbcColumnHandle;
 import io.trino.plugin.jdbc.JdbcExpression;
+import io.trino.plugin.jdbc.JdbcJoinCondition;
 import io.trino.plugin.jdbc.JdbcNamedRelationHandle;
 import io.trino.plugin.jdbc.JdbcOutputTableHandle;
 import io.trino.plugin.jdbc.JdbcRemoteIdentifiers;
+import io.trino.plugin.jdbc.JdbcSortItem;
 import io.trino.plugin.jdbc.JdbcSplit;
 import io.trino.plugin.jdbc.JdbcTableHandle;
 import io.trino.plugin.jdbc.JdbcTypeHandle;
@@ -54,7 +56,10 @@ import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorTableMetadata;
+import io.trino.spi.connector.JoinStatistics;
+import io.trino.spi.connector.JoinType;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.predicate.Range;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.CharType;
@@ -141,6 +146,7 @@ import static java.lang.String.format;
 import static java.time.ZoneOffset.UTC;
 import static java.time.format.DateTimeFormatter.ISO_LOCAL_DATE;
 import static java.time.format.DateTimeFormatter.ISO_LOCAL_TIME;
+import static java.util.stream.Collectors.joining;
 
 public class DruidJdbcClient
         extends BaseJdbcClient
@@ -151,6 +157,7 @@ public class DruidJdbcClient
     private static final String DRUID_CATALOG = "druid";
     // All the datasources in Druid are created under schema "druid"
     private static final String DRUID_SCHEMA = "druid";
+    private static final String DRUID_TIME_COLUMN = "__time";
 
     private final ConnectorExpressionRewriter<ParameterizedExpression> connectorExpressionRewriter;
     private final AggregateFunctionRewriter<JdbcExpression, ?> aggregateFunctionRewriter;
@@ -174,6 +181,13 @@ public class DruidJdbcClient
 
         this.connectorExpressionRewriter = JdbcConnectorExpressionRewriterBuilder.newBuilder()
                 .addStandardRules(this::quoted)
+                .withTypeClass("numeric_type", ImmutableSet.of("tinyint", "smallint", "integer", "bigint", "real", "double"))
+                .map("$equal(left: numeric_type, right: numeric_type)").to("left = right")
+                .map("$not_equal(left: numeric_type, right: numeric_type)").to("left <> right")
+                .map("$less_than(left: numeric_type, right: numeric_type)").to("left < right")
+                .map("$less_than_or_equal(left: numeric_type, right: numeric_type)").to("left <= right")
+                .map("$greater_than(left: numeric_type, right: numeric_type)").to("left > right")
+                .map("$greater_than_or_equal(left: numeric_type, right: numeric_type)").to("left >= right")
                 .build();
 
         JdbcTypeHandle bigintTypeHandle = new JdbcTypeHandle(Types.BIGINT, Optional.of("bigint"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
@@ -453,6 +467,39 @@ public class DruidJdbcClient
     }
 
     @Override
+    public boolean supportsTopN(ConnectorSession session, JdbcTableHandle handle, List<JdbcSortItem> sortOrder)
+    {
+        // Druid can only sort a non-aggregating query (scan) by __time. Any other sort key would either be
+        // rejected by Druid or, for large results, fail because of druid.query.scan.maxRowsQueuedForOrdering.
+        // Pushdown is restricted to a plain table scan so that the ORDER BY never ends up on a subquery,
+        // where Druid does not honor it.
+        if (!handle.isNamedRelation() || handle.getLimit().isPresent() || handle.getSortOrder().isPresent()) {
+            return false;
+        }
+        return sortOrder.stream()
+                .allMatch(sortItem -> sortItem.column().getColumnName().equals(DRUID_TIME_COLUMN));
+    }
+
+    @Override
+    protected Optional<TopNFunction> topNFunction()
+    {
+        return Optional.of((query, sortItems, limit) -> {
+            // __time is never null in Druid, so the NULLS FIRST/LAST requested by Trino is irrelevant
+            // and deliberately omitted from the generated SQL.
+            String orderBy = sortItems.stream()
+                    .map(sortItem -> format("%s %s", quoted(sortItem.column().getColumnName()), sortItem.sortOrder().isAscending() ? "ASC" : "DESC"))
+                    .collect(joining(", "));
+            return format("%s ORDER BY %s LIMIT %s", query, orderBy, limit);
+        });
+    }
+
+    @Override
+    public boolean isTopNGuaranteed(ConnectorSession session)
+    {
+        return true;
+    }
+
+    @Override
     public OptionalLong delete(ConnectorSession session, JdbcTableHandle handle)
     {
         // DELETE statement is not yet support in Druid (Avatica JDBC, see https://issues.apache.org/jira/browse/CALCITE-706)
@@ -637,5 +684,44 @@ public class DruidJdbcClient
     public Optional<JdbcExpression> implementAggregation(ConnectorSession session, AggregateFunction aggregate, Map<String, ColumnHandle> assignments)
     {
         return aggregateFunctionRewriter.rewrite(session, aggregate, assignments);
+    }
+
+    @Override
+    public Optional<ParameterizedExpression> convertPredicate(ConnectorSession session, ConnectorExpression expression, Map<String, ColumnHandle> assignments)
+    {
+        return connectorExpressionRewriter.rewrite(session, expression, assignments);
+    }
+
+    @Override
+    public Optional<PreparedQuery> implementJoin(
+            ConnectorSession session,
+            JoinType joinType,
+            PreparedQuery leftSource,
+            Map<JdbcColumnHandle, String> leftProjections,
+            PreparedQuery rightSource,
+            Map<JdbcColumnHandle, String> rightProjections,
+            List<ParameterizedExpression> joinConditions,
+            JoinStatistics statistics)
+    {
+        // Join pushdown is not supported. The shared connector expression rewriter is used for predicate
+        // expression pushdown, which would otherwise let the engine translate equi-join conditions and push
+        // joins down to Druid; opt out so only predicate expressions are pushed.
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<PreparedQuery> legacyImplementJoin(
+            ConnectorSession session,
+            JoinType joinType,
+            PreparedQuery leftSource,
+            PreparedQuery rightSource,
+            List<JdbcJoinCondition> joinConditions,
+            Map<JdbcColumnHandle, String> rightAssignments,
+            Map<JdbcColumnHandle, String> leftAssignments,
+            JoinStatistics statistics)
+    {
+        // Join pushdown is not supported; opt out of the legacy join pushdown path as well so join pushdown
+        // stays disabled regardless of the complex_join_pushdown session toggle.
+        return Optional.empty();
     }
 }

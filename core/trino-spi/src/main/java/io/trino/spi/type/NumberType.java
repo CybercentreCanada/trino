@@ -15,6 +15,7 @@ package io.trino.spi.type;
 
 import io.airlift.slice.Slice;
 import io.airlift.slice.XxHash64;
+import io.trino.spi.Unstable;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.block.VariableWidthBlock;
@@ -47,7 +48,6 @@ import static java.lang.invoke.MethodHandles.lookup;
  * <p>
  * Stack representation of this type is {@link TrinoNumber} which wraps a slice with the format documented below.
  * <b>Note:</b> the binary format is not stable and may change between releases. Only the Java API is considered stable.
- * <p>
  * <h2>Current unstable binary format</h2>
  * <pre>
  *    ┌───────────────────────┬─────────────────────────┐
@@ -95,6 +95,12 @@ public class NumberType
     public String getDisplayName()
     {
         return NAME;
+    }
+
+    @Unstable
+    public static int currentMaxPrecision()
+    {
+        return MAX_DECIMAL_PRECISION;
     }
 
     @Override

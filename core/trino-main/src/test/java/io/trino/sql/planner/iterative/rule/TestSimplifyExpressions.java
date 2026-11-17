@@ -28,7 +28,6 @@ import io.trino.sql.ir.ExpressionTreeRewriter;
 import io.trino.sql.ir.IrExpressions;
 import io.trino.sql.ir.Logical;
 import io.trino.sql.ir.Reference;
-import io.trino.sql.planner.SymbolAllocator;
 import io.trino.type.Reals;
 import io.trino.util.DateTimeUtils;
 import org.junit.jupiter.api.Test;
@@ -37,7 +36,9 @@ import java.math.BigDecimal;
 import java.util.Comparator;
 import java.util.List;
 
+import static io.airlift.slice.Slices.utf8Slice;
 import static io.trino.SessionTestUtils.TEST_SESSION;
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.DateType.DATE;
@@ -64,6 +65,8 @@ import static io.trino.sql.ir.Logical.Operator.AND;
 import static io.trino.sql.ir.Logical.Operator.OR;
 import static io.trino.sql.ir.TestingIr.comparison;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
+import static io.trino.sql.planner.TestingSymbolAllocator.emptySymbolAllocator;
+import static io.trino.sql.planner.iterative.rule.ExtractCommonPredicatesExpressionRewriter.extractCommonPredicates;
 import static io.trino.sql.planner.iterative.rule.SimplifyExpressions.rewrite;
 import static java.util.stream.Collectors.toList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -269,6 +272,39 @@ public class TestSimplifyExpressions
                         new Logical(AND, ImmutableList.of(new Reference(BOOLEAN, "A55"), new Reference(BOOLEAN, "A56"))),
                         new Logical(AND, ImmutableList.of(new Reference(BOOLEAN, "A57"), new Reference(BOOLEAN, "A58"))),
                         new Logical(AND, ImmutableList.of(new Reference(BOOLEAN, "A59"), new Reference(BOOLEAN, "A60"))))));
+    }
+
+    @Test
+    public void testLargeDisjunction()
+    {
+        Reference symbol = new Reference(BIGINT, "x");
+        ImmutableList.Builder<Expression> disjuncts = ImmutableList.builderWithExpectedSize(25_000);
+        for (long value = 0; value < 25_000; value++) {
+            disjuncts.add(comparison(EQUAL, symbol, new Constant(BIGINT, value)));
+        }
+
+        Expression expression = new Logical(OR, disjuncts.build());
+        assertThat(rewrite(
+                expression,
+                TEST_SESSION,
+                PLANNER_CONTEXT.getMetadata(),
+                emptySymbolAllocator(),
+                PLANNER_CONTEXT.getExpressionOptimizer()))
+                .isEqualTo(new Logical(AND, ImmutableList.of(
+                        comparison(LESS_THAN_OR_EQUAL, new Constant(BIGINT, 0L), symbol),
+                        comparison(LESS_THAN_OR_EQUAL, symbol, new Constant(BIGINT, 24_999L)))));
+    }
+
+    @Test
+    public void testExtractCommonPredicatesIsIdempotent()
+    {
+        Reference first = new Reference(BOOLEAN, "a");
+        Reference second = new Reference(BOOLEAN, "b");
+        Reference remaining = new Reference(BOOLEAN, "c");
+        Expression conjunction = new Logical(AND, ImmutableList.of(first, second));
+
+        assertExtractCommonPredicatesIsIdempotent(new Logical(OR, ImmutableList.of(conjunction, remaining)));
+        assertExtractCommonPredicatesIsIdempotent(new Logical(OR, ImmutableList.of(remaining, conjunction)));
     }
 
     @Test
@@ -513,25 +549,31 @@ public class TestSimplifyExpressions
     {
         // the varchar type length is enough to contain the date's representation
         assertSimplifies(
-                new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate("2013-02-02")), createVarcharType(10)),
+                new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate(utf8Slice("2013-02-02"))), createVarcharType(10)),
                 new Constant(createVarcharType(10), Slices.utf8Slice("2013-02-02")));
         assertSimplifies(
-                new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate("2013-02-02")), createVarcharType(50)),
+                new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate(utf8Slice("2013-02-02"))), createVarcharType(50)),
                 new Constant(createVarcharType(50), Slices.utf8Slice("2013-02-02")));
 
         // cast from date to varchar fails, so the expression is not modified
         assertSimplifies(
-                new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate("2013-02-02")), createVarcharType(3)),
-                new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate("2013-02-02")), createVarcharType(3)));
+                new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate(utf8Slice("2013-02-02"))), createVarcharType(3)),
+                new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate(utf8Slice("2013-02-02"))), createVarcharType(3)));
         assertSimplifies(
-                comparison(EQUAL, new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate("2013-02-02")), createVarcharType(3)), new Constant(createVarcharType(3), Slices.utf8Slice("2013-02-02"))),
-                comparison(EQUAL, new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate("2013-02-02")), createVarcharType(3)), new Constant(createVarcharType(3), Slices.utf8Slice("2013-02-02"))));
+                comparison(EQUAL, new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate(utf8Slice("2013-02-02"))), createVarcharType(3)), new Constant(createVarcharType(3), Slices.utf8Slice("2013-02-02"))),
+                comparison(EQUAL, new Cast(new Constant(DATE, (long) DateTimeUtils.parseDate(utf8Slice("2013-02-02"))), createVarcharType(3)), new Constant(createVarcharType(3), Slices.utf8Slice("2013-02-02"))));
     }
 
     private static void assertSimplifies(Expression expression, Expression expected)
     {
-        Expression simplified = normalize(rewrite(expression, TEST_SESSION, PLANNER_CONTEXT.getMetadata(), new SymbolAllocator(), PLANNER_CONTEXT.getExpressionOptimizer()));
+        Expression simplified = normalize(rewrite(expression, TEST_SESSION, PLANNER_CONTEXT.getMetadata(), emptySymbolAllocator(), PLANNER_CONTEXT.getExpressionOptimizer()));
         assertThat(simplified).isEqualTo(normalize(expected));
+    }
+
+    private static void assertExtractCommonPredicatesIsIdempotent(Expression expression)
+    {
+        Expression rewritten = extractCommonPredicates(expression);
+        assertThat(extractCommonPredicates(rewritten)).isEqualTo(rewritten);
     }
 
     @Test
@@ -654,7 +696,7 @@ public class TestSimplifyExpressions
 
     private static void assertSimplifiesNumericTypes(Expression expression, Expression expected)
     {
-        Expression rewritten = rewrite(expression, TEST_SESSION, PLANNER_CONTEXT.getMetadata(), new SymbolAllocator(), PLANNER_CONTEXT.getExpressionOptimizer());
+        Expression rewritten = rewrite(expression, TEST_SESSION, PLANNER_CONTEXT.getMetadata(), emptySymbolAllocator(), PLANNER_CONTEXT.getExpressionOptimizer());
         assertThat(normalize(rewritten)).isEqualTo(normalize(expected));
     }
 
@@ -687,6 +729,6 @@ public class TestSimplifyExpressions
 
     private static Expression not(Expression value)
     {
-        return IrExpressions.not(FUNCTIONS.getMetadata(), value);
+        return IrExpressions.not(FUNCTIONS.getMetadata(), getCharVarcharCoercion(TEST_SESSION), value);
     }
 }

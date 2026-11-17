@@ -19,7 +19,6 @@ import com.google.common.collect.ImmutableMap;
 import io.trino.jmh.Benchmarks;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.metadata.TestingFunctionResolution;
-import io.trino.operator.DriverYieldSignal;
 import io.trino.operator.project.PageProcessor;
 import io.trino.spi.Page;
 import io.trino.spi.block.Block;
@@ -53,6 +52,7 @@ import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 
+import static io.trino.SessionTestUtils.TEST_SESSION;
 import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregatedMemoryContext;
 import static io.trino.spi.function.OperatorType.ADD;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -82,7 +82,6 @@ public class BenchmarkTransformKey
         return ImmutableList.copyOf(
                 data.getPageProcessor().process(
                         SESSION,
-                        new DriverYieldSignal(),
                         newSimpleAggregatedMemoryContext().newLocalMemoryContext(PageProcessor.class.getSimpleName()),
                         SourcePage.create(data.getPage())));
     }
@@ -133,7 +132,7 @@ public class BenchmarkTransformKey
             Block block = createChannel(POSITIONS, mapType, elementType);
 
             List<Expression> projections = projectionsBuilder.build();
-            pageProcessor = compiler.compilePageProcessor(Optional.empty(), projections, ImmutableMap.of(new Symbol(mapType, "$col_0"), 0)).get();
+            pageProcessor = compiler.compilePageProcessor(TEST_SESSION, Optional.empty(), projections, ImmutableMap.of(new Symbol(mapType, "$col_0"), 0)).get();
             page = new Page(block);
         }
 

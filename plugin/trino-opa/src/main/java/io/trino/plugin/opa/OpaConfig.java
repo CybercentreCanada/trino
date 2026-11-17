@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.opa;
 
+import com.google.common.collect.ImmutableSet;
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
 import io.airlift.configuration.validation.FileExists;
@@ -22,6 +23,7 @@ import jakarta.validation.constraints.NotNull;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
 
 public class OpaConfig
 {
@@ -35,7 +37,11 @@ public class OpaConfig
     private Optional<URI> opaColumnMaskingUri = Optional.empty();
     private Optional<URI> opaBatchColumnMaskingUri = Optional.empty();
     private Optional<Path> additionalContextFile = Optional.empty();
+<<<<<<< HEAD
     private int maxConcurrentRequests = 300;
+=======
+    private Set<String> extraCredentialsKeys = ImmutableSet.of();
+>>>>>>> tags/484
 
     @NotNull
     public URI getOpaUri()
@@ -159,6 +165,7 @@ public class OpaConfig
         return this;
     }
 
+<<<<<<< HEAD
     @Min(1)
     public int getMaxConcurrentRequests()
     {
@@ -170,6 +177,18 @@ public class OpaConfig
     public OpaConfig setMaxConcurrentRequests(int maxConcurrentRequests)
     {
         this.maxConcurrentRequests = maxConcurrentRequests;
+=======
+    public Set<String> getExtraCredentialsKeys()
+    {
+        return extraCredentialsKeys;
+    }
+
+    @Config("opa.identity.extra-credentials-keys")
+    @ConfigDescription("Comma-separated list of extra credential keys from client connections to forward to OPA in the identity context")
+    public OpaConfig setExtraCredentialsKeys(Set<String> extraCredentialsKeys)
+    {
+        this.extraCredentialsKeys = ImmutableSet.copyOf(extraCredentialsKeys);
+>>>>>>> tags/484
         return this;
     }
 }

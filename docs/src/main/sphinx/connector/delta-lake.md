@@ -13,7 +13,7 @@ data.
 To connect to Databricks Delta Lake, you need:
 
 - Tables written by Databricks Runtime 7.3 LTS, 9.1 LTS, 10.4 LTS, 11.3 LTS,
-  12.2 LTS, 13.3 LTS, 14.3 LTS, 15.4 LTS, 16.4 LTS and 17.3 LTS are supported.
+  12.2 LTS, 13.3 LTS, 14.3 LTS, 15.4 LTS, 16.4 LTS, 17.3 LTS and 18 LTS are supported.
 - Deployments using AWS, HDFS, Azure Storage, and Google Cloud Storage (GCS) are
   fully supported.
 - Network access from the coordinator and workers to the Delta Lake storage.
@@ -162,7 +162,7 @@ values. Typical usage does not require you to configure them.
     metastore cache.
   - `1000`
 * - `delta.metastore.store-table-metadata`
-  - Store table comments and colum definitions in the metastore. The write
+  - Store table comments and column definitions in the metastore. The write
     permission is required to update the metastore.
   - `false`
 * - `delta.metastore.store-table-metadata-threads`
@@ -179,6 +179,10 @@ values. Typical usage does not require you to configure them.
   - Target maximum size of written files; the actual size could be larger. The
     equivalent catalog session property is `target_max_file_size`.
   - `1GB`
+* - `delta.object-store-layout.enabled`
+  - Default value of the `object_store_layout_enabled` table property for new
+    tables.
+  - `false`
 * - `delta.unique-table-location`
   - Use randomized, unique table locations.
   - `true`
@@ -490,8 +494,8 @@ SELECT *
 FROM example.testdb.customer_orders FOR TIMESTAMP AS OF TIMESTAMP '2022-03-23 09:59:29.803 America/Los_Angeles';
 ```
 
-You can use a date to specify a point a time in the past for using a snapshot of a table in a query.
-Assuming that the session time zone is `America/Los_Angeles` the following queries are equivalent:
+You can use a date to specify a point in time in the past for querying a table snapshot.
+Assuming that the session time zone is `America/Los_Angeles`, the following queries are equivalent:
 
 ```sql
 SELECT *
@@ -596,6 +600,9 @@ The `delta.vacuum.min-retention` configuration property provides a safety
 measure to ensure that files are retained as expected. The minimum value for
 this property is `0s`. There is a minimum retention session property as well,
 `vacuum_min_retention`.
+
+Tables that use deletion vectors are supported. Deletion vector files are kept
+and removed under the same rules as data files.
 
 (delta-lake-data-management)=
 ### Data management
@@ -731,6 +738,19 @@ EXECUTE <alter-table-execute>`.
 ```{include} optimize.fragment
 ```
 
+```text
+        metric_name             | metric_value
+--------------------------------+--------------
+ rewritten_data_files_count     |            1
+ removed_deletion_vectors_count |            1
+ added_data_files_count         |            2
+```
+
+The `removed_deletion_vectors_count` metric counts deletion vectors removed from
+the active table state, not physical files deleted from storage. Unreferenced
+deletion vector files can be removed by [VACUUM](delta-lake-vacuum), subject to the
+retention period.
+
 Use a `WHERE` clause with [metadata columns](delta-lake-special-columns) to filter
 which files are optimized.
 
@@ -745,7 +765,7 @@ WHERE "$path" <> 'skipping-file-path'
 ```
 
 ```sql
--- optimze files smaller than 1MB
+-- optimize files smaller than 1MB
 ALTER TABLE test_table EXECUTE optimize
 WHERE "$file_size" <= 1024 * 1024
 ```
@@ -788,6 +808,14 @@ The following table properties are available for use:
     Defaults to `NONE`.
 * - `deletion_vectors_enabled`
   - Enables deletion vectors.
+* - `object_store_layout_enabled`
+  - Writes data and change data files under deterministic binary hash
+    directory prefixes instead of partition directories. The hash uses 20 bits
+    split into `4/4/4/8` directories. Deletion vector files get a random
+    prefix of `delta.randomPrefixLength` characters, `2` by default. The value
+    is stored as `delta.randomizeFilePrefixes` in Delta Lake metadata, and
+    later writes follow it. Defaults to the `delta.object-store-layout.enabled`
+    catalog configuration property.
 :::
 
 The following example uses all available table properties:
@@ -800,7 +828,8 @@ WITH (
   checkpoint_interval = 5,
   change_data_feed_enabled = false,
   column_mapping_mode = 'name',
-  deletion_vectors_enabled = false
+  deletion_vectors_enabled = false,
+  object_store_layout_enabled = true
 )
 AS SELECT name, comment, regionkey FROM tpch.tiny.nation;
 ```

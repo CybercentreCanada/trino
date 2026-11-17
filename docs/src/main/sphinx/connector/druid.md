@@ -53,6 +53,21 @@ determine the user credentials for the connection, often a service user. You can
 use {doc}`secrets </security/secrets>` to avoid actual values in the catalog
 properties files.
 
+Additionally, the following configuration properties can be set depending
+on the use-case:
+
+:::{list-table} Druid Configuration Properties
+:widths: 30, 35, 35
+:header-rows: 1
+
+* - Property Name
+  - Description
+  - Default
+* - `druid.execution-timeout`
+  - Query timeout for Druid queries, beyond which unfinished queries will be cancelled. Example: `10s`, `1m`, and `1000ms`.
+  - `None`
+:::
+
 ```{include} jdbc-authentication.fragment
 ```
 
@@ -202,3 +217,18 @@ aggregation results stay consistent with Trino's `NULL` semantics. Set the
 
 ```{include} pushdown-correctness-behavior.fragment
 ```
+
+### Top-N pushdown
+
+The connector supports {ref}`Top-N pushdown <topn-pushdown>` when the query
+orders exclusively by the `__time` column, which is the only sort key Druid
+supports for non-aggregating queries. Ordering by any other column is performed
+by Trino.
+
+### Predicate pushdown support
+
+The connector supports {ref}`predicate expression pushdown <predicate-pushdown>`.
+Comparisons between numeric columns (`=`, `<>`, `<`, `<=`, `>`, `>=`) are pushed down
+to Druid rather than evaluated by Trino, including predicates that cannot be expressed
+as a range, such as comparisons between two columns. Arithmetic operators and `LIKE`
+expressions are not pushed down.

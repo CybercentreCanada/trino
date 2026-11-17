@@ -53,7 +53,9 @@ import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.lang.String.format;
 import static java.util.Locale.ENGLISH;
 import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
+import static org.apache.iceberg.TableProperties.ENCRYPTION_TABLE_KEY;
 import static org.apache.iceberg.TableProperties.FORMAT_VERSION;
+import static org.apache.iceberg.TableProperties.GC_ENABLED;
 import static org.apache.iceberg.TableProperties.ORC_BLOOM_FILTER_COLUMNS;
 import static org.apache.iceberg.TableProperties.ORC_BLOOM_FILTER_FPP;
 import static org.apache.iceberg.TableProperties.PARQUET_ROW_GROUP_SIZE_BYTES;
@@ -78,6 +80,7 @@ public class IcebergTableProperties
     public static final String PARQUET_WRITER_ROW_GROUP_SIZE = "parquet_writer_row_group_size";
     public static final String OBJECT_STORE_LAYOUT_ENABLED_PROPERTY = "object_store_layout_enabled";
     public static final String DATA_LOCATION_PROPERTY = "data_location";
+    public static final String GC_ENABLED_PROPERTY = "gc_enabled";
     public static final String EXTRA_PROPERTIES_PROPERTY = "extra_properties";
 
     public static final Set<String> SUPPORTED_PROPERTIES = ImmutableSet.<String>builder()
@@ -94,6 +97,7 @@ public class IcebergTableProperties
             .add(ORC_BLOOM_FILTER_FPP_PROPERTY)
             .add(OBJECT_STORE_LAYOUT_ENABLED_PROPERTY)
             .add(DATA_LOCATION_PROPERTY)
+            .add(GC_ENABLED_PROPERTY)
             .add(EXTRA_PROPERTIES_PROPERTY)
             .add(PARQUET_BLOOM_FILTER_COLUMNS_PROPERTY)
             .add(TARGET_MAX_FILE_SIZE)
@@ -109,6 +113,8 @@ public class IcebergTableProperties
             .add(FORMAT_VERSION)
             .add(WRITE_TARGET_FILE_SIZE_BYTES)
             .add(PARQUET_ROW_GROUP_SIZE_BYTES)
+            .add(ENCRYPTION_TABLE_KEY)
+            .add(GC_ENABLED)
             .build();
 
     private final List<PropertyMetadata<?>> tableProperties;
@@ -175,6 +181,11 @@ public class IcebergTableProperties
                         DELETE_AFTER_COMMIT_ENABLED,
                         "Whether to delete old tracked metadata files after each table commit",
                         icebergConfig.isDeleteAfterCommitEnabled().orElse(null),
+                        false))
+                .add(booleanProperty(
+                        GC_ENABLED_PROPERTY,
+                        "Allows garbage collection operations such as expiring snapshots and removing orphan files",
+                        null,
                         false))
                 .add(integerProperty(
                         MAX_PREVIOUS_VERSIONS,
@@ -400,8 +411,20 @@ public class IcebergTableProperties
         return Optional.ofNullable((String) tableProperties.get(DATA_LOCATION_PROPERTY));
     }
 
+    public static Optional<Boolean> getGcEnabled(Map<String, Object> tableProperties)
+    {
+        return Optional.ofNullable((Boolean) tableProperties.get(GC_ENABLED_PROPERTY));
+    }
+
     public static Optional<Map<String, String>> getExtraProperties(Map<String, Object> tableProperties)
     {
         return Optional.ofNullable((Map<String, String>) tableProperties.get(EXTRA_PROPERTIES_PROPERTY));
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> T getProperty(Map<String, Optional<Object>> properties, String key)
+    {
+        return (T) properties.get(key)
+                .orElseThrow(() -> new IllegalArgumentException("The %s property cannot be empty".formatted(key)));
     }
 }

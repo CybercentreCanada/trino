@@ -58,6 +58,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
+import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.types.TypeUtil;
@@ -92,6 +93,7 @@ import static io.trino.plugin.iceberg.procedure.MigrationUtils.buildDataFiles;
 import static io.trino.spi.StandardErrorCode.DUPLICATE_COLUMN_NAME;
 import static io.trino.spi.StandardErrorCode.INVALID_PROCEDURE_ARGUMENT;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
+import static io.trino.spi.StandardErrorCode.TRANSACTION_CONFLICT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
 import static java.lang.Boolean.parseBoolean;
 import static java.lang.invoke.MethodHandles.lookup;
@@ -162,17 +164,17 @@ public class MigrateProcedure
                 MIGRATE.bindTo(this));
     }
 
-    public void migrate(ConnectorSession session, String schemaName, String tableName, String recursiveDirectory)
+    public Map<String, Long> migrate(ConnectorSession session, String schemaName, String tableName, String recursiveDirectory)
     {
         // this line guarantees that classLoader that we stored in the field will be used inside try/catch
         // as we captured reference to PluginClassLoader during initialization of this class
         // we can use it now to correctly execute the procedure
         try (ThreadContextClassLoader _ = new ThreadContextClassLoader(getClass().getClassLoader())) {
-            doMigrate(session, schemaName, tableName, recursiveDirectory);
+            return doMigrate(session, schemaName, tableName, recursiveDirectory);
         }
     }
 
-    public void doMigrate(ConnectorSession session, String schemaName, String tableName, String recursiveDirectory)
+    public Map<String, Long> doMigrate(ConnectorSession session, String schemaName, String tableName, String recursiveDirectory)
     {
         SchemaTableName sourceTableName = new SchemaTableName(schemaName, tableName);
         TrinoCatalog catalog = catalogFactory.create(session.getIdentity());
@@ -249,8 +251,17 @@ public class MigrateProcedure
                     .build();
             metastore.replaceTable(schemaName, tableName, newTable, principalPrivileges, ImmutableMap.of());
 
-            transaction.commitTransaction();
+            try {
+                transaction.commitTransaction();
+            }
+            catch (CommitFailedException e) {
+                throw new TrinoException(TRANSACTION_CONFLICT, "Failed to migrate table", e);
+            }
             log.debug("Successfully migrated %s table to Iceberg format", sourceTableName);
+
+            return ImmutableMap.<String, Long>builder()
+                    .put("added_data_files_count", (long) dataFiles.size())
+                    .buildOrThrow();
         }
         catch (Exception e) {
             throw new TrinoException(ICEBERG_COMMIT_ERROR, "Failed to migrate table", e);

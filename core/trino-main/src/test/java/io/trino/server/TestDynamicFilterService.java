@@ -66,7 +66,9 @@ import java.util.stream.LongStream;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.airlift.slice.Slices.utf8Slice;
 import static io.airlift.units.DataSize.Unit.KILOBYTE;
+import static io.trino.SessionTestUtils.TEST_SESSION;
 import static io.trino.SystemSessionProperties.RETRY_POLICY;
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static io.trino.metadata.TestingMetadataManager.createTestingMetadataManager;
 import static io.trino.server.DynamicFilterService.getOutboundDynamicFilters;
 import static io.trino.server.DynamicFilterService.getSourceStageInnerLazyDynamicFilters;
@@ -82,6 +84,7 @@ import static io.trino.sql.planner.SystemPartitioningHandle.FIXED_HASH_DISTRIBUT
 import static io.trino.sql.planner.SystemPartitioningHandle.SINGLE_DISTRIBUTION;
 import static io.trino.sql.planner.SystemPartitioningHandle.SOURCE_DISTRIBUTION;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
+import static io.trino.sql.planner.TestingSymbolAllocator.emptySymbolAllocator;
 import static io.trino.sql.planner.plan.ExchangeNode.Type.REPARTITION;
 import static io.trino.sql.planner.plan.ExchangeNode.Type.REPLICATE;
 import static io.trino.sql.planner.plan.JoinType.INNER;
@@ -153,7 +156,7 @@ public class TestDynamicFilterService
         DynamicFilterId filterId1 = new DynamicFilterId("df1");
         DynamicFilterId filterId2 = new DynamicFilterId("df2");
         DynamicFilterId filterId3 = new DynamicFilterId("df3");
-        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        SymbolAllocator symbolAllocator = emptySymbolAllocator();
         Symbol symbol1 = symbolAllocator.newSymbol("DF_SYMBOL1", INTEGER);
         Symbol symbol2 = symbolAllocator.newSymbol("DF_SYMBOL2", INTEGER);
         Symbol symbol3 = symbolAllocator.newSymbol("DF_SYMBOL3", INTEGER);
@@ -328,7 +331,7 @@ public class TestDynamicFilterService
     {
         DynamicFilterService dynamicFilterService = createDynamicFilterService();
         DynamicFilterId filterId1 = new DynamicFilterId("df1");
-        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        SymbolAllocator symbolAllocator = emptySymbolAllocator();
         Symbol symbol1 = symbolAllocator.newSymbol("DF_SYMBOL1", INTEGER);
         Expression df1 = symbol1.toSymbolReference();
 
@@ -370,7 +373,7 @@ public class TestDynamicFilterService
     {
         DynamicFilterService dynamicFilterService = createDynamicFilterService();
         DynamicFilterId filterId1 = new DynamicFilterId("df1");
-        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        SymbolAllocator symbolAllocator = emptySymbolAllocator();
         Symbol symbol1 = symbolAllocator.newSymbol("DF_SYMBOL1", INTEGER);
         Expression df1 = new Cast(symbol1.toSymbolReference(), BIGINT);
 
@@ -409,7 +412,7 @@ public class TestDynamicFilterService
     {
         DynamicFilterService dynamicFilterService = createDynamicFilterService();
         DynamicFilterId filterId1 = new DynamicFilterId("df1");
-        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        SymbolAllocator symbolAllocator = emptySymbolAllocator();
         Symbol symbol1 = symbolAllocator.newSymbol("DF_SYMBOL1", INTEGER);
         Expression df1 = symbol1.toSymbolReference();
         QueryId queryId = new QueryId("query");
@@ -471,7 +474,7 @@ public class TestDynamicFilterService
     {
         DynamicFilterService dynamicFilterService = createDynamicFilterService();
         DynamicFilterId filterId1 = new DynamicFilterId("df1");
-        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        SymbolAllocator symbolAllocator = emptySymbolAllocator();
         Symbol symbol1 = symbolAllocator.newSymbol("DF_SYMBOL1", INTEGER);
         Expression df1 = symbol1.toSymbolReference();
         QueryId queryId = new QueryId("query");
@@ -517,7 +520,7 @@ public class TestDynamicFilterService
     {
         DynamicFilterService dynamicFilterService = createDynamicFilterService();
         DynamicFilterId filterId = new DynamicFilterId("df");
-        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        SymbolAllocator symbolAllocator = emptySymbolAllocator();
         Symbol symbol1 = symbolAllocator.newSymbol("DF_SYMBOL1", INTEGER);
         Expression df1 = symbol1.toSymbolReference();
         QueryId queryId = new QueryId("query");
@@ -562,7 +565,7 @@ public class TestDynamicFilterService
         DynamicFilterService dynamicFilterService = createDynamicFilterService();
         DynamicFilterId filterId1 = new DynamicFilterId("df1");
         DynamicFilterId filterId2 = new DynamicFilterId("df2");
-        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        SymbolAllocator symbolAllocator = emptySymbolAllocator();
         Symbol symbol = symbolAllocator.newSymbol("symbol", INTEGER);
         ColumnHandle handle = new TestingColumnHandle("probeColumnA");
         QueryId queryId = new QueryId("query");
@@ -594,7 +597,7 @@ public class TestDynamicFilterService
     {
         DynamicFilterService dynamicFilterService = createDynamicFilterService();
         DynamicFilterId filterId1 = new DynamicFilterId("df1");
-        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        SymbolAllocator symbolAllocator = emptySymbolAllocator();
         Symbol symbol1 = symbolAllocator.newSymbol("DF_SYMBOL1", INTEGER);
         Symbol symbol2 = symbolAllocator.newSymbol("DF_SYMBOL2", INTEGER);
         Expression df1 = symbol1.toSymbolReference();
@@ -1029,7 +1032,7 @@ public class TestDynamicFilterService
         FilterNode filterNode = new FilterNode(
                 new PlanNodeId("filter_node_id"),
                 tableScan,
-                createDynamicFilterExpression(createTestingMetadataManager(), consumedDynamicFilterId, VARCHAR, symbol.toSymbolReference()));
+                createDynamicFilterExpression(createTestingMetadataManager(), getCharVarcharCoercion(TEST_SESSION), consumedDynamicFilterId, VARCHAR, symbol.toSymbolReference()));
 
         RemoteSourceNode remote = new RemoteSourceNode(new PlanNodeId("remote_id"), new PlanFragmentId("plan_fragment_id"), ImmutableList.of(buildSymbol), Optional.empty(), exchangeType, RetryPolicy.NONE);
         return new PlanFragment(

@@ -34,6 +34,7 @@ import java.util.concurrent.TimeUnit;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static io.trino.plugin.deltalake.TestingDeltaLakeUtils.getConnectorService;
 import static io.trino.testing.TestingNames.randomNameSuffix;
+import static io.trino.testing.assertions.Assert.assertEqualsIgnoreOrder;
 import static io.trino.testing.assertions.Assert.assertEventually;
 import static java.lang.String.format;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -87,17 +88,31 @@ public class TestDeltaLakeFlociAndLockBasedSynchronizerSmokeTest
         testWritesLocked("DELETE FROM %s WHERE a_number = 1");
     }
 
+    @Test
+    public void testDeletionVectorWriteLocked()
+            throws Exception
+    {
+        testWritesLocked("DELETE FROM %s WHERE a_number = 1", true);
+    }
+
     private void testWritesLocked(String writeStatement)
+            throws Exception
+    {
+        testWritesLocked(writeStatement, false);
+    }
+
+    private void testWritesLocked(String writeStatement, boolean deletionVectorsEnabled)
             throws Exception
     {
         String tableName = "test_writes_locked" + randomNameSuffix();
         try {
             assertUpdate(
-                    format("CREATE TABLE %s (a_number, a_string) WITH (location = 's3://%s/%s') AS " +
+                    format("CREATE TABLE %s (a_number, a_string) WITH (location = 's3://%s/%s', deletion_vectors_enabled = %s) AS " +
                                     "VALUES (1, 'ala'), (2, 'ma')",
                             tableName,
                             bucketName,
-                            tableName),
+                            tableName,
+                            deletionVectorsEnabled),
                     2);
 
             Set<String> originalFiles = ImmutableSet.copyOf(getTableFiles(tableName));
@@ -115,7 +130,7 @@ public class TestDeltaLakeFlociAndLockBasedSynchronizerSmokeTest
                     .build();
             assertEventually(
                     new Duration(5, TimeUnit.SECONDS),
-                    () -> assertThat(getTableFiles(tableName)).containsExactlyInAnyOrderElementsOf(expectedFiles));
+                    () -> assertEqualsIgnoreOrder(getTableFiles(tableName), expectedFiles));
         }
         finally {
             assertUpdate("DROP TABLE " + tableName);

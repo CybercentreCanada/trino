@@ -40,12 +40,14 @@ import io.trino.plugin.hive.orc.OrcWriterConfig;
 import io.trino.plugin.hive.parquet.ParquetReaderConfig;
 import io.trino.plugin.hive.parquet.ParquetWriterConfig;
 import io.trino.plugin.iceberg.delete.DeleteFile;
+import io.trino.plugin.iceberg.encryption.IcebergEncryptionConfig;
 import io.trino.spi.BlocksHashFactory;
 import io.trino.spi.Page;
 import io.trino.spi.block.Block;
 import io.trino.spi.block.BlockBuilder;
 import io.trino.spi.connector.ConnectorPageSource;
 import io.trino.spi.connector.DynamicFilter;
+import io.trino.spi.connector.MemoryContext;
 import io.trino.spi.predicate.TupleDomain;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.TypeOperators;
@@ -67,6 +69,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static io.airlift.units.DataSize.Unit.BYTE;
 import static io.trino.hdfs.HdfsTestUtils.HDFS_ENVIRONMENT;
@@ -75,6 +78,7 @@ import static io.trino.memory.context.AggregatedMemoryContext.newSimpleAggregate
 import static io.trino.parquet.ParquetTestUtils.writeParquetFile;
 import static io.trino.plugin.iceberg.ColumnIdentity.TypeCategory.PRIMITIVE;
 import static io.trino.plugin.iceberg.IcebergFileFormat.PARQUET;
+import static io.trino.plugin.iceberg.IcebergTestUtils.ENCRYPTION_MANAGER_FACTORY;
 import static io.trino.plugin.iceberg.IcebergTestUtils.FILE_IO_FACTORY;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.VARCHAR;
@@ -134,15 +138,18 @@ class TestIcebergPageSourceProvider
                 OptionalLong.empty(),
                 1L, // dataSequenceNumber
                 OptionalLong.empty(),
+                Optional.empty(),
                 Optional.empty());
 
-        IcebergPageSourceProvider provider = createPageSourceProvider();
+        AtomicLong sharedMemoryUsage = new AtomicLong();
+        IcebergPageSourceProvider provider = createPageSourceProvider(sharedMemoryUsage::set);
 
-        assertThat(provider.getMemoryUsage()).isEqualTo(0);
+        assertThat(sharedMemoryUsage.get()).isEqualTo(0);
 
         TestingConnectorSession session = TestingConnectorSession.builder()
                 .setPropertyMetadata(new IcebergSessionProperties(
                         new IcebergConfig(),
+                        new IcebergEncryptionConfig(),
                         ORC_READER_CONFIG,
                         new OrcWriterConfig(),
                         PARQUET_READER_CONFIG,
@@ -170,9 +177,10 @@ class TestIcebergPageSourceProvider
                 OptionalLong.of(0), // dataSequenceNumber
                 OptionalLong.empty(),
                 Optional.empty(),
-                newSimpleAggregatedMemoryContext())) {
+                newSimpleAggregatedMemoryContext(),
+                Optional.empty())) {
             // Memory should still be 0 before reading any pages (lazy loading)
-            assertThat(provider.getMemoryUsage()).isEqualTo(0);
+            assertThat(sharedMemoryUsage.get()).isEqualTo(0);
 
             // Read pages to trigger lazy loading of equality deletes
             while (!pageSource.isFinished()) {
@@ -180,7 +188,7 @@ class TestIcebergPageSourceProvider
             }
 
             // After reading, the equality delete filter should be loaded and tracked in memory
-            assertThat(provider.getMemoryUsage()).isGreaterThan(100);
+            assertThat(sharedMemoryUsage.get()).isGreaterThan(100);
         }
     }
 
@@ -272,7 +280,7 @@ class TestIcebergPageSourceProvider
         return builder.build();
     }
 
-    private static IcebergPageSourceProvider createPageSourceProvider()
+    private static IcebergPageSourceProvider createPageSourceProvider(MemoryContext memoryContext)
     {
         BlocksHashFactory blocksHashFactory = new FlatHashStrategyCompiler(new TypeOperators(), new NullSafeHashCompiler(new TypeOperators())).createBlocksHashFactory();
         return new IcebergPageSourceProvider(
@@ -283,7 +291,10 @@ class TestIcebergPageSourceProvider
                 PARQUET_READER_CONFIG.toParquetReaderOptions(),
                 TESTING_TYPE_MANAGER,
                 ParquetFooterCache.noop(),
-                Optional.of(blocksHashFactory));
+                blocksHashFactory,
+                ENCRYPTION_MANAGER_FACTORY,
+                memoryContext,
+                new IcebergConfig().getDomainCompactionThreshold());
     }
 
     private static class TestingParquetFooterCache

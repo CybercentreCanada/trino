@@ -29,6 +29,7 @@ import io.trino.sql.planner.SymbolAllocator;
 import java.util.Map;
 import java.util.Optional;
 
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static java.util.Collections.singletonList;
 
 /**
@@ -49,12 +50,12 @@ public class EvaluateCast
     @Override
     public Optional<Expression> apply(Expression expression, Session session, SymbolAllocator symbolAllocator, Map<Symbol, Expression> bindings)
     {
-        if (expression instanceof Cast(Constant constant, Type type)) {
+        if (expression instanceof Cast(Constant constant, Type type, _)) {
             try {
                 return Optional.of(new Constant(
                         type,
                         functionInvoker.invoke(
-                                metadata.getCoercion(constant.type(), type),
+                                metadata.getCoercion(getCharVarcharCoercion(session), constant.type(), type),
                                 session.toConnectorSession(),
                                 singletonList(constant.value()))));
             }

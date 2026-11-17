@@ -39,7 +39,6 @@ import io.trino.sql.ir.MatchClause;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.ir.WhenClause;
 import io.trino.sql.planner.Symbol;
-import io.trino.sql.planner.SymbolAllocator;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -50,6 +49,8 @@ import java.util.Set;
 import java.util.stream.IntStream;
 
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static io.trino.SessionTestUtils.TEST_SESSION;
+import static io.trino.SystemSessionProperties.getCharVarcharCoercion;
 import static io.trino.block.BlockAssertions.createLongSequenceBlock;
 import static io.trino.operator.project.PageFieldsToInputParametersRewriter.rewritePageFieldsToInputParameters;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -65,6 +66,7 @@ import static io.trino.sql.ir.TestingIr.between;
 import static io.trino.sql.ir.TestingIr.comparison;
 import static io.trino.sql.ir.TestingIr.nullIf;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
+import static io.trino.sql.planner.TestingSymbolAllocator.emptySymbolAllocator;
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class TestPageFieldsToInputParametersRewriter
@@ -111,7 +113,7 @@ public class TestPageFieldsToInputParametersRewriter
         verifyEagerlyLoadedColumns(builder.buildExpression(call(ADD_BIGINT, new Coalesce(new Constant(BIGINT, 0L), new Reference(BIGINT, "bigint0")), new Reference(BIGINT, "bigint0"))), 1);
 
         verifyEagerlyLoadedColumns(builder.buildExpression(call(ADD_BIGINT, new Reference(BIGINT, "bigint0"), call(MULTIPLY_BIGINT, new Constant(BIGINT, 2L), new Reference(BIGINT, "bigint1")))), 2);
-        verifyEagerlyLoadedColumns(builder.buildExpression(nullIf(new SymbolAllocator(), new Reference(BIGINT, "bigint0"), new Reference(BIGINT, "bigint1"))), 2);
+        verifyEagerlyLoadedColumns(builder.buildExpression(nullIf(emptySymbolAllocator(), new Reference(BIGINT, "bigint0"), new Reference(BIGINT, "bigint1"))), 2);
         verifyEagerlyLoadedColumns(builder.buildExpression(new Coalesce(call(CEIL, call(DIVIDE_BIGINT, new Reference(BIGINT, "bigint0"), new Reference(BIGINT, "bigint1"))), new Constant(BIGINT, 0L))), 2);
         verifyEagerlyLoadedColumns(builder.buildExpression(new Case(ImmutableList.of(new WhenClause(comparison(GREATER_THAN, new Reference(BIGINT, "bigint0"), new Reference(BIGINT, "bigint1")), new Constant(INTEGER, 1L))), new Constant(INTEGER, 0L))), 2);
         verifyEagerlyLoadedColumns(
@@ -176,6 +178,6 @@ public class TestPageFieldsToInputParametersRewriter
 
     private static MatchClause equalityClause(Expression value, Expression result)
     {
-        return IrExpressions.equalityClause(PLANNER_CONTEXT.getMetadata(), new Symbol(value.type(), "operand"), value, result);
+        return IrExpressions.equalityClause(PLANNER_CONTEXT.getMetadata(), getCharVarcharCoercion(TEST_SESSION), new Symbol(value.type(), "operand"), value, result);
     }
 }

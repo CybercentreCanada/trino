@@ -21,10 +21,8 @@ import io.trino.spi.type.Type;
 import io.trino.sql.ir.Constant;
 import io.trino.sql.ir.Expression;
 import io.trino.sql.ir.In;
-import io.trino.sql.ir.IsNull;
 import io.trino.sql.ir.Reference;
 import io.trino.sql.ir.optimizer.rule.SimplifyContinuousInValues;
-import io.trino.sql.planner.SymbolAllocator;
 import io.trino.type.Reals;
 import org.junit.jupiter.api.Test;
 
@@ -50,9 +48,11 @@ import static io.trino.spi.type.TimestampType.TIMESTAMP_MILLIS;
 import static io.trino.spi.type.TimestampType.TIMESTAMP_SECONDS;
 import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.TypeUtils.writeNativeValue;
+import static io.trino.sql.ir.Booleans.NULL_BOOLEAN;
 import static io.trino.sql.ir.IrUtils.or;
 import static io.trino.sql.ir.TestingIr.between;
 import static io.trino.sql.planner.TestingPlannerContext.PLANNER_CONTEXT;
+import static io.trino.sql.planner.TestingSymbolAllocator.emptySymbolAllocator;
 import static io.trino.testing.TestingSession.testSession;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -85,8 +85,8 @@ public class TestSimplifyContinuousInValues
                 new In(new Reference(BIGINT, "x"), ImmutableList.of(new Constant(BIGINT, null), new Constant(BIGINT, 1L), new Constant(BIGINT, 2L)))))
                 .describedAs("continuous values with null")
                 .isEqualTo(Optional.of(or(
-                        new IsNull(new Reference(BIGINT, "x")),
-                        between(new Reference(BIGINT, "x"), new Constant(BIGINT, 1L), new Constant(BIGINT, 2L)))));
+                        between(new Reference(BIGINT, "x"), new Constant(BIGINT, 1L), new Constant(BIGINT, 2L)),
+                        NULL_BOOLEAN)));
 
         assertThat(optimize(
                 new In(new Reference(BIGINT, "x"), ImmutableList.of(new Constant(BIGINT, 1L), new Constant(BIGINT, 2L), new Constant(BIGINT, 3L)))))
@@ -198,6 +198,6 @@ public class TestSimplifyContinuousInValues
 
     private static Optional<Expression> optimize(Expression expression)
     {
-        return new SimplifyContinuousInValues(PLANNER_CONTEXT).apply(expression, testSession(), new SymbolAllocator(), ImmutableMap.of());
+        return new SimplifyContinuousInValues(PLANNER_CONTEXT).apply(expression, testSession(), emptySymbolAllocator(), ImmutableMap.of());
     }
 }

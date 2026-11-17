@@ -76,7 +76,7 @@ public class TestStringFunctions
     @ScalarFunction(value = "vl", deterministic = true)
     @LiteralParameters("x")
     @SqlType(StandardTypes.BIGINT)
-    public static long varcharLength(@LiteralParameter("x") Long param, @SqlType("varchar(x)") Slice slice)
+    public static long varcharLength(@LiteralParameter("x") long param, @SqlType("varchar(x)") Slice slice)
     {
         return param;
     }
@@ -397,6 +397,16 @@ public class TestStringFunctions
 
         assertTrinoExceptionThrownBy(assertions.function("hamming_distance", "'\u4FE1\u5FF5,\u7231,\u5E0C\u671B'", "'\u4FE1\u5FF5\u5E0C\u671B'")::evaluate)
                 .hasMessage("The input strings to hamming_distance function must have the same length");
+
+        // NUL (U+0000) is a valid single-byte code point and must be advanced past like any other character
+        assertThat(assertions.function("hamming_distance", "chr(0)", "chr(0)"))
+                .isEqualTo(0L);
+
+        assertThat(assertions.function("hamming_distance", "chr(0)", "'a'"))
+                .isEqualTo(1L);
+
+        assertThat(assertions.function("hamming_distance", "'a' || chr(0) || 'c'", "'a' || chr(0) || 'd'"))
+                .isEqualTo(1L);
     }
 
     @Test
@@ -569,6 +579,16 @@ public class TestStringFunctions
         assertThat(assertions.function("reverse", "'\uD801\uDC2Dend'"))
                 .hasType(createVarcharType(4))
                 .isEqualTo("dne\uD801\uDC2D");
+
+        // input with leading whitespace
+        assertThat(assertions.function("reverse", "' a'"))
+                .hasType(createVarcharType(2))
+                .isEqualTo("a ");
+
+        // input with trailing whitespace
+        assertThat(assertions.function("reverse", "'a '"))
+                .hasType(createVarcharType(2))
+                .isEqualTo(" a");
     }
 
     @Test
@@ -614,6 +634,16 @@ public class TestStringFunctions
         assertThat(assertions.function("reverse", "CAST('\uD801\uDC2Dend' AS CHAR(6))"))
                 .hasType(createCharType(6))
                 .isEqualTo("  dne\uD801\uDC2D");
+
+        // input with leading whitespace
+        assertThat(assertions.function("reverse", "CAST(' a' AS CHAR(2))"))
+                .hasType(createCharType(2))
+                .isEqualTo("a ");
+
+        // input with trailing whitespace
+        assertThat(assertions.function("reverse", "CAST('a' AS CHAR(2))"))
+                .hasType(createCharType(2))
+                .isEqualTo(" a");
     }
 
     @Test
@@ -1978,7 +2008,7 @@ public class TestStringFunctions
 
         assertThat(assertions.function("rtrim", "CAST('abc def' AS CHAR(7))", "'def'"))
                 .hasType(createVarcharType(7))
-                .isEqualTo("abc");
+                .isEqualTo("abc ");
 
         // non latin characters
         assertThat(assertions.function("rtrim", "'\u017a\u00f3\u0142\u0107'", "'\u0107\u0142'"))
@@ -2164,6 +2194,86 @@ public class TestStringFunctions
         assertThat(assertions.function("upper", "CAST('From\uD801\uDC2DTo' AS CHAR(7))"))
                 .hasType(createCharType(7))
                 .isEqualTo(padRight("FROM" + upperByCodePoint("\uD801\uDC2D") + "TO", 7));
+    }
+
+    @Test
+    public void testTitleCase()
+    {
+        assertThat(assertions.function("title_case", "''"))
+                .hasType(createVarcharType(0))
+                .isEqualTo("");
+
+        assertThat(assertions.function("title_case", "'hello'"))
+                .hasType(createVarcharType(5))
+                .isEqualTo("Hello");
+
+        assertThat(assertions.function("title_case", "'hello world'"))
+                .hasType(createVarcharType(11))
+                .isEqualTo("Hello World");
+
+        assertThat(assertions.function("title_case", "'HELLO WORLD'"))
+                .hasType(createVarcharType(11))
+                .isEqualTo("Hello World");
+
+        assertThat(assertions.function("title_case", "'hElLo WoRLd'"))
+                .hasType(createVarcharType(11))
+                .isEqualTo("Hello World");
+
+        assertThat(assertions.function("title_case", "'what!!'"))
+                .hasType(createVarcharType(6))
+                .isEqualTo("What!!");
+
+        assertThat(assertions.function("title_case", "'hello-world'"))
+                .hasType(createVarcharType(11))
+                .isEqualTo("Hello-world");
+
+        assertThat(assertions.function("title_case", "'hello   world'"))
+                .hasType(createVarcharType(13))
+                .isEqualTo("Hello   World");
+
+        assertThat(assertions.function("title_case", "'hello world 123'"))
+                .hasType(createVarcharType(15))
+                .isEqualTo("Hello World 123");
+
+        assertThat(assertions.function("title_case", "'123hello'"))
+                .hasType(createVarcharType(8))
+                .isEqualTo("123hello");
+
+        assertThat(assertions.function("title_case", "'österreich'"))
+                .hasType(createVarcharType(10))
+                .isEqualTo("Österreich");
+
+        assertThat(assertions.function("title_case", "'hello 😀 world'"))
+                .hasType(createVarcharType(13))
+                .isEqualTo("Hello 😀 World");
+
+        assertThat(assertions.function("title_case", "'中文字符'"))
+                .hasType(createVarcharType(4))
+                .isEqualTo("中文字符");
+    }
+
+    @Test
+    public void testCharTitleCase()
+    {
+        assertThat(assertions.function("title_case", "CAST('' AS CHAR(10))"))
+                .hasType(createCharType(10))
+                .isEqualTo(padRight("", 10));
+
+        assertThat(assertions.function("title_case", "CAST('hello world' AS CHAR(11))"))
+                .hasType(createCharType(11))
+                .isEqualTo(padRight("Hello World", 11));
+
+        assertThat(assertions.function("title_case", "CAST('HELLO WORLD' AS CHAR(11))"))
+                .hasType(createCharType(11))
+                .isEqualTo(padRight("Hello World", 11));
+
+        assertThat(assertions.function("title_case", "CAST('what!!' AS CHAR(6))"))
+                .hasType(createCharType(6))
+                .isEqualTo(padRight("What!!", 6));
+
+        assertThat(assertions.function("title_case", "CAST('österreich' AS CHAR(10))"))
+                .hasType(createCharType(10))
+                .isEqualTo(padRight("Österreich", 10));
     }
 
     @Test

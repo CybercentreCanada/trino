@@ -52,6 +52,7 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileContent;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Metrics;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
@@ -64,10 +65,15 @@ import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
-import org.apache.iceberg.data.parquet.GenericParquetWriter;
+import org.apache.iceberg.data.parquet.InternalWriter;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
+import org.apache.iceberg.encryption.EncryptedOutputFile;
+import org.apache.iceberg.encryption.EncryptionKeyMetadata;
+import org.apache.iceberg.formats.FileWriterBuilder;
+import org.apache.iceberg.io.FileAppender;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.mapping.MappingUtil;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Type;
@@ -113,6 +119,8 @@ import static io.trino.testing.MaterializedResult.resultBuilder;
 import static io.trino.testing.QueryAssertions.copyTpchTables;
 import static io.trino.testing.TestingNames.randomNameSuffix;
 import static io.trino.testing.TestingSession.testSessionBuilder;
+import static io.trino.testing.assertions.Assert.assertEqualsIgnoreOrder;
+import static io.trino.testing.assertions.Assert.assertEventually;
 import static io.trino.tpch.TpchTable.NATION;
 import static io.trino.type.InternalTypeManager.TESTING_TYPE_MANAGER;
 import static java.lang.String.format;
@@ -122,11 +130,14 @@ import static org.apache.iceberg.FileContent.EQUALITY_DELETES;
 import static org.apache.iceberg.FileContent.POSITION_DELETES;
 import static org.apache.iceberg.FileFormat.ORC;
 import static org.apache.iceberg.FileFormat.PARQUET;
+import static org.apache.iceberg.Files.localOutput;
 import static org.apache.iceberg.TableProperties.DEFAULT_NAME_MAPPING;
 import static org.apache.iceberg.TableProperties.METADATA_DELETE_AFTER_COMMIT_ENABLED;
 import static org.apache.iceberg.TableProperties.METADATA_PREVIOUS_VERSIONS_MAX;
 import static org.apache.iceberg.TableProperties.SPLIT_SIZE;
 import static org.apache.iceberg.TableUtil.formatVersion;
+import static org.apache.iceberg.encryption.EncryptedFiles.encryptedOutput;
+import static org.apache.iceberg.formats.FormatModelRegistry.positionDeleteWriteBuilder;
 import static org.apache.iceberg.mapping.NameMappingParser.toJson;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -255,6 +266,19 @@ public class TestIcebergV2
     }
 
     @Test
+    public void testPositionDeletesAfterPartitionSpecEvolution()
+    {
+        try (TestTable table = newTrinoTable("test_position_deletes_after_partition_evolution_", "WITH (partitioning = ARRAY['regionkey']) AS SELECT * FROM tpch.tiny.nation")) {
+            assertUpdate("ALTER TABLE " + table.getName() + " SET PROPERTIES partitioning = ARRAY['bucket(name, 4)']");
+            assertUpdate("INSERT INTO " + table.getName() + " VALUES (25, 'ATLANTIS', 0, 'mythical')", 1);
+            // Deletes rows from data files written under both the previous and the current partition spec
+            assertUpdate("DELETE FROM " + table.getName() + " WHERE name LIKE 'A%'", 3);
+            assertQuery("SELECT count(*) FROM " + table.getName(), "VALUES 23");
+            assertQuery("SELECT count(*) FROM \"" + table.getName() + "$files\" WHERE content = " + POSITION_DELETES.id(), "VALUES 3");
+        }
+    }
+
+    @Test
     public void testV2TableWithPositionDelete()
             throws Exception
     {
@@ -266,16 +290,11 @@ public class TestIcebergV2
 
             FileIO fileIo = FILE_IO_FACTORY.create(fileSystemFactory.create(SESSION));
 
-            PositionDeleteWriter<Record> writer = Parquet.writeDeletes(fileIo.newOutputFile("local:///delete_file_" + UUID.randomUUID()))
-                    .createWriterFunc(GenericParquetWriter::create)
-                    .forTable(icebergTable)
-                    .overwrite()
-                    .rowSchema(icebergTable.schema())
-                    .withSpec(PartitionSpec.unpartitioned())
-                    .buildPositionWriter();
+            EncryptedOutputFile encryptedFile = encryptedOutput(fileIo.newOutputFile("local:///delete_file_" + UUID.randomUUID()), EncryptionKeyMetadata.EMPTY);
+            FileWriterBuilder<PositionDeleteWriter<Object>, ?> writerBuilder = positionDeleteWriteBuilder(FileFormat.PARQUET, encryptedFile);
+            PositionDeleteWriter<Object> writer = writerBuilder.spec(PartitionSpec.unpartitioned()).build();
+            PositionDelete<Object> record = PositionDelete.create().set(dataFilePath, 0L);
 
-            PositionDelete<Record> positionDelete = PositionDelete.create();
-            PositionDelete<Record> record = positionDelete.set(dataFilePath, 0, GenericRecord.create(icebergTable.schema()));
             try (Closeable ignored = writer) {
                 writer.write(record);
             }
@@ -437,6 +456,74 @@ public class TestIcebergV2
                             .row(ImmutableList.of(4L))
                             .build());
         }
+    }
+
+    @Test
+    public void testOptimizeNotNullViolation()
+            throws Exception
+    {
+        testOptimizeNotNullViolation(true);
+        testOptimizeNotNullViolation(false);
+    }
+
+    private void testOptimizeNotNullViolation(boolean partitioned)
+            throws Exception
+    {
+        String tableProperty = partitioned ? "WITH (partitioning = ARRAY['x'])" : "";
+        try (TestTable table = newTrinoTable("test_optimize_not_null", "(x INT NOT NULL)" + tableProperty)) {
+            BaseTable icebergTable = loadTable(table.getName());
+
+            // Add data file with NULL value on NOT NULL column
+            Schema nullableSchema = new Schema(Types.NestedField.optional(1, "x", Types.IntegerType.get()));
+            GenericRecord record = GenericRecord.create(nullableSchema);
+            record.setField("x", null);
+            insertRecord(icebergTable, nullableSchema, record);
+            insertRecord(icebergTable, nullableSchema, record);
+
+            Location dataDirectory = Location.of(icebergTable.location()).appendPath("data");
+            List<String> dataFiles = listFiles(dataDirectory);
+            assertThat(dataFiles).hasSize(2);
+
+            assertThat(query("TABLE " + table.getName()))
+                    .matches("VALUES CAST(NULL AS integer), NULL");
+
+            assertThat(query("ALTER TABLE " + table.getName() + " EXECUTE OPTIMIZE")).failure()
+                    .hasMessage("NULL value not allowed for NOT NULL column: x");
+            assertEventually(() -> assertEqualsIgnoreOrder(listFiles(dataDirectory), dataFiles, "Data files after failed optimize"));
+
+            assertThat(query("TABLE " + table.getName()))
+                    .matches("VALUES CAST(NULL AS integer), NULL");
+        }
+    }
+
+    private static void insertRecord(Table table, Schema schema, Record record)
+            throws IOException
+    {
+        OutputFile outputFile = localOutput(table.location() + "/data/" + randomNameSuffix() + ".parquet");
+        try (FileAppender<Record> writer = Parquet.write(outputFile)
+                .schema(schema)
+                .createWriterFunc(fileSchema -> InternalWriter.create(schema.asStruct(), fileSchema))
+                .build()) {
+            writer.add(record);
+            DataFile file = DataFiles.builder(PartitionSpec.unpartitioned())
+                    .withRecordCount(1)
+                    .withFileSizeInBytes(1000)
+                    .withPath(outputFile.location())
+                    .withFormat(FileFormat.PARQUET)
+                    .build();
+            table.newAppend().appendFile(file).commit();
+        }
+    }
+
+    protected List<String> listFiles(Location location)
+            throws IOException
+    {
+        ImmutableList.Builder<String> files = ImmutableList.builder();
+        FileIterator listing = fileSystemFactory.create(SESSION).listFiles(location);
+        while (listing.hasNext()) {
+            files.add(listing.next().location().toString());
+        }
+        return files.build();
     }
 
     @Test
@@ -661,6 +748,114 @@ public class TestIcebergV2
                     .matches("VALUES (BIGINT '10', VARCHAR '')");
             assertThat(query("SELECT \"$partition\", root.nested FROM " + tableName))
                     .matches("VALUES (VARCHAR '', BIGINT '10')");
+        }
+    }
+
+    @Test
+    public void testEqualityDeletesWithDistinctNestedKeys()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_equality_deletes_distinct_nested_keys_", "(id BIGINT, root ROW(nested BIGINT))")) {
+            String tableName = table.getName();
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, row(10)), (2, row(20)), (3, row(30))", 3);
+            Table icebergTable = loadTable(tableName);
+
+            Schema deleteRowSchema = icebergTable.schema().select("root.nested");
+            List<Integer> equalityFieldIds = ImmutableList.of(deleteRowSchema.findField("root.nested").fieldId());
+            for (long key : ImmutableList.of(20L, 30L)) {
+                Record nestedStruct = GenericRecord.create((Types.StructType) deleteRowSchema.findField("root").type());
+                nestedStruct.setField("nested", key);
+                writeEqualityDeleteToNationTableWithDeleteColumns(
+                        icebergTable,
+                        Optional.empty(),
+                        Optional.empty(),
+                        ImmutableMap.of("root", nestedStruct),
+                        deleteRowSchema,
+                        equalityFieldIds);
+            }
+
+            assertThat(query("SELECT id FROM " + tableName))
+                    .matches("VALUES BIGINT '1'");
+        }
+    }
+
+    @Test
+    public void testEqualityDeleteOnNestedKeyWithComment()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_equality_delete_nested_key_with_comment_", "(id BIGINT, root ROW(nested BIGINT))")) {
+            String tableName = table.getName();
+            // the handle built for the equality delete key carries the field comment, the one built for the query projection does not
+            loadTable(tableName).updateSchema()
+                    .updateColumnDoc("root.nested", "key comment")
+                    .commit();
+            // single INSERT so both rows share one data file and the equality delete is applied to it
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, row(10)), (2, row(20))", 2);
+
+            Table icebergTable = loadTable(tableName);
+            Schema deleteRowSchema = icebergTable.schema().select("root.nested");
+            Record root = GenericRecord.create(deleteRowSchema.findField("root").type().asStructType());
+            root.setField("nested", 20L);
+            writeEqualityDeleteToNationTableWithDeleteColumns(
+                    icebergTable,
+                    Optional.empty(),
+                    Optional.empty(),
+                    ImmutableMap.of("root", root),
+                    deleteRowSchema,
+                    ImmutableList.of(deleteRowSchema.findField("root.nested").fieldId()));
+
+            assertThat(query("SELECT id FROM " + tableName))
+                    .matches("VALUES BIGINT '1'");
+            assertThat(query("SELECT root.nested FROM " + tableName))
+                    .matches("VALUES BIGINT '10'");
+            assertThat(query("SELECT id, root.nested FROM " + tableName))
+                    .matches("VALUES (BIGINT '1', BIGINT '10')");
+        }
+    }
+
+    @Test
+    public void testEqualityDeletesWithStructColumnAsKey()
+            throws Exception
+    {
+        try (TestTable table = newTrinoTable("test_equality_deletes_struct_key_", "(id BIGINT, root ROW(a VARCHAR, b VARCHAR, c VARCHAR))")) {
+            String tableName = table.getName();
+            assertUpdate("INSERT INTO " + tableName + " VALUES (1, row('x1', 'y1', 'z1'))", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (2, row('x2', 'y2', 'z2'))", 1);
+            assertUpdate("INSERT INTO " + tableName + " VALUES (3, row('x3', 'y3', 'z3'))", 1);
+            Table icebergTable = loadTable(tableName);
+            assertThat(icebergTable.currentSnapshot().summary()).containsEntry("total-equality-deletes", "0");
+
+            List<String> deleteFileColumns = ImmutableList.of("root");
+            Schema deleteRowSchema = icebergTable.schema().select(deleteFileColumns);
+            List<Integer> equalityFieldIds = deleteFileColumns.stream()
+                    .map(name -> deleteRowSchema.findField(name).fieldId())
+                    .collect(toImmutableList());
+            Types.StructType structType = (Types.StructType) deleteRowSchema.findField("root").type();
+
+            for (Map<String, String> deletedValues : ImmutableList.of(
+                    ImmutableMap.of("a", "x2", "b", "y2", "c", "z2"),
+                    ImmutableMap.of("a", "x3", "b", "y3", "c", "z3"))) {
+                Record structRecord = GenericRecord.create(structType);
+                deletedValues.forEach(structRecord::setField);
+                writeEqualityDeleteToNationTableWithDeleteColumns(
+                        icebergTable,
+                        Optional.empty(),
+                        Optional.empty(),
+                        ImmutableMap.of("root", structRecord),
+                        deleteRowSchema,
+                        equalityFieldIds);
+            }
+
+            assertThat(query("SELECT * FROM " + tableName))
+                    .matches("VALUES (BIGINT '1', CAST(row('x1', 'y1', 'z1') AS ROW(a VARCHAR, b VARCHAR, c VARCHAR)))");
+
+            // verify that the equality delete is effective when not specifying the corresponding column in the projection list
+            assertThat(query("SELECT id FROM " + tableName))
+                    .matches("VALUES BIGINT '1'");
+
+            // verify that the equality delete is effective when only a subfield of the struct key is projected
+            assertThat(query("SELECT root.b FROM " + tableName))
+                    .matches("VALUES CAST('y1' AS VARCHAR)");
         }
     }
 
@@ -1316,6 +1511,59 @@ public class TestIcebergV2
                             .setRange(new DoubleRange(1.0, 200.0))
                             .build());
         }
+    }
+
+    @Test
+    public void testStatsManifestDecoding()
+    {
+        int threshold = TableStatisticsReader.INLINE_MANIFEST_DECODE_THRESHOLD;
+        IcebergColumnHandle column = IcebergColumnHandle.optional(ColumnIdentity.primitiveColumnIdentity(1, "a")).columnType(INTEGER).build();
+        try (TestTable testTable = newTrinoTable("test_stats_manifest_decoding_", "(a INT)")) {
+            for (int i = 0; i < threshold - 1; i++) {
+                assertUpdate("INSERT INTO " + testTable.getName() + " VALUES (" + i + ")", 1);
+            }
+            // manifests are decoded inline and accumulated into a single set of statistics
+            assertThat(manifestCount(testTable.getName())).isLessThan(threshold);
+            assertThat(tableRowCountFromStatistics(testTable.getName())).isEqualTo(threshold - 1);
+            assertThat(columnRangeFromStatistics(testTable.getName(), column)).contains(new DoubleRange(0, threshold - 2));
+
+            assertUpdate("INSERT INTO " + testTable.getName() + " VALUES (100)", 1);
+            // manifests are decoded in parallel and the per-manifest statistics merged
+            assertThat(manifestCount(testTable.getName())).isGreaterThanOrEqualTo(threshold);
+            assertThat(tableRowCountFromStatistics(testTable.getName())).isEqualTo(threshold);
+            assertThat(columnRangeFromStatistics(testTable.getName(), column)).contains(new DoubleRange(0, 100));
+        }
+    }
+
+    private long manifestCount(String tableName)
+    {
+        return (long) computeScalar("SELECT count(*) FROM \"" + tableName + "$manifests\"");
+    }
+
+    private double tableRowCountFromStatistics(String tableName)
+    {
+        return tableStatistics(tableName, ImmutableSet.of()).getRowCount().getValue();
+    }
+
+    private Optional<DoubleRange> columnRangeFromStatistics(String tableName, IcebergColumnHandle column)
+    {
+        return tableStatistics(tableName, ImmutableSet.of(column))
+                .getColumnStatistics()
+                .get(column)
+                .getRange();
+    }
+
+    private TableStatistics tableStatistics(String tableName, Set<IcebergColumnHandle> projectedColumns)
+    {
+        OptionalLong snapshotId = OptionalLong.of((long) computeScalar("SELECT snapshot_id FROM \"" + tableName + "$snapshots\" ORDER BY committed_at DESC FETCH FIRST 1 ROW WITH TIES"));
+        return TableStatisticsReader.makeTableStatistics(
+                TESTING_TYPE_MANAGER,
+                loadTable(tableName),
+                snapshotId,
+                TupleDomain.all(),
+                TupleDomain.all(),
+                projectedColumns,
+                newDirectExecutorService());
     }
 
     @Test

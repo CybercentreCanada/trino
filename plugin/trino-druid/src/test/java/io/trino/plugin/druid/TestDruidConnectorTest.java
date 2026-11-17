@@ -102,7 +102,6 @@ public class TestDruidConnectorTest
                  SUPPORTS_AGGREGATION_PUSHDOWN_REGRESSION,
                  SUPPORTS_AGGREGATION_PUSHDOWN_STDDEV,
                  SUPPORTS_AGGREGATION_PUSHDOWN_VARIANCE,
-                 SUPPORTS_PREDICATE_EXPRESSION_PUSHDOWN,
                  SUPPORTS_COMMENT_ON_COLUMN,
                  SUPPORTS_COMMENT_ON_TABLE,
                  SUPPORTS_CREATE_SCHEMA,
@@ -110,6 +109,9 @@ public class TestDruidConnectorTest
                  SUPPORTS_DELETE,
                  SUPPORTS_DROP_NOT_NULL_CONSTRAINT,
                  SUPPORTS_INSERT,
+                 // Connector expression pushdown rewrites numeric comparisons only; it rewrites neither arithmetic operators nor LIKE
+                 SUPPORTS_PREDICATE_ARITHMETIC_EXPRESSION_PUSHDOWN,
+                 SUPPORTS_PREDICATE_EXPRESSION_PUSHDOWN_WITH_LIKE,
                  SUPPORTS_RENAME_COLUMN,
                  SUPPORTS_RENAME_TABLE,
                  SUPPORTS_ROW_TYPE,
@@ -165,18 +167,21 @@ public class TestDruidConnectorTest
     public void testShowCreateTable()
     {
         assertThat(computeActual("SHOW CREATE TABLE orders").getOnlyValue())
-                .isEqualTo("CREATE TABLE druid.druid.orders (\n" +
-                        "   __time timestamp(3) NOT NULL,\n" +
-                        "   clerk varchar,\n" +
-                        "   comment varchar,\n" +
-                        "   custkey bigint,\n" +
-                        "   orderdate varchar,\n" +
-                        "   orderkey bigint,\n" +
-                        "   orderpriority varchar,\n" +
-                        "   orderstatus varchar,\n" +
-                        "   shippriority bigint,\n" +
-                        "   totalprice double\n" +
-                        ")");
+                .isEqualTo(
+                        """
+                        CREATE TABLE druid.druid.orders (
+                           __time timestamp(3) NOT NULL,
+                           clerk varchar,
+                           comment varchar,
+                           custkey bigint,
+                           orderdate varchar,
+                           orderkey bigint,
+                           orderpriority varchar,
+                           orderstatus varchar,
+                           shippriority bigint,
+                           totalprice double
+                        )\
+                        """);
     }
 
     @Override
@@ -370,6 +375,29 @@ public class TestDruidConnectorTest
     }
 
     @Test
+    public void testPredicateExpressionPushdown()
+    {
+        // Numeric column-to-column comparisons cannot be expressed as a TupleDomain, so they are
+        // pushed down only through connector expression pushdown (convertPredicate). Exercise every mapped
+        // comparison operator (=, <>, <, <=, >, >=).
+        assertThat(query("SELECT nationkey, regionkey FROM nation WHERE nationkey = regionkey"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT nationkey, regionkey FROM nation WHERE nationkey <> regionkey"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT nationkey, regionkey FROM nation WHERE nationkey < regionkey"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT nationkey, regionkey FROM nation WHERE nationkey <= regionkey"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT nationkey, regionkey FROM nation WHERE nationkey > regionkey"))
+                .isFullyPushedDown();
+        assertThat(query("SELECT nationkey, regionkey FROM nation WHERE nationkey >= regionkey"))
+                .isFullyPushedDown();
+        // A column-to-column expression combines with a TupleDomain predicate into a single pushed-down filter.
+        assertThat(query("SELECT nationkey, regionkey FROM nation WHERE nationkey > regionkey AND regionkey > 1"))
+                .isFullyPushedDown();
+    }
+
+    @Test
     public void testPredicatePushdownForTimestampWithSecondsPrecision()
     {
         // timestamp equality
@@ -536,7 +564,7 @@ public class TestDruidConnectorTest
                 .matches("VALUES " +
                         "(BIGINT '3', BIGINT '1673', CAST('RAIL' AS varchar)), " +
                         "(BIGINT '1', BIGINT '574', CAST('AIR' AS varchar))")
-                .isNotFullyPushedDown(FilterNode.class);
+                .isFullyPushedDown();
     }
 
     @Test
@@ -582,11 +610,11 @@ public class TestDruidConnectorTest
         assertThat(query("SELECT regionkey, sum(nationkey) FROM nation WHERE regionkey < 4 AND name > 'AAA' GROUP BY regionkey")).isFullyPushedDown();
         // GROUP BY above WHERE and LIMIT
         assertThat(query("SELECT regionkey, sum(nationkey) FROM (SELECT * FROM nation WHERE regionkey < 2 LIMIT 11) GROUP BY regionkey")).isFullyPushedDown();
-        // GROUP BY above TopN - TopN pushdown not yet supported
+        // GROUP BY above TopN - TopN pushdown is only supported when ordering by __time
         assertThat(query("SELECT custkey, sum(totalprice) FROM (SELECT custkey, totalprice FROM orders ORDER BY orderdate ASC, totalprice ASC LIMIT 10) GROUP BY custkey")).isNotFullyPushedDown(project(node(TopNNode.class, anyTree(node(TableScanNode.class)))));
         // GROUP BY with WHERE on neither grouping nor aggregation column
         assertThat(query("SELECT nationkey, min(regionkey) FROM nation WHERE name = 'ARGENTINA' GROUP BY nationkey")).isFullyPushedDown();
-        // GROUP BY with WHERE LIKE predicate: not pushed down because the connector does not push down predicate expressions
+        // GROUP BY with WHERE LIKE predicate: not pushed down because the standard expression rules do not include a LIKE rewrite
         assertThat(query("SELECT regionkey, sum(nationkey) FROM nation WHERE name LIKE '%N%' GROUP BY regionkey"))
                 .isNotFullyPushedDown(FilterNode.class);
         // aggregation on varchar column
@@ -710,5 +738,35 @@ public class TestDruidConnectorTest
         assertThat(query("SELECT orderstatus, min(totalprice) FROM orders WHERE orderstatus = 'F' GROUP BY orderstatus")).isFullyPushedDown();
         // GROUP BY with WHERE on aggregation column
         assertThat(query("SELECT orderstatus, min(totalprice) FROM orders WHERE totalprice > 50000 GROUP BY orderstatus")).isFullyPushedDown();
+    }
+
+    @Test
+    public void testTopNPushdownOnTimeColumn()
+    {
+        // __time is the only sort key Druid supports for a non-aggregating query
+        assertThat(query("SELECT __time FROM orders ORDER BY __time DESC LIMIT 10"))
+                .ordered()
+                .matches("SELECT CAST(orderdate AS timestamp(3)) FROM tpch.tiny.orders ORDER BY orderdate DESC LIMIT 10")
+                .isFullyPushedDown();
+        assertThat(query("SELECT __time FROM orders ORDER BY __time ASC LIMIT 10"))
+                .ordered()
+                .matches("SELECT CAST(orderdate AS timestamp(3)) FROM tpch.tiny.orders ORDER BY orderdate ASC LIMIT 10")
+                .isFullyPushedDown();
+        // __time is never null, so the requested null ordering does not matter
+        assertThat(query("SELECT __time FROM orders ORDER BY __time DESC NULLS FIRST LIMIT 10"))
+                .ordered()
+                .matches("SELECT CAST(orderdate AS timestamp(3)) FROM tpch.tiny.orders ORDER BY orderdate DESC LIMIT 10")
+                .isFullyPushedDown();
+        // with a pushed down predicate
+        assertThat(query("SELECT __time FROM orders WHERE orderkey < 1000 ORDER BY __time DESC LIMIT 10"))
+                .ordered()
+                .matches("SELECT CAST(orderdate AS timestamp(3)) FROM tpch.tiny.orders WHERE orderkey < 1000 ORDER BY orderdate DESC LIMIT 10")
+                .isFullyPushedDown();
+
+        // any other sort key stays in Trino
+        assertThat(query("SELECT orderkey FROM orders ORDER BY orderkey LIMIT 10")).isNotFullyPushedDown(TopNNode.class);
+        assertThat(query("SELECT orderkey FROM orders ORDER BY __time DESC, orderkey LIMIT 10")).isNotFullyPushedDown(TopNNode.class);
+        // TopN above LIMIT would put the ORDER BY on a subquery, which Druid does not honor
+        assertThat(query("SELECT __time FROM (SELECT __time FROM orders LIMIT 100) ORDER BY __time DESC LIMIT 10")).isNotFullyPushedDown(TopNNode.class);
     }
 }
