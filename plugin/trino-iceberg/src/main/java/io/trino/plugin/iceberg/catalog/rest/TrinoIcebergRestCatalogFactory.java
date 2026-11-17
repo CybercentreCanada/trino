@@ -36,10 +36,7 @@ import org.apache.iceberg.rest.HTTPClient;
 import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.apache.iceberg.rest.RESTUtil;
 
-<<<<<<< HEAD
 import java.util.HashMap;
-=======
->>>>>>> tags/484
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;

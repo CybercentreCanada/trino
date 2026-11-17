@@ -809,19 +809,11 @@ public sealed class OpaAccessControl
 
     OpaQueryContext buildQueryContext(Identity trinoIdentity)
     {
-<<<<<<< HEAD
-        return new OpaQueryContext(TrinoIdentity.fromTrinoIdentity(trinoIdentity), pluginContext, opaHighLevelClient.getAdditionalContext(), Optional.empty(), Optional.empty());
-=======
-        return new OpaQueryContext(TrinoIdentity.fromTrinoIdentity(trinoIdentity, extraCredentialsKeys), pluginContext, opaHighLevelClient.getAdditionalContext(), Optional.empty());
->>>>>>> tags/484
+        return new OpaQueryContext(TrinoIdentity.fromTrinoIdentity(trinoIdentity, extraCredentialsKeys), pluginContext, opaHighLevelClient.getAdditionalContext(), Optional.empty(), Optional.empty());
     }
 
     OpaQueryContext buildQueryContext(SystemSecurityContext securityContext)
     {
-<<<<<<< HEAD
-        return new OpaQueryContext(TrinoIdentity.fromTrinoIdentity(securityContext.getIdentity()), pluginContext, opaHighLevelClient.getAdditionalContext(), Optional.of(securityContext.getQueryId()), securityContext.getSource());
-=======
-        return new OpaQueryContext(TrinoIdentity.fromTrinoIdentity(securityContext.getIdentity(), extraCredentialsKeys), pluginContext, opaHighLevelClient.getAdditionalContext(), Optional.of(securityContext.getQueryId()));
->>>>>>> tags/484
+        return new OpaQueryContext(TrinoIdentity.fromTrinoIdentity(securityContext.getIdentity(), extraCredentialsKeys), pluginContext, opaHighLevelClient.getAdditionalContext(), Optional.of(securityContext.getQueryId()), securityContext.getSource());
     }
 }

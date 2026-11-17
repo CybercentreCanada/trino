@@ -657,13 +657,8 @@ public final class Session
         Set<String> defaultedProperties = defaultedCatalogProperties.getOrDefault(catalogName, ImmutableSet.of());
         for (Entry<String, String> property : catalogProperties.entrySet()) {
             // verify permissions
-<<<<<<< HEAD
-            if (transactionId.isPresent()) {
-                accessControl.checkCanSetCatalogSessionProperty(new SecurityContext(transactionId.get(), identity, queryId, start, source), catalogName, property.getKey());
-=======
             if (transactionId.isPresent() && !defaultedProperties.contains(property.getKey())) {
-                accessControl.checkCanSetCatalogSessionProperty(new SecurityContext(transactionId.get(), identity, queryId, start), catalogName, property.getKey());
->>>>>>> tags/484
+                accessControl.checkCanSetCatalogSessionProperty(new SecurityContext(transactionId.get(), identity, queryId, start, source), catalogName, property.getKey());
             }
 
             // validate catalog session property value

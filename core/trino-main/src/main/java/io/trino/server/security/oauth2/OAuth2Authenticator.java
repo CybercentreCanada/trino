@@ -45,11 +45,8 @@ public class OAuth2Authenticator
     private static final Logger log = Logger.get(OAuth2Authenticator.class);
     private final OAuth2Client client;
     private final String principalField;
-<<<<<<< HEAD
     private final Optional<String> groupsField;
-=======
     private final String scopes;
->>>>>>> tags/484
     private final UserMapping userMapping;
     private final TokenPairSerializer tokenPairSerializer;
     private final TokenRefresher tokenRefresher;
@@ -63,11 +60,8 @@ public class OAuth2Authenticator
         this.scopes = String.join(" ", config.getScopes());
         this.tokenRefresher = requireNonNull(tokenRefresher, "tokenRefresher is null");
         this.tokenPairSerializer = requireNonNull(tokenPairSerializer, "tokenPairSerializer is null");
-<<<<<<< HEAD
         groupsField = requireNonNull(config.getGroupsField(), "groupsField is null");
-=======
         this.serverConfigProvider = requireNonNull(serverConfigProvider, "serverConfigProvider is null");
->>>>>>> tags/484
         userMapping = createUserMapping(config.getUserMappingPattern(), config.getUserMappingFile());
     }
 

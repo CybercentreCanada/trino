@@ -37,11 +37,8 @@ public class OpaConfig
     private Optional<URI> opaColumnMaskingUri = Optional.empty();
     private Optional<URI> opaBatchColumnMaskingUri = Optional.empty();
     private Optional<Path> additionalContextFile = Optional.empty();
-<<<<<<< HEAD
-    private int maxConcurrentRequests = 300;
-=======
     private Set<String> extraCredentialsKeys = ImmutableSet.of();
->>>>>>> tags/484
+    private int maxConcurrentRequests = 300;
 
     @NotNull
     public URI getOpaUri()
@@ -165,7 +162,14 @@ public class OpaConfig
         return this;
     }
 
-<<<<<<< HEAD
+    @Config("opa.identity.extra-credentials-keys")
+    @ConfigDescription("Comma-separated list of extra credential keys from client connections to forward to OPA in the identity context")
+    public OpaConfig setExtraCredentialsKeys(Set<String> extraCredentialsKeys)
+    {
+        this.extraCredentialsKeys = ImmutableSet.copyOf(extraCredentialsKeys);
+        return this;
+    }
+
     @Min(1)
     public int getMaxConcurrentRequests()
     {
@@ -177,18 +181,8 @@ public class OpaConfig
     public OpaConfig setMaxConcurrentRequests(int maxConcurrentRequests)
     {
         this.maxConcurrentRequests = maxConcurrentRequests;
-=======
     public Set<String> getExtraCredentialsKeys()
     {
         return extraCredentialsKeys;
-    }
-
-    @Config("opa.identity.extra-credentials-keys")
-    @ConfigDescription("Comma-separated list of extra credential keys from client connections to forward to OPA in the identity context")
-    public OpaConfig setExtraCredentialsKeys(Set<String> extraCredentialsKeys)
-    {
-        this.extraCredentialsKeys = ImmutableSet.copyOf(extraCredentialsKeys);
->>>>>>> tags/484
-        return this;
     }
 }

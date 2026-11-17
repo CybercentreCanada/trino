@@ -48,7 +48,6 @@
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-aws</artifactId>
-            <version>${dep.iceberg.version}</version>
         </dependency>
 
         <dependency>
@@ -65,7 +64,6 @@
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-gcp</artifactId>
-            <version>${dep.iceberg.version}</version>
         </dependency>
 
         <dependency>
@@ -82,6 +80,14 @@
         <dependency>
             <groupId>cccs.ap.iceberg</groupId>
             <artifactId>iceberg-snowflake</artifactId>
+            <exclusions>
+                <exclusion>
+                    <!-- The uber jar bundles unshaded Conscrypt 2.5.2 classes that break TLS in
+                         Google Cloud libraries; replaced with snowflake-jdbc-thin -->
+                    <groupId>net.snowflake</groupId>
+                    <artifactId>snowflake-jdbc</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <dependency>
@@ -262,59 +268,6 @@
         </dependency>
 
         <dependency>
-<<<<<<< HEAD
-=======
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-api</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-aws</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-azure</artifactId>
-            <version>${dep.iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-gcp</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-nessie</artifactId>
-            <version>${dep.iceberg.version}</version>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-parquet</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-snowflake</artifactId>
-            <exclusions>
-                <exclusion>
-                    <!-- The uber jar bundles unshaded Conscrypt 2.5.2 classes that break TLS in
-                         Google Cloud libraries; replaced with snowflake-jdbc-thin -->
-                    <groupId>net.snowflake</groupId>
-                    <artifactId>snowflake-jdbc</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-
-        <dependency>
->>>>>>> tags/484
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-column</artifactId>
         </dependency>
@@ -445,9 +398,13 @@
         </dependency>
 
         <dependency>
-<<<<<<< HEAD
             <groupId>cccs.ap.iceberg</groupId>
-=======
+            <artifactId>iceberg-bundled-guava</artifactId>
+            <version>${dep.iceberg.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
             <groupId>com.azure</groupId>
             <artifactId>azure-security-keyvault-keys</artifactId>
             <scope>runtime</scope>
@@ -463,6 +420,12 @@
             <groupId>com.azure</groupId>
             <artifactId>azure-storage-common</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.dremio.iceberg.authmgr</groupId>
+            <artifactId>authmgr-oauth2-runtime</artifactId>
+            <version>1.2.0</version>
         </dependency>
 
         <dependency>
@@ -544,22 +507,8 @@
         </dependency>
 
         <dependency>
-            <groupId>org.apache.iceberg</groupId>
->>>>>>> tags/484
-            <artifactId>iceberg-bundled-guava</artifactId>
-            <version>${dep.iceberg.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-
-        <dependency>
-<<<<<<< HEAD
-            <groupId>com.dremio.iceberg.authmgr</groupId>
-            <artifactId>authmgr-oauth2-runtime</artifactId>
-            <version>1.1.1</version>
-=======
             <groupId>org.jetbrains</groupId>
             <artifactId>annotations</artifactId>
->>>>>>> tags/484
             <scope>runtime</scope>
         </dependency>
 
@@ -571,12 +520,6 @@
         </dependency>
 
         <dependency>
-<<<<<<< HEAD
-            <groupId>cccs.ap.iceberg</groupId>
-            <artifactId>iceberg-core</artifactId>
-            <classifier>tests</classifier>
-            <scope>test</scope>
-=======
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>apache5-client</artifactId>
             <scope>runtime</scope>
@@ -586,7 +529,26 @@
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>kms</artifactId>
             <scope>runtime</scope>
->>>>>>> tags/484
+        </dependency>
+
+        <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-core</artifactId>
+            <classifier>tests</classifier>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-data</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>cccs.ap.iceberg</groupId>
+            <artifactId>iceberg-orc</artifactId>
+            <scope>test</scope>
         </dependency>
 
         <dependency>
@@ -830,21 +792,6 @@
         </dependency>
 
         <dependency>
-<<<<<<< HEAD
-=======
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-data</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-orc</artifactId>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
->>>>>>> tags/484
             <groupId>org.apache.parquet</groupId>
             <artifactId>parquet-hadoop</artifactId>
             <scope>test</scope>
