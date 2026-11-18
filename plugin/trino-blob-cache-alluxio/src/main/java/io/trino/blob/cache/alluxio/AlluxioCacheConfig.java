@@ -125,7 +125,7 @@ public class AlluxioCacheConfig
 
     @Config("fs.cache.access-stats-log-interval")
     @ConfigDescription("Interval at which table-level path statistics are logged.")
-    public AlluxioFileSystemCacheConfig setAccessStatsLogInterval(Duration accessStatsLogInterval)
+    public AlluxioCacheConfig setAccessStatsLogInterval(Duration accessStatsLogInterval)
     {
         this.accessStatsLogInterval = Optional.of(accessStatsLogInterval);
         return this;

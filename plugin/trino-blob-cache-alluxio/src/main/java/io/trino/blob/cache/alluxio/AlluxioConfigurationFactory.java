@@ -33,6 +33,7 @@ import java.util.concurrent.TimeUnit;
 
 import static alluxio.conf.PropertyKey.USER_CLIENT_CACHE_DIRS;
 import static alluxio.conf.PropertyKey.USER_CLIENT_CACHE_ENABLED;
+import static alluxio.conf.PropertyKey.USER_CLIENT_CACHE_FILTER_CLASS;
 import static alluxio.conf.PropertyKey.USER_CLIENT_CACHE_PAGE_SIZE;
 import static alluxio.conf.PropertyKey.USER_CLIENT_CACHE_SIZE;
 import static alluxio.conf.PropertyKey.USER_CLIENT_CACHE_TTL_ENABLED;
@@ -78,7 +79,7 @@ public class AlluxioConfigurationFactory
             alluxioProperties.set(USER_CLIENT_CACHE_TTL_THRESHOLD_SECONDS, ttl.orElseThrow().roundTo(TimeUnit.SECONDS));
             alluxioProperties.set(USER_CLIENT_CACHE_TTL_ENABLED, true);
         }
-        loadFromSiteProperties(alluxioProperties);
+        loadFromSiteProperties(alluxioProperties, CONFIG_PATH);
         return new InstancedConfiguration(alluxioProperties);
     }
 
@@ -114,10 +115,11 @@ public class AlluxioConfigurationFactory
         return maxCacheSizes.build();
     }
 
-    private static void loadFromSiteProperties(AlluxioProperties alluxioProperties)
+    @VisibleForTesting
+    static void loadFromSiteProperties(AlluxioProperties alluxioProperties, Path configPath)
     {
-        if (Files.isRegularFile(CONFIG_PATH)) {
-            try (var reader = Files.newBufferedReader(CONFIG_PATH)) {
+        if (Files.isRegularFile(configPath)) {
+            try (var reader = Files.newBufferedReader(configPath)) {
                 Properties siteProps = new Properties();
                 siteProps.load(reader);
                 for (var entry : siteProps.entrySet()) {
@@ -125,6 +127,9 @@ public class AlluxioConfigurationFactory
                     String value = entry.getValue().toString();
                     try {
                         PropertyKey propertyKey = PropertyKey.fromString(key);
+                        if (propertyKey.equals(USER_CLIENT_CACHE_FILTER_CLASS) && value.equals("io.trino.filesystem.alluxio.PatternBasedCacheFilter")) {
+                            value = PatternBasedCacheFilter.class.getName();
+                        }
                         alluxioProperties.set(propertyKey, value);
                         log.info("Set Alluxio property: %s = %s", key, value);
                     }

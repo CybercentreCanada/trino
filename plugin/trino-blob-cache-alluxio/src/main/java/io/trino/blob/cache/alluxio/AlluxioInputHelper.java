@@ -44,12 +44,8 @@ public class AlluxioInputHelper
     private final String cacheKey;
     private final CacheManager cacheManager;
     private final AlluxioCacheStats statistics;
-<<<<<<< HEAD:lib/trino-filesystem-cache-alluxio/src/main/java/io/trino/filesystem/alluxio/AlluxioInputHelper.java
     private final AlluxioAccessStats accessStatistics;
-    private final Location location;
-=======
     private final String location;
->>>>>>> tags/484:plugin/trino-blob-cache-alluxio/src/main/java/io/trino/blob/cache/alluxio/AlluxioInputHelper.java
     private final int pageSize;
     private final long fileLength;
 
@@ -106,11 +102,7 @@ public class AlluxioInputHelper
         }
         int bytesRead = length - remainingLength;
         statistics.recordCacheRead(bytesRead);
-<<<<<<< HEAD:lib/trino-filesystem-cache-alluxio/src/main/java/io/trino/filesystem/alluxio/AlluxioInputHelper.java
         accessStatistics.recordCacheRead(bytesRead, location);
-        cacheReadBytes.addAndGet(bytesRead);
-=======
->>>>>>> tags/484:plugin/trino-blob-cache-alluxio/src/main/java/io/trino/blob/cache/alluxio/AlluxioInputHelper.java
         return bytesRead;
     }
 

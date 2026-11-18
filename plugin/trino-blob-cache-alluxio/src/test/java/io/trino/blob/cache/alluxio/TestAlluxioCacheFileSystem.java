@@ -61,13 +61,8 @@ public class TestAlluxioCacheFileSystem
                 .disableTTL()
                 .setMaxCacheSizes(ImmutableList.of(DataSize.valueOf("100MB")));
         memoryFileSystem = new IncompleteStreamMemoryFileSystem();
-<<<<<<< HEAD:lib/trino-filesystem-cache-alluxio/src/test/java/io/trino/filesystem/alluxio/TestAlluxioCacheFileSystem.java
-        cache = new AlluxioFileSystemCache(noopTracer(), configuration, new AlluxioCacheStats(), new AlluxioAccessStats());
-        fileSystem = new CacheFileSystem(memoryFileSystem, cache, new DefaultCacheKeyProvider());
-=======
-        cache = new AlluxioCache(noopTracer(), configuration);
+        cache = new AlluxioCache(noopTracer(), configuration, new AlluxioAccessStats());
         fileSystem = new CacheFileSystem(memoryFileSystem, testingBlobCache(cache, new AlluxioCacheStats()), new DefaultCacheKeyProvider());
->>>>>>> tags/484:plugin/trino-blob-cache-alluxio/src/test/java/io/trino/blob/cache/alluxio/TestAlluxioCacheFileSystem.java
     }
 
     @AfterAll

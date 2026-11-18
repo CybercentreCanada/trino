@@ -96,14 +96,9 @@ public class TestAlluxioCacheFileSystemAccessOperations
                 .setMaxCacheSizes(ImmutableList.of(DataSize.ofBytes(CACHE_SIZE)));
 
         tracingFileSystemFactory = new TracingFileSystemFactory(testingTelemetry.getTracer(), new MemoryFileSystemFactory());
-<<<<<<< HEAD:lib/trino-filesystem-cache-alluxio/src/test/java/io/trino/filesystem/alluxio/TestAlluxioCacheFileSystemAccessOperations.java
-        alluxioCache = new AlluxioFileSystemCache(testingTelemetry.getTracer(), configuration, new AlluxioCacheStats(), new AlluxioAccessStats());
-        fileSystem = new CacheFileSystem(tracingFileSystemFactory.create(ConnectorIdentity.ofUser("hello")), new TracingFileSystemCache(testingTelemetry.getTracer(), alluxioCache), cacheKeyProvider);
-=======
-        alluxioCache = new AlluxioCache(testingTelemetry.getTracer(), configuration);
+        alluxioCache = new AlluxioCache(testingTelemetry.getTracer(), configuration, new AlluxioAccessStats());
         BlobCache testBlobCache = new TracingBlobCache(testingTelemetry.getTracer(), testingBlobCache(alluxioCache, new AlluxioCacheStats()));
         fileSystem = new CacheFileSystem(tracingFileSystemFactory.create(ConnectorIdentity.ofUser("hello")), testBlobCache, cacheKeyProvider);
->>>>>>> tags/484:plugin/trino-blob-cache-alluxio/src/test/java/io/trino/blob/cache/alluxio/TestAlluxioCacheFileSystemAccessOperations.java
         pageStore = PageStore.create(Iterables.getOnlyElement(PageStoreOptions.create(AlluxioConfigurationFactory.create(configuration))));
     }
 

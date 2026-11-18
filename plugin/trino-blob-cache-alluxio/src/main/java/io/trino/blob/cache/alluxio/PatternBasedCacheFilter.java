@@ -11,25 +11,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.filesystem.alluxio;
+package io.trino.blob.cache.alluxio;
 
 import alluxio.client.file.URIStatus;
 import alluxio.client.file.cache.filter.CacheFilter;
 import alluxio.conf.AlluxioConfiguration;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
+import com.google.gson.JsonParseException;
 import io.airlift.log.Logger;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static io.airlift.concurrent.Threads.daemonThreadsNamed;
+import static java.util.Comparator.comparingInt;
+import static java.util.Locale.ENGLISH;
 
 /**
  * A cache filter that decides whether a path should be cached based on configured patterns.
@@ -37,18 +40,18 @@ import static io.airlift.concurrent.Threads.daemonThreadsNamed;
  * This filter supports three modes via {@link FilterType}:
  * <ul>
  *     <li>{@code CACHE_ALL} - all paths are allowed to be cached.</li>
- *     <li>{@code ALLOW_LIST} - only paths matching the configured regex patterns are allowed to be cached.</li>
- *     <li>{@code BLOCK_LIST} - paths matching the configured regex patterns are blocked from caching.</li>
+ *     <li>{@code ALLOW_LIST} - only paths starting with a configured prefix are allowed to be cached.</li>
+ *     <li>{@code BLOCK_LIST} - paths starting with a configured prefix are blocked from caching.</li>
  * </ul>
  * <p>
  * The filter is initialized from a JSON configuration file which must contain:
  * <ul>
  *     <li>{@code filterType} - one of {@code CACHE_ALL}, {@code ALLOW_LIST}, or {@code BLOCK_LIST}.</li>
- *     <li>{@code pathPrefixPatterns} - a list of regex strings, required for ALLOW_LIST or BLOCK_LIST.</li>
+ *     <li>{@code pathPrefixPatterns} - an optional list of literal path prefixes.</li>
  * </ul>
  */
 public class PatternBasedCacheFilter
-        implements CacheFilter
+        implements CacheFilter, AutoCloseable
 {
     private static final Logger log = Logger.get(PatternBasedCacheFilter.class);
 
@@ -60,9 +63,12 @@ public class PatternBasedCacheFilter
     }
 
     private final Path configPath;
-    private final ScheduledThreadPoolExecutor reloadConfigExecutor = new ScheduledThreadPoolExecutor(1, daemonThreadsNamed("reload-config"));
-    private volatile FilterType filterType;
-    private volatile String[] prefixes;
+    private final ScheduledThreadPoolExecutor reloadConfigExecutor = new ScheduledThreadPoolExecutor(1, daemonThreadsNamed("alluxio-cache-filter-reload"));
+    private volatile FilterConfig config;
+
+    private record JsonConfig(String filterType, List<String> pathPrefixPatterns) {}
+
+    private record FilterConfig(FilterType filterType, List<String> prefixes) {}
 
     /**
      * Creates a {@code PatternBasedCacheFilter} based on a configuration file.
@@ -75,45 +81,36 @@ public class PatternBasedCacheFilter
     {
         log.debug("Initializing PatternBasedCacheFilter with config file: %s", cacheConfigFile);
         this.configPath = Path.of(cacheConfigFile);
-        this.reloadConfigExecutor.scheduleWithFixedDelay(this::reloadConfig, 0, 60, TimeUnit.SECONDS);
+        reloadConfig();
+        reloadConfigExecutor.scheduleWithFixedDelay(() -> {
+            try {
+                reloadConfig();
+            }
+            catch (RuntimeException e) {
+                log.error(e, "Failed to reload cache filter config %s; retaining previous configuration", configPath);
+            }
+        }, 60, 60, TimeUnit.SECONDS);
     }
 
-    private void reloadConfig()
+    @VisibleForTesting
+    void reloadConfig()
     {
-        try {
-            try (BufferedReader reader = Files.newBufferedReader(configPath)) {
-                Map<String, Object> config = new Gson().fromJson(
-                        reader,
-                        new TypeToken<Map<String, Object>>() {}.getType());
-
-                String filterTypeStr = (String) config.get("filterType");
-                if (filterTypeStr == null) {
-                    throw new IllegalArgumentException("Missing 'filterType' in cache filter config.");
-                }
-
-                filterType = FilterType.valueOf(filterTypeStr.toUpperCase());
-
-                List<String> patternStrs = (List<String>) config.get("pathPrefixPatterns");
-
-                if (patternStrs == null || patternStrs.isEmpty()) {
-                    prefixes = new String[0];
-                }
-                else {
-                    prefixes = patternStrs.toArray(new String[0]);
-                    Arrays.sort(prefixes, (a, b) -> Integer.compare(b.length(), a.length()));
-                }
-
-                log.debug("Cache Filter initialized with filterType: %s", filterType);
-                if (prefixes.length > 0) {
-                    log.debug("Cache Filter prefixes:");
-                    for (String p : prefixes) {
-                        log.debug("  - %s", p);
-                    }
-                }
+        try (BufferedReader reader = Files.newBufferedReader(configPath)) {
+            JsonConfig input = new Gson().fromJson(reader, JsonConfig.class);
+            checkArgument(input != null && input.filterType() != null, "Missing 'filterType' in cache filter config %s", configPath);
+            FilterType filterType = FilterType.valueOf(input.filterType().toUpperCase(ENGLISH));
+            List<String> prefixes = List.of();
+            if (input.pathPrefixPatterns() != null) {
+                checkArgument(input.pathPrefixPatterns().stream().allMatch(prefix -> prefix != null), "Null prefix in cache filter config %s", configPath);
+                prefixes = input.pathPrefixPatterns().stream()
+                        .sorted(comparingInt(String::length).reversed())
+                        .toList();
             }
+            config = new FilterConfig(filterType, prefixes);
+            log.debug("Cache filter loaded from %s: %s, prefixes: %s", configPath, filterType, prefixes);
         }
-        catch (Exception e) {
-            throw new RuntimeException("Failed to initialize PatternBasedCacheFilter", e);
+        catch (IOException | JsonParseException e) {
+            throw new IllegalArgumentException("Failed to read cache filter config " + configPath, e);
         }
     }
 
@@ -122,36 +119,37 @@ public class PatternBasedCacheFilter
      *
      * @param uriStatus the path status to evaluate
      * @return {@code true} if the path should be cached, {@code false} otherwise
-     * @throws IllegalStateException if the filter type is unsupported
      */
     @Override
     public boolean needsCache(URIStatus uriStatus)
     {
         String path = uriStatus.getPath();
+        FilterConfig config = this.config;
 
-        if (filterType == FilterType.CACHE_ALL) {
+        if (config.filterType() == FilterType.CACHE_ALL) {
             log.debug("CACHE_ALL enabled, using cache for path: %s", path);
             return true;
         }
 
         boolean matches = false;
-        for (String prefix : prefixes) {
+        for (String prefix : config.prefixes()) {
             if (path.startsWith(prefix)) {
                 matches = true;
                 break;
             }
         }
 
-        if (filterType == FilterType.ALLOW_LIST) {
-            log.debug("ALLOW_LIST cache filter match for path %s: %s", path, matches);
-            return matches;
-        }
-        else if (filterType == FilterType.BLOCK_LIST) {
-            log.debug("BLOCK_LIST cache filter match for path %s: %s", path, matches);
-            return !matches;
-        }
-        else {
-            throw new IllegalStateException("Unsupported filter type: " + filterType);
-        }
+        log.debug("%s cache filter match for path %s: %s", config.filterType(), path, matches);
+        return switch (config.filterType()) {
+            case CACHE_ALL -> true;
+            case ALLOW_LIST -> matches;
+            case BLOCK_LIST -> !matches;
+        };
+    }
+
+    @Override
+    public void close()
+    {
+        reloadConfigExecutor.shutdownNow();
     }
 }

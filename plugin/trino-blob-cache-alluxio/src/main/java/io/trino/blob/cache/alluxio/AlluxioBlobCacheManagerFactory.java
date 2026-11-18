@@ -50,6 +50,7 @@ public class AlluxioBlobCacheManagerFactory
         Module module = (Binder binder) -> {
             binder.bind(Tracer.class).toInstance(context.getTracer());
             configBinder(binder).bindConfig(AlluxioCacheConfig.class);
+            binder.bind(AlluxioAccessStats.class).in(Scopes.SINGLETON);
             binder.bind(AlluxioCache.class).in(Scopes.SINGLETON);
             binder.bind(AlluxioBlobCacheManager.class).in(Scopes.SINGLETON);
         };

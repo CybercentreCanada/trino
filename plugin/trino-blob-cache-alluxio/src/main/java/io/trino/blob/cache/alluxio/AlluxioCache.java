@@ -16,6 +16,7 @@ package io.trino.blob.cache.alluxio;
 import alluxio.client.file.CacheContext;
 import alluxio.client.file.URIStatus;
 import alluxio.client.file.cache.CacheManager;
+import alluxio.client.file.cache.filter.CacheFilter;
 import alluxio.conf.AlluxioConfiguration;
 import alluxio.wire.FileInfo;
 import com.google.common.annotations.VisibleForTesting;
@@ -23,6 +24,7 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.inject.Inject;
+import io.airlift.log.Logger;
 import io.airlift.units.DataSize;
 import io.opentelemetry.api.trace.Tracer;
 import io.trino.spi.cache.Blob;
@@ -32,29 +34,52 @@ import jakarta.annotation.PreDestroy;
 
 import java.io.IOException;
 import java.util.Optional;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Throwables.throwIfInstanceOf;
 import static com.google.common.base.Throwables.throwIfUnchecked;
+import static io.airlift.concurrent.Threads.daemonThreadsNamed;
 import static io.trino.plugin.base.util.Closables.closeAllSuppress;
 import static java.util.Objects.requireNonNull;
 
 public class AlluxioCache
 {
+    private static final Logger log = Logger.get(AlluxioCache.class);
     private static final HashFunction HASH = Hashing.murmur3_128();
 
     private final Tracer tracer;
     private final DataSize pageSize;
     private final CacheManager cacheManager;
     private final AlluxioConfiguration config;
+    private final CacheFilter cacheFilter;
+    private final AlluxioAccessStats accessStatistics;
+    private final ScheduledThreadPoolExecutor accessStatisticsExecutor = new ScheduledThreadPoolExecutor(1, daemonThreadsNamed("alluxio-access-stats"));
 
     @Inject
-    public AlluxioCache(Tracer tracer, AlluxioCacheConfig config)
+    public AlluxioCache(Tracer tracer, AlluxioCacheConfig config, AlluxioAccessStats accessStatistics)
             throws IOException
     {
         this.tracer = requireNonNull(tracer, "tracer is null");
+        this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
         this.config = AlluxioConfigurationFactory.create(requireNonNull(config, "config is null"));
         this.pageSize = config.getCachePageSize();
         this.cacheManager = CacheManager.Factory.create(this.config);
+        try {
+            this.cacheFilter = CacheFilter.create(this.config);
+        }
+        catch (RuntimeException | Error e) {
+            closeAllSuppress(e, cacheManager);
+            throw e;
+        }
+        accessStatisticsExecutor.scheduleWithFixedDelay(() -> {
+            try {
+                accessStatistics.run();
+            }
+            catch (Throwable e) {
+                log.error(e, "Error running AlluxioAccessStats");
+            }
+        }, 0, config.getAccessStatsLogInterval().orElseThrow().roundTo(TimeUnit.SECONDS), TimeUnit.SECONDS);
     }
 
     public Optional<Blob> get(CacheKey key, BlobSource source, AlluxioCacheStats statistics)
@@ -64,8 +89,12 @@ public class AlluxioCache
         requireNonNull(source, "source is null");
         try {
             URIStatus status = uriStatus(cacheIdentifier(key), source);
+            boolean cacheEnabled = cacheFilter.needsCache(status);
+            if (!cacheEnabled) {
+                log.debug("Skipping caching for blob: %s", status.getPath());
+            }
             CacheManager tracingCacheManager = new TracingCacheManager(tracer, key.toString(), pageSize, cacheManager);
-            return Optional.of(new AlluxioBlob(tracer, source, key.toString(), status, tracingCacheManager, config, statistics));
+            return Optional.of(new AlluxioBlob(tracer, source, key.toString(), status, tracingCacheManager, config, statistics, accessStatistics, cacheEnabled));
         }
         catch (Throwable e) {
             // The cache owns the source until a blob is returned, so it must not stay open
@@ -104,7 +133,15 @@ public class AlluxioCache
     public void shutdown()
             throws Exception
     {
-        cacheManager.close();
+        accessStatisticsExecutor.shutdownNow();
+        try {
+            cacheManager.close();
+        }
+        finally {
+            if (cacheFilter instanceof AutoCloseable closeable) {
+                closeable.close();
+            }
+        }
     }
 
     private static URIStatus uriStatus(String cacheIdentifier, BlobSource source)

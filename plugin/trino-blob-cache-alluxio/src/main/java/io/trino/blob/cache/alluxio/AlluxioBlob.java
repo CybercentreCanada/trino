@@ -22,6 +22,7 @@ import io.trino.spi.cache.BlobSource;
 
 import java.io.EOFException;
 import java.io.IOException;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static java.util.Objects.checkFromIndexSize;
@@ -34,7 +35,8 @@ final class AlluxioBlob
     private final String description;
     private final long length;
     private final AlluxioCacheStats statistics;
-    private final AlluxioInputHelper helper;
+    private final AlluxioAccessStats accessStatistics;
+    private final Optional<AlluxioInputHelper> helper;
     private final AtomicLong cachedSize = new AtomicLong();
     private final AtomicLong loadedSize = new AtomicLong();
 
@@ -45,13 +47,21 @@ final class AlluxioBlob
             URIStatus status,
             CacheManager cacheManager,
             AlluxioConfiguration configuration,
-            AlluxioCacheStats statistics)
+            AlluxioCacheStats statistics,
+            AlluxioAccessStats accessStatistics,
+            boolean cacheEnabled)
     {
         this.delegate = requireNonNull(delegate, "delegate is null");
         this.description = delegate.toString();
         this.length = requireNonNull(status, "status is null").getLength();
         this.statistics = requireNonNull(statistics, "statistics is null");
-        this.helper = new AlluxioInputHelper(tracer, description, cacheKey, status, cacheManager, configuration, statistics);
+        this.accessStatistics = requireNonNull(accessStatistics, "accessStatistics is null");
+        if (cacheEnabled) {
+            this.helper = Optional.of(new AlluxioInputHelper(tracer, description, cacheKey, status, cacheManager, configuration, statistics, accessStatistics));
+        }
+        else {
+            this.helper = Optional.empty();
+        }
     }
 
     @Override
@@ -75,9 +85,16 @@ final class AlluxioBlob
             throw new EOFException("Read past end of file %s: position %s, length %s, file length %s".formatted(description, position, bufferLength, length));
         }
 
+        if (helper.isEmpty()) {
+            delegate.readFully(position, buffer, offset, bufferLength);
+            recordExternalRead(bufferLength);
+            return;
+        }
+
+        AlluxioInputHelper helper = this.helper.orElseThrow();
         int bytesRead = helper.doCacheRead(position, buffer, offset, bufferLength);
         cachedSize.addAndGet(bytesRead);
-        doExternalRead(position + bytesRead, buffer, offset + bytesRead, bufferLength - bytesRead);
+        doExternalRead(helper, position + bytesRead, buffer, offset + bytesRead, bufferLength - bytesRead);
     }
 
     @Override
@@ -92,7 +109,7 @@ final class AlluxioBlob
         return loadedSize.get();
     }
 
-    private void doExternalRead(long position, byte[] buffer, int offset, int bufferLength)
+    private void doExternalRead(AlluxioInputHelper helper, long position, byte[] buffer, int offset, int bufferLength)
             throws IOException
     {
         if (bufferLength == 0) {
@@ -105,8 +122,14 @@ final class AlluxioBlob
 
         helper.putCache(aligned.pageStart(), aligned.pageEnd(), readBuffer, aligned.length());
         System.arraycopy(readBuffer, aligned.pageOffset(), buffer, offset, bufferLength);
-        statistics.recordExternalRead(readBuffer.length);
-        loadedSize.addAndGet(readBuffer.length);
+        recordExternalRead(readBuffer.length);
+    }
+
+    private void recordExternalRead(int length)
+    {
+        statistics.recordExternalRead(length);
+        accessStatistics.recordExternalRead(length, description);
+        loadedSize.addAndGet(length);
     }
 
     @Override

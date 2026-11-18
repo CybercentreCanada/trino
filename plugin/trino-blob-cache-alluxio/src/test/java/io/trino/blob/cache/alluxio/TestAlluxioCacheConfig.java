@@ -68,6 +68,7 @@ class TestAlluxioCacheConfig
                 .setCachePageSize(DataSize.valueOf("1MB"))
                 .setMaxCacheSizes(ImmutableList.of())
                 .setMaxCacheDiskUsagePercentages(ImmutableList.of())
+                .setAccessStatsLogInterval(Duration.valueOf("5m"))
                 .setCacheTTL(Duration.valueOf("7d")));
     }
 
@@ -83,6 +84,7 @@ class TestAlluxioCacheConfig
                 .put("fs.cache.max-sizes", "1GB")
                 .put("fs.cache.max-disk-usage-percentages", "50")
                 .put("fs.cache.ttl", "1d")
+                .put("fs.cache.access-stats-log-interval", "1m")
                 .buildOrThrow();
 
         AlluxioCacheConfig expected = new AlluxioCacheConfig()
@@ -90,6 +92,7 @@ class TestAlluxioCacheConfig
                 .setCachePageSize(DataSize.valueOf("7MB"))
                 .setMaxCacheSizes(ImmutableList.of(DataSize.valueOf("1GB")))
                 .setMaxCacheDiskUsagePercentages(ImmutableList.of(50))
+                .setAccessStatsLogInterval(Duration.valueOf("1m"))
                 .setCacheTTL(Duration.valueOf("1d"));
 
         assertFullMapping(properties, expected);

@@ -11,12 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.filesystem.alluxio;
+package io.trino.blob.cache.alluxio;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.airlift.log.Logger;
-import io.trino.filesystem.Location;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -89,19 +88,19 @@ public class AlluxioAccessStats
         return path;
     }
 
-    public void recordExternalRead(int bytes, Location location)
+    public void recordExternalRead(int bytes, String location)
     {
         if (bytes > 0) {
             log.debug("External read: %s bytes for %s", bytes, location);
-            externalReads.computeIfAbsent(normalizePath(location.toString()), _ -> new Stats()).add(bytes);
+            externalReads.computeIfAbsent(normalizePath(location), _ -> new Stats()).add(bytes);
         }
     }
 
-    public void recordCacheRead(int bytes, Location location)
+    public void recordCacheRead(int bytes, String location)
     {
         if (bytes > 0) {
             log.debug("Cache read: %s bytes for %s", bytes, location);
-            cacheReads.computeIfAbsent(normalizePath(location.toString()), _ -> new Stats()).add(bytes);
+            cacheReads.computeIfAbsent(normalizePath(location), _ -> new Stats()).add(bytes);
         }
     }
 

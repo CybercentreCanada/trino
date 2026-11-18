@@ -61,14 +61,11 @@
 
         <dependency>
             <groupId>io.airlift</groupId>
-<<<<<<< HEAD:lib/trino-filesystem-cache-alluxio/pom.xml
-=======
             <artifactId>guice</artifactId>
         </dependency>
 
         <dependency>
             <groupId>io.airlift</groupId>
->>>>>>> tags/484:plugin/trino-blob-cache-alluxio/pom.xml
             <artifactId>log</artifactId>
         </dependency>
 
