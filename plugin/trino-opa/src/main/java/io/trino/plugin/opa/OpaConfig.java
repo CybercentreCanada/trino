@@ -162,6 +162,11 @@ public class OpaConfig
         return this;
     }
 
+    public Set<String> getExtraCredentialsKeys()
+    {
+        return extraCredentialsKeys;
+    }
+
     @Config("opa.identity.extra-credentials-keys")
     @ConfigDescription("Comma-separated list of extra credential keys from client connections to forward to OPA in the identity context")
     public OpaConfig setExtraCredentialsKeys(Set<String> extraCredentialsKeys)
@@ -181,8 +186,6 @@ public class OpaConfig
     public OpaConfig setMaxConcurrentRequests(int maxConcurrentRequests)
     {
         this.maxConcurrentRequests = maxConcurrentRequests;
-    public Set<String> getExtraCredentialsKeys()
-    {
-        return extraCredentialsKeys;
+        return this;
     }
 }
