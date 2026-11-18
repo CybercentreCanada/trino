@@ -1252,7 +1252,7 @@ public class TestResourceSecurity
                         throws ChallengeFailedException
                 {
                     if (supportsRefresh) {
-                        return new Response(issueAccessToken(), now().plus(5, ChronoUnit.MINUTES), Optional.empty(), Optional.empty());
+                        return new Response(issueAccessToken(Optional.empty()), now().plus(5, ChronoUnit.MINUTES), Optional.empty(), Optional.empty());
                     }
                     throw new UnsupportedOperationException("refresh tokens not supported");
                 }
